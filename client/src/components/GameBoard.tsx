@@ -107,6 +107,12 @@ export function GameBoard({
   const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
   const [lobbyDiscardDelay, setLobbyDiscardDelay] = useState(state.discardOptionDelaySeconds ?? 10)
   const [lobbyTurnSecs, setLobbyTurnSecs] = useState(state.secondsPerTurn ?? 0)
+  const [dealAnimKey, setDealAnimKey] = useState<number | null>(null)
+  const [shuffleActive, setShuffleActive] = useState(false)
+  const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
+  const prevPhaseRef = useRef<string>(state.phase)
+  const prevRoundRef = useRef(state.round)
+  const prevHandIdsRef = useRef<string[]>([])
   const me = state.players.find((p) => p.id === socketId)
   const myIndex = me ? state.players.findIndex((p) => p.id === socketId) : -1
   const discardOptionIndex = state.discardOptionPlayerIndex ?? null
@@ -134,7 +140,8 @@ export function GameBoard({
     })
   }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
-  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length === cardsThisRound
+  const handCountOkToDraw = myHand.length === cardsThisRound || myHand.length === cardsThisRound - 1
+  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && handCountOkToDraw
   const canDiscard =
     state.phase === 'playing' &&
     discardOptionIndex === null &&
@@ -181,6 +188,36 @@ export function GameBoard({
     }, 500)
     return () => clearInterval(t)
   }, [state.phase, state.currentPlayerIndex, discardOptionIndex, isMyTurn, secondsPerTurn])
+
+  // Shuffle + deal animation when round starts or game enters playing
+  useEffect(() => {
+    const prevPhase = prevPhaseRef.current
+    const prevRound = prevRoundRef.current
+    prevPhaseRef.current = state.phase
+    prevRoundRef.current = state.round
+    if (state.phase !== 'playing') return
+    const roundJustStarted = prevPhase !== 'playing' || prevRound !== state.round
+    if (!roundJustStarted) return
+    const key = Date.now()
+    setDealAnimKey(key)
+    setShuffleActive(true)
+    const t1 = setTimeout(() => setShuffleActive(false), 1200)
+    const t2 = setTimeout(() => setDealAnimKey(null), 2800)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [state.phase, state.round])
+
+  // "Just drawn" animation when hand gains a new card
+  useEffect(() => {
+    const ids = rawHand.map((c) => c.id)
+    const prev = prevHandIdsRef.current
+    prevHandIdsRef.current = ids
+    if (prev.length === 0 || ids.length <= prev.length) return
+    const newIds = ids.filter((id) => !prev.includes(id))
+    if (newIds.length === 0) return
+    setJustDrawnIds(new Set(newIds))
+    const t = setTimeout(() => setJustDrawnIds(new Set()), 700)
+    return () => clearTimeout(t)
+  }, [handIdsKey, rawHand.length])
 
   const toggleCard = (id: string) => {
     if (!canDiscard && !canDraw) return
@@ -328,9 +365,15 @@ export function GameBoard({
   if (state.phase === 'round_end') {
     return (
       <div className="game-board game-round-end">
-        <button type="button" className="game-back-btn" onClick={onLeave}>
-          {t(lang, 'backToMenu')}
-        </button>
+        <div className="game-round-end-top">
+          <button type="button" className="game-back-btn" onClick={onLeave}>
+            {t(lang, 'backToMenu')}
+          </button>
+          <div className="game-lang">
+            <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+            <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+          </div>
+        </div>
         <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
           <h2>{t(lang, 'round')} {state.round} {lang === 'es' ? 'terminada' : 'over'}</h2>
@@ -343,7 +386,10 @@ export function GameBoard({
             ))}
           </ul>
           {state.round < 7 && isHost && (
-            <button onClick={onNextRound}>{t(lang, 'nextRound')}</button>
+            <button className="game-next-round-btn" onClick={onNextRound}>{t(lang, 'nextRound')}</button>
+          )}
+          {state.round < 7 && !isHost && (
+            <p className="game-wait-host-msg">{lang === 'es' ? 'Esperando al host para la siguiente ronda.' : 'Waiting for host to start next round.'}</p>
           )}
           {state.round >= 7 && <p className="game-over-msg">{lang === 'es' ? 'Fin de partida. Gana quien tenga menos puntos.' : 'Game over. Lowest total score wins.'}</p>}
         </div>
@@ -409,7 +455,14 @@ export function GameBoard({
         )}
       </div>
 
-      <div className="poker-table-wrap poker-table-playing">
+      <div className={`poker-table-wrap poker-table-playing ${shuffleActive ? 'table-shuffle-active' : ''}`}>
+        {shuffleActive && (
+          <div className="deal-overlay" aria-hidden>
+            <span className="deal-overlay-text">
+              {lang === 'es' ? 'Barajando' : 'Shuffling'}… {t(lang, 'round')} {state.round}
+            </span>
+          </div>
+        )}
         <div className="poker-table-oval">
           <div className="game-table-center">
             {canDiscard && (
@@ -438,17 +491,22 @@ export function GameBoard({
               </div>
             )}
             <div className="game-piles">
-              <div className="game-stock" onClick={canDraw ? handleDrawStock : undefined}>
+              <div
+                className={`game-stock ${shuffleActive ? 'shuffle-animate' : ''}`}
+                onClick={canDraw ? handleDrawStock : undefined}
+              >
                 <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
                 <span className="stock-count">{state.stockCount}</span>
               </div>
               <div
-                className="game-discard"
+                className={`game-discard ${state.topDiscard ? 'discard-has-card' : ''}`}
                 onClick={canDraw ? handleDrawDiscard : undefined}
                 data-clickable={canDraw && !!state.topDiscard}
               >
                 {state.topDiscard ? (
-                  <Card card={state.topDiscard} size="normal" />
+                  <div key={state.topDiscard.id} className="discard-card-wrap">
+                    <Card card={state.topDiscard} size="normal" />
+                  </div>
                 ) : (
                   <div className="discard-placeholder" />
                 )}
@@ -527,10 +585,11 @@ export function GameBoard({
 
       <div className="game-hand-area">
         <div className="game-hand">
-          {myHand.map((c) => (
+          {myHand.map((c, i) => (
             <div
               key={c.id}
-              className="game-hand-card-wrap"
+              className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''}`}
+              style={dealAnimKey != null ? { animationDelay: `${i * 55}ms` } : undefined}
               data-card-id={c.id}
               onDragOver={(e) => {
                 e.preventDefault()
@@ -671,7 +730,7 @@ function MeldRow({ meld }: { meld: Meld }) {
   return (
     <div className="meld-row" data-type={meld.type}>
       {meld.cards.map((c) => (
-        <Card key={c.id} card={c} size="normal" />
+        <Card key={c.id} card={c} size="small" />
       ))}
     </div>
   )
