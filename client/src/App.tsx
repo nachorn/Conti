@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
 import { GameBoard } from './components/GameBoard'
@@ -27,35 +29,37 @@ export default function App() {
     socketId,
   } = useSocket()
 
-  if (state && roomId) {
-    return (
-      <GameBoard
-        state={state}
-        socketId={socketId}
-        lang={lang}
-        setLang={setLang}
-        onStart={(opts) => start(opts)}
-        onDraw={draw}
-        onPlayMelds={playMelds}
-        onAddToMeld={addToMeld}
-        onSwapJoker={swapJoker}
-        onDiscard={discard}
-        onTakeDiscard={takeDiscard}
-        onPassDiscard={passDiscard}
-        onLeave={leave}
-        onNextRound={nextRound}
-        onSetSeat={setSeat}
-      />
-    )
-  }
-
   return (
-    <Lobby
-      onCreate={create}
-      onJoin={join}
-      error={error}
-      lang={lang}
-      setLang={setLang}
-    />
+    <>
+      {state && roomId ? (
+        <GameBoard
+          state={state}
+          socketId={socketId}
+          lang={lang}
+          setLang={setLang}
+          onStart={(opts) => start(opts)}
+          onDraw={draw}
+          onPlayMelds={playMelds}
+          onAddToMeld={addToMeld}
+          onSwapJoker={swapJoker}
+          onDiscard={discard}
+          onTakeDiscard={takeDiscard}
+          onPassDiscard={passDiscard}
+          onLeave={leave}
+          onNextRound={nextRound}
+          onSetSeat={setSeat}
+        />
+      ) : (
+        <Lobby
+          onCreate={create}
+          onJoin={join}
+          error={error}
+          lang={lang}
+          setLang={setLang}
+        />
+      )}
+      <Analytics />
+      <SpeedInsights />
+    </>
   )
 }
