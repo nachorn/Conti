@@ -6,4 +6,5 @@ builder = "railpack"
 buildCommand = "cd server && npm install && node scripts/fix-pocha-imports.cjs && npm run build"
 
 [deploy]
-startCommand = "cd server && npm start"
+# Dockerfile puts dist at /app; Railpack uses repo root so would need "cd server && npm start"
+startCommand = "node dist/index.js"
