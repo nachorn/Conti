@@ -9,15 +9,7 @@ function makeCard(suit: Card['suit'], rank: number, isWild = false): Card {
   return { id: makeId(), suit, rank, ...(isWild ? { isWild: true } : {}) }
 }
 
-/** Round 1: 7 cards, 2 trios. */
-const CONTRACT_ROUND_1 = {
-  round: 1,
-  minCards: 7,
-  requirements: [
-    { type: 'trio' as const, minLength: 3 },
-    { type: 'straight' as const, minLength: 3 },
-  ],
-}
+const SUITS: Card['suit'][] = ['hearts', 'diamonds', 'clubs', 'spades']
 
 /** Build a mock Continental game state for dev testing (round 1, 2 players). */
 export function useContinentalMockState() {
@@ -65,7 +57,6 @@ export function useContinentalMockState() {
       const next = { ...prev }
       const me = next.players[0]
       if (!me || next.phase !== 'playing' || next.currentPlayerIndex !== 0) return prev
-      const handIds = new Set(me.hand.map((c) => c.id))
       const newMelds: Meld[] = melds.map((m) => ({
         id: makeId(),
         type: m.type,
@@ -148,15 +139,14 @@ function buildMockState(deckCount: 2 | 3 = 2, round = 1): GameState {
   const myId = 'dev-player-1'
   const otherId = 'dev-player-2'
   const cardsThisRound = 7 + round - 1
-  const suits: Card['suit'][] = ['hearts', 'diamonds', 'clubs', 'spades']
   const myHand: Card[] = []
   for (let i = 0; i < cardsThisRound; i++) {
-    myHand.push(makeCard(suits[i % 4], (i % 13) + 1))
+    myHand.push(makeCard(SUITS[i % 4] ?? 'hearts', (i % 13) + 1))
   }
   myHand.push(makeCard('joker', 0, true))
   const otherHand: Card[] = []
   for (let i = 0; i < cardsThisRound; i++) {
-    otherHand.push(makeCard(suits[(i + 2) % 4], ((i + 5) % 13) + 1))
+    otherHand.push(makeCard(SUITS[(i + 2) % 4] ?? 'hearts', ((i + 5) % 13) + 1))
   }
   const topDiscard = makeCard('spades', 7)
   const totalCards = (deckCount === 2 ? 108 : 162) - cardsThisRound * 2 - 1
