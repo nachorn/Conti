@@ -15,6 +15,6 @@ FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/server/dist ./dist
 COPY --from=builder /app/server/package.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
 CMD ["node", "dist/index.js"]
