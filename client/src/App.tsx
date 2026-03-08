@@ -10,6 +10,7 @@ export default function App() {
     error,
     create,
     join,
+    setSeat,
     start,
     draw,
     playMelds,
@@ -34,6 +35,7 @@ export default function App() {
         onPassDiscard={passDiscard}
         onLeave={leave}
         onNextRound={nextRound}
+        onSetSeat={setSeat}
       />
     )
   }

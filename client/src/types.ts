@@ -28,6 +28,7 @@ export interface Player {
   score: number
   hand: Card[]
   connected: boolean
+  seatIndex: number
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'

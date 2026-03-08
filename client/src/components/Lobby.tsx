@@ -48,10 +48,11 @@ export function Lobby({ onCreate, onJoin, error }: LobbyProps) {
           <p>Enter the room code from the host.</p>
           <input
             type="text"
-            placeholder="Room code"
+            placeholder="4-digit code (e.g. 1234)"
             value={joinRoomId}
-            onChange={(e) => setJoinRoomId(e.target.value)}
-            maxLength={12}
+            onChange={(e) => setJoinRoomId(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            maxLength={4}
+            inputMode="numeric"
           />
           <input
             type="text"

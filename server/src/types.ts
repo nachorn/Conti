@@ -45,6 +45,8 @@ export interface Player {
   score: number
   hand: Card[]
   connected: boolean
+  /** Seat at table (0..maxPlayers-1). Used for display order. */
+  seatIndex: number
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'

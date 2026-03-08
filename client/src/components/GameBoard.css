@@ -122,6 +122,130 @@
   font-weight: 600;
 }
 
+/* Poker table: oval with seats around */
+.poker-table-wrap {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  max-width: 900px;
+  min-height: 380px;
+  margin: 0 auto;
+}
+
+.poker-table-oval {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 85%;
+  max-width: 620px;
+  aspect-ratio: 1.85 / 1;
+  background: linear-gradient(165deg, #0d5c2e 0%, #0a4724 50%, #073d1e 100%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 60px rgba(0, 0, 0, 0.4),
+    0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 12px solid #1a3d1a;
+}
+
+.poker-table-playing .poker-table-oval {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-table-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  z-index: 1;
+}
+
+.poker-seat {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 72px;
+  padding: 0.5rem 0.6rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.poker-seat-empty {
+  background: rgba(0, 0, 0, 0.2);
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.poker-seat-empty:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--gold);
+}
+
+.poker-seat-me {
+  border-color: var(--gold);
+  background: rgba(212, 175, 55, 0.2);
+}
+
+.poker-seat-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.poker-seat-you {
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.poker-seat-sit {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.poker-table-lobby {
+  min-height: 420px;
+}
+
+.poker-table-lobby .poker-table-oval {
+  pointer-events: none;
+}
+
+.game-lobby-header {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.game-lobby-header h2 {
+  margin: 0;
+  color: var(--gold);
+  font-size: 1.25rem;
+}
+
+.game-lobby-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.game-lobby-options {
+  margin-top: 1rem;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .game-table {
   flex: 1;
   padding: 1rem;
@@ -129,6 +253,10 @@
   flex-direction: column;
   align-items: center;
   gap: 1rem;
+}
+
+.game-table-center .game-melds {
+  min-height: 80px;
 }
 
 .game-melds {
@@ -234,6 +362,13 @@
 .opponent-cards {
   display: flex;
   gap: 2px;
+}
+
+.opponent-cards-single {
+  min-height: 67px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .game-hand-area {

@@ -1,9 +1,46 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Card as CardType, GameState, Meld } from '../types'
+import type { Card as CardType, GameState, Meld, Player } from '../types'
 import { Card } from './Card'
+import { CardBack } from './cards/CardBack'
 import './GameBoard.css'
 
 const CARDS_ROUND_1 = 7
+const POKER_SEAT_COUNT = 10
+
+/** Seat positions around oval: angle in degrees (0 = bottom). Returns [x%, y%]. */
+function seatPosition(displayIndex: number): { x: number; y: number } {
+  const angleDeg = displayIndex * (360 / POKER_SEAT_COUNT) - 90
+  const rad = (angleDeg * Math.PI) / 180
+  return {
+    x: 50 + 48 * Math.cos(rad),
+    y: 50 + 48 * Math.sin(rad),
+  }
+}
+
+/** Build 10 slots with me at position 0 (bottom). Resolves seatIndex without mutating. */
+function getSeatsAroundTable(players: Player[], myId: string | null): (Player | null)[] {
+  const seatByPlayerId = new Map<string, number>()
+  players.forEach((p) => {
+    const si = p.seatIndex ?? -1
+    if (si >= 0 && si < POKER_SEAT_COUNT) seatByPlayerId.set(p.id, si)
+  })
+  const used = new Set(seatByPlayerId.values())
+  let next = 0
+  players.forEach((p) => {
+    if (!seatByPlayerId.has(p.id)) {
+      while (used.has(next)) next++
+      seatByPlayerId.set(p.id, next)
+      used.add(next)
+    }
+  })
+  const mySeat = myId ? (seatByPlayerId.get(myId) ?? 0) : 0
+  const seats: (Player | null)[] = []
+  for (let d = 0; d < POKER_SEAT_COUNT; d++) {
+    const seatIndex = (mySeat + d) % POKER_SEAT_COUNT
+    seats.push(players.find((p) => seatByPlayerId.get(p.id) === seatIndex) ?? null)
+  }
+  return seats
+}
 
 function cardsPerPlayerForRound(round: number): number {
   return CARDS_ROUND_1 + round - 1
@@ -38,6 +75,7 @@ interface GameBoardProps {
   onPassDiscard: () => void
   onLeave: () => void
   onNextRound: () => void
+  onSetSeat?: (seatIndex: number) => void
 }
 
 export function GameBoard({
@@ -51,6 +89,7 @@ export function GameBoard({
   onPassDiscard,
   onLeave,
   onNextRound,
+  onSetSeat,
 }: GameBoardProps) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
   const [handOrder, setHandOrder] = useState<string[]>([])
@@ -167,21 +206,46 @@ export function GameBoard({
   }
 
   if (state.phase === 'lobby') {
+    const lobbySeats = getSeatsAroundTable([...state.players], socketId)
     return (
       <div className="game-board game-lobby">
         <button type="button" className="game-back-btn" onClick={onLeave}>
           ← Back to menu
         </button>
-        <div className="game-lobby-box">
-          <h2>Room {state.roomId.toUpperCase()}</h2>
-          <p>Players ({state.players.length}/10):</p>
-          <ul>
-            {state.players.map((p) => (
-              <li key={p.id}>
-                {p.name} {p.id === socketId && '(you)'}
-              </li>
-            ))}
-          </ul>
+        <div className="game-lobby-header">
+          <h2>Room {state.roomId}</h2>
+          <p className="game-lobby-sub">Choose your seat · {state.players.length}/10 players</p>
+        </div>
+        <div className="poker-table-wrap poker-table-lobby">
+          <div className="poker-table-oval" />
+          {lobbySeats.map((player, d) => {
+            const pos = seatPosition(d)
+            const seatIndex = ((me?.seatIndex ?? 0) + d) % POKER_SEAT_COUNT
+            const isMe = player?.id === socketId
+            const isEmpty = !player
+            return (
+              <div
+                key={d}
+                className={`poker-seat ${isEmpty ? 'poker-seat-empty' : ''} ${isMe ? 'poker-seat-me' : ''}`}
+                style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
+                onClick={() => {
+                  if (isEmpty && onSetSeat) onSetSeat(seatIndex)
+                }}
+                role={isEmpty ? 'button' : undefined}
+              >
+                {player ? (
+                  <>
+                    <span className="poker-seat-name">{player.name}</span>
+                    {isMe && <span className="poker-seat-you">(you)</span>}
+                  </>
+                ) : (
+                  <span className="poker-seat-sit">Sit here</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div className="game-lobby-box game-lobby-options">
           {isHost && (
             <>
               <label className="lobby-deck-label">
@@ -303,72 +367,84 @@ export function GameBoard({
         )}
       </div>
 
-      <div className="game-table">
-        <div className="game-melds">
-          {state.melds.map((meld) => (
-            <MeldRow key={meld.id} meld={meld} />
-          ))}
-        </div>
-
-        {/* Drop zone: drag a card here to discard (or tap here when one card selected) */}
-        {canDiscard && (
-          <div
-            className="game-discard-zone"
-            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-            onDrop={(e) => {
-              e.preventDefault()
-              const cardId = e.dataTransfer.getData('cardId')
-              if (cardId) {
-                onDiscard(cardId)
-                setSelectedCards(new Set())
-              }
-            }}
-            onClick={() => {
-              if (selectedCards.size === 1) {
-                const [cardId] = selectedCards
-                if (cardId) {
-                  onDiscard(cardId)
-                  setSelectedCards(new Set())
-                }
-              }
-            }}
-          >
-            <span className="discard-zone-label">Drop here to discard</span>
-          </div>
-        )}
-
-        <div className="game-piles">
-          <div className="game-stock" onClick={canDraw ? handleDrawStock : undefined}>
-            <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
-            <span className="stock-count">{state.stockCount}</span>
-          </div>
-          <div
-            className="game-discard"
-            onClick={canDraw ? handleDrawDiscard : undefined}
-            data-clickable={canDraw && !!state.topDiscard}
-          >
-            {state.topDiscard ? (
-              <Card card={state.topDiscard} size="normal" />
-            ) : (
-              <div className="discard-placeholder" />
-            )}
-          </div>
-        </div>
-
-        <div className="game-opponents">
-          {state.players
-            .filter((p) => p.id !== socketId)
-            .map((p) => (
-              <div key={p.id} className="opponent">
-                <span className="opponent-name">{p.name}</span>
-                <div className="opponent-cards">
-                  {p.hand.map((c) => (
-                    <Card key={c.id} card={c} faceDown size="small" />
-                  ))}
-                </div>
+      <div className="poker-table-wrap poker-table-playing">
+        <div className="poker-table-oval">
+          <div className="game-table-center">
+            <div className="game-melds">
+              {state.melds.map((meld) => (
+                <MeldRow key={meld.id} meld={meld} />
+              ))}
+            </div>
+            {canDiscard && (
+              <div
+                className="game-discard-zone"
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const cardId = e.dataTransfer.getData('cardId')
+                  if (cardId) {
+                    onDiscard(cardId)
+                    setSelectedCards(new Set())
+                  }
+                }}
+                onClick={() => {
+                  if (selectedCards.size === 1) {
+                    const [cardId] = selectedCards
+                    if (cardId) {
+                      onDiscard(cardId)
+                      setSelectedCards(new Set())
+                    }
+                  }
+                }}
+              >
+                <span className="discard-zone-label">Drop here to discard</span>
               </div>
-            ))}
+            )}
+            <div className="game-piles">
+              <div className="game-stock" onClick={canDraw ? handleDrawStock : undefined}>
+                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
+                <span className="stock-count">{state.stockCount}</span>
+              </div>
+              <div
+                className="game-discard"
+                onClick={canDraw ? handleDrawDiscard : undefined}
+                data-clickable={canDraw && !!state.topDiscard}
+              >
+                {state.topDiscard ? (
+                  <Card card={state.topDiscard} size="normal" />
+                ) : (
+                  <div className="discard-placeholder" />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+        {getSeatsAroundTable([...state.players], socketId).map((player, d) => {
+          const pos = seatPosition(d)
+          const isMe = player?.id === socketId
+          return (
+            <div
+              key={d}
+              className={`poker-seat poker-seat-playing ${!player ? 'poker-seat-empty' : ''} ${isMe ? 'poker-seat-me' : ''}`}
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
+            >
+              {player ? (
+                <>
+                  <span className="poker-seat-name">{player.name}</span>
+                  {isMe ? (
+                    <span className="poker-seat-you">(you)</span>
+                  ) : (
+                    <div className="opponent-cards opponent-cards-single">
+                      <CardBack width={48} height={67} count={player.hand.length} />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <span className="poker-seat-empty-label" />
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <div className="game-hand-area">
@@ -408,6 +484,7 @@ export function GameBoard({
                   e.dataTransfer.setData('cardId', c.id)
                   e.dataTransfer.effectAllowed = 'move'
                 }}
+                hideBottomCorner
               />
             </div>
           ))}

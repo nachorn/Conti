@@ -57,7 +57,11 @@ export function useSocket() {
 
   const join = (id: string, name: string) => {
     setError(null)
-    socketRef.current?.emit('join', { roomId: id.trim().toLowerCase(), name })
+    socketRef.current?.emit('join', { roomId: id.trim(), name })
+  }
+
+  const setSeat = (seatIndex: number) => {
+    socketRef.current?.emit('set_seat', { seatIndex })
   }
 
   const start = (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
@@ -102,6 +106,7 @@ export function useSocket() {
     error,
     create,
     join,
+    setSeat,
     start,
     draw,
     playMelds,

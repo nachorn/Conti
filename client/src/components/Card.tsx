@@ -14,9 +14,11 @@ interface CardProps {
   size?: 'small' | 'normal' | 'large'
   draggable?: boolean
   onDragStart?: (e: React.DragEvent) => void
+  /** When true, hide the bottom corner (upside-down rank/suit) to reduce clutter in hand. */
+  hideBottomCorner?: boolean
 }
 
-export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart }: CardProps) {
+export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart, hideBottomCorner }: CardProps) {
   const rank = RANK_SYMBOLS[card.rank] ?? '?'
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds'
   const suitChar = card.suit === 'joker' ? '★' : { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' }[card.suit] ?? ''
@@ -48,10 +50,12 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
           <span className="card-suit-large">{suitChar}</span>
         )}
       </div>
-      <div className="card-corner card-bottom">
-        <span className="card-rank">{rank}</span>
-        <span className="card-suit">{suitChar}</span>
-      </div>
+      {!hideBottomCorner && (
+        <div className="card-corner card-bottom">
+          <span className="card-rank">{rank}</span>
+          <span className="card-suit">{suitChar}</span>
+        </div>
+      )}
     </div>
   )
 }

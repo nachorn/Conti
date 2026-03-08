@@ -46,7 +46,7 @@ export class Room {
   secondsPerTurn: number = 0
 
   constructor(options: RoomOptions = {}) {
-    this.roomId = options.roomId ?? uuidv4().slice(0, 8)
+    this.roomId = options.roomId ?? ''
     this.maxPlayers = Math.min(MAX_PLAYERS, options.maxPlayers ?? MAX_PLAYERS)
     this.deckCount = options.deckCount ?? 2
     this.discardOptionDelaySeconds = Math.max(0, Math.min(30, options.discardOptionDelaySeconds ?? 10))
@@ -56,13 +56,28 @@ export class Room {
   addPlayer(id: string, name: string): boolean {
     if (this.phase !== 'lobby' || this.players.length >= this.maxPlayers) return false
     if (this.players.some(p => p.id === id)) return true
+    const taken = new Set(this.players.map(p => p.seatIndex))
+    let seatIndex = 0
+    while (taken.has(seatIndex) && seatIndex < this.maxPlayers) seatIndex++
     this.players.push({
       id,
       name: name.slice(0, 24) || 'Player',
       score: 0,
       hand: [],
       connected: true,
+      seatIndex,
     })
+    return true
+  }
+
+  setSeat(playerId: string, seatIndex: number): boolean {
+    if (this.phase !== 'lobby') return false
+    if (seatIndex < 0 || seatIndex >= this.maxPlayers) return false
+    const p = this.players.find(x => x.id === playerId)
+    if (!p) return false
+    const taken = this.players.some(q => q.id !== playerId && q.seatIndex === seatIndex)
+    if (taken) return false
+    p.seatIndex = seatIndex
     return true
   }
 
@@ -101,9 +116,27 @@ export class Room {
     if (this.phase !== 'lobby' || this.players.length < MIN_PLAYERS) return false
     this.phase = 'playing'
     this.round = 1
-    this.dealerIndex = 0
     this.roundScores = {}
+    if (!this.determineDealer()) return false
     return this.startRound()
+  }
+
+  /** Each player draws one card; highest rank is dealer (ace high). Ties: first wins. */
+  determineDealer(): boolean {
+    const n = this.players.length
+    const deck = createContinentalDeck(n, this.deckCount)
+    const { drawn: dealCards, remaining } = draw(deck, n)
+    let maxRank = -1
+    let dealerIdx = 0
+    for (let i = 0; i < n; i++) {
+      const r = dealCards[i]?.rank ?? -1
+      if (r > maxRank) {
+        maxRank = r
+        dealerIdx = i
+      }
+    }
+    this.dealerIndex = dealerIdx
+    return true
   }
 
   cardsPerPlayerThisRound(): number {
@@ -122,18 +155,17 @@ export class Room {
     const cardsPer = this.cardsPerPlayerThisRound()
     const deck = createContinentalDeck(n, this.deckCount)
     const total = cardsPer * n
-    const { drawn, remaining } = draw(deck, total)
-    this.stock = remaining
+    const { drawn: handCards, remaining: afterHands } = draw(deck, total)
+    for (const p of this.players) p.hand = []
+    for (let i = 0; i < handCards.length; i++) {
+      const rec = (this.dealerIndex - 1 - (i % n) + 2 * n) % n
+      const card = handCards[i]
+      if (card) this.players[rec]!.hand.push(card)
+    }
+    this.stock = afterHands
     this.discardPile = []
     this.topDiscard = null
 
-    let i = 0
-    for (const p of this.players) {
-      p.hand = drawn.slice(i * cardsPer, (i + 1) * cardsPer)
-      i++
-    }
-
-    // First card face-up in the middle so first player can take it or draw from stock
     const { drawn: initialDiscard, remaining: stockAfter } = draw(this.stock, 1)
     this.stock = stockAfter
     if (initialDiscard[0]) {
@@ -190,11 +222,23 @@ export class Room {
     p.hand.push(this.topDiscard)
     this.discardPile.pop()
     this.topDiscard = this.discardPile.length > 0 ? this.discardPile[this.discardPile.length - 1]! : null
-    const nextAfterDiscarder = (this.discarderIndex + 1) % n
-    if (optionIndex !== nextAfterDiscarder) {
+    const turnPlayerIndex = (this.discarderIndex + 1) % n
+    const isPriority = optionIndex === turnPlayerIndex
+    if (!isPriority) {
       this.roundPenalties[playerId] = (this.roundPenalties[playerId] ?? 0) + OUT_OF_TURN_DISCARD_PENALTY
+      const { drawn: penaltyDraw, remaining: stockAfterPenalty } = draw(this.stock, 1)
+      this.stock = stockAfterPenalty
+      if (penaltyDraw[0]) p.hand.push(penaltyDraw[0])
+      const turnPlayer = this.players[turnPlayerIndex]
+      if (turnPlayer) {
+        const { drawn: turnDraw, remaining: stockAfterTurn } = draw(this.stock, 1)
+        this.stock = stockAfterTurn
+        if (turnDraw[0]) turnPlayer.hand.push(turnDraw[0])
+      }
+      this.currentPlayerIndex = turnPlayerIndex
+    } else {
+      this.currentPlayerIndex = optionIndex
     }
-    this.currentPlayerIndex = optionIndex
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
     this.discardOptionAvailableAt = null

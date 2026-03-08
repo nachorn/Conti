@@ -7,9 +7,11 @@ export interface CardBackProps {
   height?: number
   /** Optional fill for the back pattern (e.g. blue, red). */
   accentColor?: string
+  /** When set, show this number on the back (e.g. opponent card count). */
+  count?: number
 }
 
-export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a5f' }: CardBackProps) {
+export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a5f', count }: CardBackProps) {
   const scaleX = width / CARD_W
   const scaleY = height / CARD_H
 
@@ -63,12 +65,12 @@ export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a
           y={CARD_H / 2}
           textAnchor="middle"
           dominantBaseline="middle"
-          fill="rgba(255,255,255,0.15)"
-          fontSize="10"
+          fill={count != null ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.15)'}
+          fontSize={count != null ? '18' : '10'}
           fontWeight="700"
           fontFamily="system-ui, sans-serif"
         >
-          CONTI
+          {count != null ? String(count) : 'CONTI'}
         </text>
       </g>
     </svg>

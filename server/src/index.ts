@@ -17,13 +17,12 @@ const io = new Server(httpServer, {
 const rooms = new Map<string, Room>()
 const playerToRoom = new Map<string, string>()
 
-function getOrCreateRoom(roomId: string): Room {
-  let room = rooms.get(roomId)
-  if (!room) {
-    room = new Room({ roomId, maxPlayers: 10 })
-    rooms.set(roomId, room)
-  }
-  return room
+function generateRoomId(): string {
+  let id: string
+  do {
+    id = String(1000 + Math.floor(Math.random() * 9000))
+  } while (rooms.has(id))
+  return id
 }
 
 async function broadcastState(roomId: string): Promise<void> {
@@ -41,7 +40,9 @@ io.on('connection', (socket) => {
 
   socket.on('create', (payload: { name: string; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
     const deckCount = payload?.deckCount === 3 ? 3 : 2
+    const roomId = generateRoomId()
     const room = new Room({
+      roomId,
       maxPlayers: 10,
       deckCount,
       discardOptionDelaySeconds: payload?.discardOptionDelaySeconds,
@@ -56,13 +57,29 @@ io.on('connection', (socket) => {
     broadcastState(room.roomId)
   })
 
+  socket.on('set_seat', (payload: { seatIndex: number }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const seatIndex = typeof payload?.seatIndex === 'number' ? Math.floor(payload.seatIndex) : -1
+    if (room.setSeat(playerId, seatIndex)) {
+      broadcastState(roomId)
+    } else {
+      socket.emit('error', { message: 'Seat unavailable or invalid' })
+    }
+  })
+
   socket.on('join', (payload: { roomId: string; name: string }) => {
-    const id = (payload?.roomId ?? '').trim().toLowerCase()
+    const id = (payload?.roomId ?? '').trim()
     if (!id) {
-      socket.emit('error', { message: 'Room ID required' })
+      socket.emit('error', { message: 'Room code required' })
       return
     }
-    const room = getOrCreateRoom(id)
+    const room = rooms.get(id)
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' })
+      return
+    }
     if (!room.addPlayer(playerId, payload?.name ?? 'Player')) {
       socket.emit('error', { message: 'Room full or game started' })
       return
