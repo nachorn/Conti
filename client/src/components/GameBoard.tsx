@@ -30,7 +30,7 @@ function sortHandByOrder(hand: CardType[], order: string[]): CardType[] {
 interface GameBoardProps {
   state: GameState
   socketId: string | null
-  onStart: (deckCount?: 2 | 3) => void
+  onStart: (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => void
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
   onDiscard: (cardId: string) => void
@@ -85,7 +85,6 @@ export function GameBoard({
     })
   }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
-  const needToDraw = isMyNormalTurn && myHand.length === cardsThisRound
   const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length === cardsThisRound
   const canDiscard = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length > cardsThisRound
 
