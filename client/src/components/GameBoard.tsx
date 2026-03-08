@@ -66,7 +66,6 @@ export function GameBoard({
     if (!canDiscard || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
     if (cards.length < 3) return
-    const trios = cards.filter((c) => cards.filter((x) => x.rank === c.rank).length >= 3)
     const byRank = new Map<number, CardType[]>()
     for (const c of cards) {
       if (c.rank === 0 || c.isWild) continue

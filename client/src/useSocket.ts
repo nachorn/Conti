@@ -16,9 +16,9 @@ export function useSocket() {
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] })
     socketRef.current = socket
-    setSocketId(socket.id)
+    setSocketId(socket.id ?? null)
 
-    socket.on('connect', () => setSocketId(socket.id))
+    socket.on('connect', () => setSocketId(socket.id ?? null))
     socket.on('joined', (payload: { roomId: string; state: GameState }) => {
       setRoomId(payload.roomId)
       setState(payload.state)
