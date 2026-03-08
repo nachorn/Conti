@@ -13,7 +13,7 @@ function makeDeck(decks: number, jokersPerDeck: number): Card[] {
           id: uuidv4(),
           suit,
           rank,
-          isWild: rank === 2,
+          isWild: false,
         })
       }
     }

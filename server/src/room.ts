@@ -326,6 +326,7 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (!this.melds.some(m => m.ownerId === playerId)) return { ok: false, error: 'You must play your melds before adding to melds' }
     const meld = this.melds.find(m => m.id === meldId)
     if (!meld) return { ok: false, error: 'Meld not found' }
     const combined = [...meld.cards, ...cards]
@@ -347,6 +348,7 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (!this.melds.some(m => m.ownerId === playerId)) return { ok: false, error: 'You must play your melds before swapping a joker' }
     const meld = this.melds.find(m => m.id === meldId)
     if (!meld) return { ok: false, error: 'Meld not found' }
     const jokerIdx = meld.cards.findIndex(c => c.isWild || c.suit === 'joker')
