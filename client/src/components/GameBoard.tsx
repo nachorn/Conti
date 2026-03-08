@@ -109,6 +109,8 @@ export function GameBoard({
   const [lobbyTurnSecs, setLobbyTurnSecs] = useState(state.secondsPerTurn ?? 0)
   const [dealAnimKey, setDealAnimKey] = useState<number | null>(null)
   const [shuffleActive, setShuffleActive] = useState(false)
+  const [dealingPhase, setDealingPhase] = useState(false)
+  const [dealingIndex, setDealingIndex] = useState(0)
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
@@ -189,7 +191,9 @@ export function GameBoard({
     return () => clearInterval(t)
   }, [state.phase, state.currentPlayerIndex, discardOptionIndex, isMyTurn, secondsPerTurn])
 
-  // Shuffle + deal animation when round starts or game enters playing
+  // Shuffle then circular deal when round starts or game enters playing
+  const totalToDeal = n * cardsThisRound
+
   useEffect(() => {
     const prevPhase = prevPhaseRef.current
     const prevRound = prevRoundRef.current
@@ -198,13 +202,35 @@ export function GameBoard({
     if (state.phase !== 'playing') return
     const roundJustStarted = prevPhase !== 'playing' || prevRound !== state.round
     if (!roundJustStarted) return
-    const key = Date.now()
-    setDealAnimKey(key)
+    setDealAnimKey(null)
     setShuffleActive(true)
-    const t1 = setTimeout(() => setShuffleActive(false), 1200)
-    const t2 = setTimeout(() => setDealAnimKey(null), 2800)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
-  }, [state.phase, state.round])
+    setDealingPhase(false)
+    setDealingIndex(0)
+    const t1 = setTimeout(() => {
+      setShuffleActive(false)
+      if (totalToDeal > 0) {
+        setDealingPhase(true)
+        setDealingIndex(0)
+      } else {
+        setDealAnimKey(Date.now())
+      }
+    }, 1200)
+    return () => clearTimeout(t1)
+  }, [state.phase, state.round, totalToDeal])
+
+  const handleDealCardAnimationEnd = () => {
+    setDealingIndex((prev) => {
+      const next = prev + 1
+      if (next >= totalToDeal) {
+        queueMicrotask(() => {
+          setDealingPhase(false)
+          setDealAnimKey(Date.now())
+          setTimeout(() => setDealAnimKey(null), 2200)
+        })
+      }
+      return next
+    })
+  }
 
   // "Just drawn" animation when hand gains a new card
   useEffect(() => {
@@ -419,7 +445,7 @@ export function GameBoard({
   }
 
   return (
-    <div className="game-board">
+    <div className={`game-board ${dealingPhase ? 'dealing-cards' : ''}`}>
       <div className="game-top-row">
         <button type="button" className="game-back-btn" onClick={onLeave}>
           {t(lang, 'backToMenu')}
@@ -455,7 +481,7 @@ export function GameBoard({
         )}
       </div>
 
-      <div className={`poker-table-wrap poker-table-playing ${shuffleActive ? 'table-shuffle-active' : ''}`}>
+      <div className={`poker-table-wrap poker-table-playing ${shuffleActive ? 'table-shuffle-active' : ''} ${dealingPhase ? 'dealing-cards' : ''}`}>
         {shuffleActive && (
           <div className="deal-overlay" aria-hidden>
             <span className="deal-overlay-text">
@@ -463,6 +489,27 @@ export function GameBoard({
             </span>
           </div>
         )}
+        {dealingPhase && dealingIndex < totalToDeal && (() => {
+          const seats = getSeatsAroundTable([...state.players], socketId)
+          const playerIndexToDisplayIndex: number[] = []
+          for (let pi = 0; pi < n; pi++) {
+            const d = seats.findIndex((p) => p?.id === state.players[pi].id)
+            playerIndexToDisplayIndex[pi] = d >= 0 ? d : 0
+          }
+          const targetPlayerIndex = dealingIndex % n
+          const displayIndex = playerIndexToDisplayIndex[targetPlayerIndex]
+          const pos = seatPosition(displayIndex)
+          return (
+            <div
+              key={dealingIndex}
+              className="flying-deal-card"
+              style={{ '--end-x': pos.x, '--end-y': pos.y } as React.CSSProperties}
+              onAnimationEnd={handleDealCardAnimationEnd}
+            >
+              <CardBack width={72} height={100} count={1} />
+            </div>
+          )
+        })()}
         <div className="poker-table-oval">
           <div className="game-table-center">
             {canDiscard && (

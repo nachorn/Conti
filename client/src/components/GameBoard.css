@@ -194,6 +194,57 @@
   letter-spacing: 0.03em;
 }
 
+/* Circular deal: one card at a time from center to each seat */
+.flying-deal-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72px;
+  height: 100px;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  pointer-events: none;
+  animation: flyDealCard 0.4s ease-out forwards;
+}
+
+.flying-deal-card .card-back {
+  width: 72px;
+  height: 100px;
+  border-radius: var(--card-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes flyDealCard {
+  0% {
+    left: 50%;
+    top: 50%;
+    opacity: 1;
+  }
+  100% {
+    left: calc(var(--end-x, 50) * 1%);
+    top: calc(var(--end-y, 50) * 1%);
+    opacity: 1;
+  }
+}
+
+.poker-table-wrap.dealing-cards .game-piles {
+  visibility: hidden;
+}
+
+.poker-table-wrap.dealing-cards .game-discard-zone {
+  visibility: hidden;
+}
+
+.game-board.dealing-cards .game-hand-area {
+  visibility: hidden;
+  max-height: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.25s ease;
+}
+
 @keyframes dealOverlayIn {
   0% { opacity: 0; }
   100% { opacity: 1; }
