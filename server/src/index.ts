@@ -100,7 +100,7 @@ io.on('connection', (socket) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room) return
-    const result = room.playMelds(playerId, payload.melds as { type: 'trio' | 'straight'; cards: import('./types.js').Card[] })
+    const result = room.playMelds(playerId, payload.melds as { type: 'trio' | 'straight'; cards: import('./types.js').Card[] }[])
     if (result.ok) {
       broadcastState(roomId)
       if (room.phase === 'round_end') {
