@@ -9,9 +9,11 @@ interface LobbyProps {
   error: string | null
   lang: Lang
   setLang: (lang: Lang) => void
+  /** Dev: open Pocha game with mock state */
+  onOpenPochaDev?: () => void
 }
 
-export function Lobby({ onCreate, onJoin, error, lang, setLang }: LobbyProps) {
+export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev }: LobbyProps) {
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [joinRoomId, setJoinRoomId] = useState('')
@@ -79,6 +81,14 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang }: LobbyProps) {
       </div>
 
       {error && <p className="lobby-error">{error}</p>}
+
+      {onOpenPochaDev && (
+        <p className="lobby-dev">
+          <button type="button" className="lobby-dev-btn" onClick={onOpenPochaDev}>
+            {lang === 'es' ? 'Jugar Pocha (dev)' : 'Play Pocha (dev)'}
+          </button>
+        </p>
+      )}
     </div>
   )
 }

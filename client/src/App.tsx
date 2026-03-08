@@ -4,11 +4,15 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
 import { GameBoard } from './components/GameBoard'
+import { PochaBoard } from './components/PochaBoard'
+import { usePochaMockState } from './usePochaMockState'
 import type { Lang } from './i18n'
 
-/** Root: lobby or game board based on room state. */
+/** Root: lobby or game board based on room state. Pocha (dev) uses mock state. */
 export default function App() {
   const [lang, setLang] = useState<Lang>('en')
+  const [showPochaDev, setShowPochaDev] = useState(false)
+  const pochaMock = usePochaMockState({ phase: 'playing', playerCount: 4 })
   const {
     state,
     roomId,
@@ -31,7 +35,17 @@ export default function App() {
 
   return (
     <>
-      {state && roomId ? (
+      {showPochaDev ? (
+        <PochaBoard
+          state={pochaMock.state}
+          socketId={pochaMock.socketId}
+          lang={lang}
+          setLang={setLang}
+          onLeave={() => setShowPochaDev(false)}
+          onBid={pochaMock.onBid}
+          onPlayCard={pochaMock.onPlayCard}
+        />
+      ) : state && roomId ? (
         <GameBoard
           state={state}
           socketId={socketId}
@@ -56,6 +70,7 @@ export default function App() {
           error={error}
           lang={lang}
           setLang={setLang}
+          onOpenPochaDev={() => setShowPochaDev(true)}
         />
       )}
       <Analytics />
