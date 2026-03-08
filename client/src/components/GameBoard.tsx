@@ -75,6 +75,7 @@ interface GameBoardProps {
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
   onAddToMeld: (meldId: string, cards: CardType[]) => void
+  onSwapJoker: (meldId: string, cardId: string) => void
   onDiscard: (cardId: string) => void
   onTakeDiscard: () => void
   onPassDiscard: () => void
@@ -92,6 +93,7 @@ export function GameBoard({
   onDraw,
   onPlayMelds,
   onAddToMeld,
+  onSwapJoker,
   onDiscard,
   onTakeDiscard,
   onPassDiscard,
@@ -400,6 +402,9 @@ export function GameBoard({
         {hasPriority && canTakeOrPass && (
           <span className="turn-badge priority-badge">{t(lang, 'youHavePriority')}</span>
         )}
+        {state.swappedJokerPlayerId === socketId && state.swappedJokerCardId && (
+          <span className="turn-badge discard-delay-badge">{t(lang, 'playJokerFirst')}</span>
+        )}
       </div>
 
       <div className="poker-table-wrap poker-table-playing">
@@ -459,16 +464,33 @@ export function GameBoard({
               className="poker-seat-melds"
               style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
             >
-              {meldsForSeat.map((meld) => (
-                <div
-                  key={meld.id}
-                  className={`meld-row-wrap ${canDiscard && selectedCards.size > 0 ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''}`}
-                  onClick={() => canDiscard && selectedCards.size > 0 && setSelectedMeldId((id) => (id === meld.id ? null : meld.id))}
-                  role={canDiscard && selectedCards.size > 0 ? 'button' : undefined}
-                >
-                  <MeldRow meld={meld} />
-                </div>
-              ))}
+              {meldsForSeat.map((meld) => {
+                const meldHasJoker = meld.cards.some((c) => c.isWild || c.suit === 'joker')
+                const oneCardSelected = selectedCards.size === 1
+                const canSwap = canDiscard && oneCardSelected && meldHasJoker
+                return (
+                  <div
+                    key={meld.id}
+                    className={`meld-row-wrap ${canDiscard && selectedCards.size > 0 ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''} ${canSwap ? 'meld-row-can-swap' : ''}`}
+                    onClick={() => {
+                      if (!canDiscard || selectedCards.size === 0) return
+                      if (oneCardSelected && meldHasJoker) {
+                        const [cardId] = Array.from(selectedCards)
+                        if (cardId) {
+                          onSwapJoker(meld.id, cardId)
+                          setSelectedCards(new Set())
+                        }
+                      } else {
+                        setSelectedMeldId((id) => (id === meld.id ? null : meld.id))
+                      }
+                    }}
+                    role={canDiscard && selectedCards.size > 0 ? 'button' : undefined}
+                    title={canSwap ? (lang === 'es' ? 'Sustituir comodín con esta carta' : 'Swap joker with this card') : undefined}
+                  >
+                    <MeldRow meld={meld} />
+                  </div>
+                )
+              })}
             </div>
           )
         })}

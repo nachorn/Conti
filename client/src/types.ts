@@ -52,4 +52,6 @@ export interface GameState {
   deckCount?: 2 | 3
   discardOptionDelaySeconds?: number
   secondsPerTurn?: number
+  swappedJokerCardId?: string | null
+  swappedJokerPlayerId?: string | null
 }

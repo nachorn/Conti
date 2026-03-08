@@ -80,6 +80,10 @@ export function useSocket() {
     socketRef.current?.emit('add_to_meld', { meldId, cards })
   }
 
+  const swapJoker = (meldId: string, cardId: string) => {
+    socketRef.current?.emit('swap_joker', { meldId, cardId })
+  }
+
   const discard = (cardId: string) => {
     socketRef.current?.emit('discard', { cardId })
   }
@@ -111,6 +115,7 @@ export function useSocket() {
     draw,
     playMelds,
     addToMeld,
+    swapJoker,
     discard,
     takeDiscard,
     passDiscard,

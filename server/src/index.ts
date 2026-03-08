@@ -179,6 +179,15 @@ io.on('connection', (socket) => {
     else socket.emit('error', { message: result.error })
   })
 
+  socket.on('swap_joker', (payload: { meldId: string; cardId: string }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.swapJoker(playerId, payload?.meldId ?? '', payload?.cardId ?? '')
+    if (result.ok) broadcastState(roomId)
+    else socket.emit('error', { message: result.error })
+  })
+
   socket.on('next_round', () => {
     if (!roomId) return
     const room = rooms.get(roomId)

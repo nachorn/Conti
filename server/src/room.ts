@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Card, GameState, Meld, Player } from './types.js'
 import { CONTINENTAL_ROUNDS, type GamePhase, type RoundContract } from './types.js'
 import { createContinentalDeck, draw } from './game/deck.js'
-import { getContract, isValidMeld, satisfiesContract } from './game/meld.js'
+import { canReplaceJokerInMeld, getContract, isValidMeld, satisfiesContract } from './game/meld.js'
 import { handPenalty } from './game/scoring.js'
 
 const CARDS_ROUND_1 = 7
@@ -44,6 +44,9 @@ export class Room {
   discardOptionAvailableAt: number | null = null
   discardOptionDelaySeconds: number = 10
   secondsPerTurn: number = 0
+  /** If set, this player swapped a joker this turn and must play it in a meld before discarding. */
+  swappedJokerCardId: string | null = null
+  swappedJokerPlayerId: string | null = null
 
   constructor(options: RoomOptions = {}) {
     this.roomId = options.roomId ?? ''
@@ -151,6 +154,8 @@ export class Room {
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
     this.discardOptionAvailableAt = null
+    this.swappedJokerCardId = null
+    this.swappedJokerPlayerId = null
     const n = this.players.length
     const cardsPer = this.cardsPerPlayerThisRound()
     const deck = createContinentalDeck(n, this.deckCount)
@@ -282,6 +287,13 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null) {
+      const playedIds = new Set<string>()
+      for (const m of melds) for (const c of m.cards) playedIds.add(c.id)
+      if (!playedIds.has(this.swappedJokerCardId)) {
+        return { ok: false, error: 'You must play the joker you took in a meld this turn' }
+      }
+    }
     if (!satisfiesContract(melds, this.contract)) {
       return { ok: false, error: 'You must play the full contract at once' }
     }
@@ -302,6 +314,10 @@ export class Room {
         ownerId: playerId,
       })
     }
+    if (this.swappedJokerPlayerId === playerId) {
+      this.swappedJokerCardId = null
+      this.swappedJokerPlayerId = null
+    }
     return { ok: true }
   }
 
@@ -319,6 +335,32 @@ export class Room {
       if (idx >= 0) cp.hand.splice(idx, 1)
     }
     meld.cards = combined
+    if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null && cards.some(c => c.id === this.swappedJokerCardId)) {
+      this.swappedJokerCardId = null
+      this.swappedJokerPlayerId = null
+    }
+    return { ok: true }
+  }
+
+  swapJoker(playerId: string, meldId: string, cardIdFromHand: string): { ok: boolean; error?: string } {
+    if (this.phase !== 'playing') return { ok: false, error: 'Not playing' }
+    if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
+    const cp = this.players[this.currentPlayerIndex]
+    if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    const meld = this.melds.find(m => m.id === meldId)
+    if (!meld) return { ok: false, error: 'Meld not found' }
+    const jokerIdx = meld.cards.findIndex(c => c.isWild || c.suit === 'joker')
+    if (jokerIdx < 0) return { ok: false, error: 'Meld has no joker' }
+    const cardIdx = cp.hand.findIndex(c => c.id === cardIdFromHand)
+    if (cardIdx < 0) return { ok: false, error: 'Card not in hand' }
+    const card = cp.hand[cardIdx]!
+    if (!canReplaceJokerInMeld(meld, card)) return { ok: false, error: 'Card cannot replace that joker' }
+    const joker = meld.cards[jokerIdx]!
+    meld.cards[jokerIdx] = card
+    cp.hand.splice(cardIdx, 1)
+    cp.hand.push(joker)
+    this.swappedJokerCardId = joker.id
+    this.swappedJokerPlayerId = playerId
     return { ok: true }
   }
 
@@ -327,6 +369,10 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null) {
+      const stillHasJoker = cp.hand.some(c => c.id === this.swappedJokerCardId)
+      if (stillHasJoker) return { ok: false, error: 'Play the joker you took in a meld before discarding' }
+    }
     const idx = cp.hand.findIndex(c => c.id === cardId)
     if (idx < 0) return { ok: false, error: 'Card not in hand' }
     const [card] = cp.hand.splice(idx, 1)
@@ -350,6 +396,8 @@ export class Room {
     } else {
       this.currentPlayerIndex = (this.currentPlayerIndex + 1) % n
     }
+    this.swappedJokerCardId = null
+    this.swappedJokerPlayerId = null
     return { ok: true }
   }
 
@@ -405,6 +453,8 @@ export class Room {
       deckCount: this.deckCount,
       discardOptionDelaySeconds: this.discardOptionDelaySeconds,
       secondsPerTurn: this.secondsPerTurn,
+      swappedJokerCardId: this.swappedJokerCardId,
+      swappedJokerPlayerId: this.swappedJokerPlayerId,
     }
   }
 }

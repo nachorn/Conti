@@ -38,6 +38,8 @@ const strings: Record<Lang, Record<string, string>> = {
     points: 'points',
     passAvailableIn: 'Pass available in',
     s: 's',
+    playJokerFirst: 'Play the joker you took in a meld before discarding',
+    swapJoker: 'Swap joker',
   },
   es: {
     backToMenu: '← Volver al menú',
@@ -76,6 +78,8 @@ const strings: Record<Lang, Record<string, string>> = {
     points: 'puntos',
     passAvailableIn: 'Pasar disponible en',
     s: 's',
+    playJokerFirst: 'Juega el comodín que tomaste en una bajada antes de descartar',
+    swapJoker: 'Sustituir comodín',
   },
 }
 

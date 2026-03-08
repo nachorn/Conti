@@ -76,4 +76,7 @@ export interface GameState {
   discardOptionDelaySeconds: number
   /** Max seconds per turn (0 = no limit). */
   secondsPerTurn: number
+  /** If set, this player must play this joker in a meld before discarding. */
+  swappedJokerCardId?: string | null
+  swappedJokerPlayerId?: string | null
 }

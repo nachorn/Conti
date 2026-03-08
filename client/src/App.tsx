@@ -18,6 +18,7 @@ export default function App() {
     draw,
     playMelds,
     addToMeld,
+    swapJoker,
     discard,
     takeDiscard,
     passDiscard,
@@ -37,6 +38,7 @@ export default function App() {
         onDraw={draw}
         onPlayMelds={playMelds}
         onAddToMeld={addToMeld}
+        onSwapJoker={swapJoker}
         onDiscard={discard}
         onTakeDiscard={takeDiscard}
         onPassDiscard={passDiscard}
