@@ -1,0 +1,12 @@
+# Only server + shared are needed for the server image
+client/
+.git/
+.gitignore
+*.md
+.env*
+node_modules/
+server/node_modules/
+server/dist/
+.cursor/
+.idea/
+.vscode/
