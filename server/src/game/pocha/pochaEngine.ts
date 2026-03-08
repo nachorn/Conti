@@ -4,8 +4,8 @@ import type {
   PochaPlayer,
   SpanishSuit,
   TrickCard,
-} from '../../../../shared/pochaTypes.js'
-import { POCHA_TRICK_ORDER } from '../../../../shared/pochaTypes.js'
+} from './pochaTypes.js'
+import { POCHA_TRICK_ORDER } from './pochaTypes.js'
 import { createPochaDeck, draw } from './spanishDeck.js'
 
 /** Cards per hand: 1, 2, ... up to max then down. Max = 10 for 4 players (40/4), 8 for 5 (40/5), 12 for 3 (36/3). */

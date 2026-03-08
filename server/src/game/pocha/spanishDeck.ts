@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { PochaCard, SpanishSuit } from '../../../../shared/pochaTypes.js'
+import type { PochaCard, SpanishSuit } from './pochaTypes.js'
 
 const SUITS: SpanishSuit[] = ['oros', 'copas', 'espadas', 'bastos']
 const RANKS_40 = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const
