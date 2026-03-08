@@ -1,0 +1,173 @@
+import express from 'express'
+import { createServer } from 'http'
+import { Server } from 'socket.io'
+import cors from 'cors'
+import { Room } from './room.js'
+
+const app = express()
+app.use(cors({ origin: true }))
+app.use(express.json())
+
+const httpServer = createServer(app)
+const io = new Server(httpServer, {
+  cors: { origin: true },
+  transports: ['websocket', 'polling'],
+})
+
+const rooms = new Map<string, Room>()
+const playerToRoom = new Map<string, string>()
+
+function getOrCreateRoom(roomId: string): Room {
+  let room = rooms.get(roomId)
+  if (!room) {
+    room = new Room({ roomId, maxPlayers: 10 })
+    rooms.set(roomId, room)
+  }
+  return room
+}
+
+async function broadcastState(roomId: string): Promise<void> {
+  const room = rooms.get(roomId)
+  if (!room) return
+  const sockets = await io.in(roomId).fetchSockets()
+  for (const sock of sockets) {
+    sock.emit('state', room.getState(sock.id))
+  }
+}
+
+io.on('connection', (socket) => {
+  const playerId = socket.id
+  let roomId: string | null = null
+
+  socket.on('create', (payload: { name: string }) => {
+    const room = new Room({ maxPlayers: 10 })
+    room.addPlayer(playerId, payload?.name ?? 'Player')
+    rooms.set(room.roomId, room)
+    playerToRoom.set(playerId, room.roomId)
+    roomId = room.roomId
+    socket.join(room.roomId)
+    socket.emit('joined', { roomId: room.roomId, state: room.getState(playerId) })
+    broadcastState(room.roomId)
+  })
+
+  socket.on('join', (payload: { roomId: string; name: string }) => {
+    const id = (payload?.roomId ?? '').trim().toLowerCase()
+    if (!id) {
+      socket.emit('error', { message: 'Room ID required' })
+      return
+    }
+    const room = getOrCreateRoom(id)
+    if (!room.addPlayer(playerId, payload?.name ?? 'Player')) {
+      socket.emit('error', { message: 'Room full or game started' })
+      return
+    }
+    playerToRoom.set(playerId, room.roomId)
+    roomId = room.roomId
+    socket.join(room.roomId)
+    room.setConnected(playerId, true)
+    socket.emit('joined', { roomId: room.roomId, state: room.getState(playerId) })
+    broadcastState(room.roomId)
+  })
+
+  socket.on('start', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room || room.players[0]?.id !== playerId) {
+      socket.emit('error', { message: 'Only host can start' })
+      return
+    }
+    if (room.startGame()) {
+      broadcastState(roomId)
+      io.to(roomId).emit('game_started', {})
+    } else {
+      socket.emit('error', { message: 'Need at least 2 players' })
+    }
+  })
+
+  socket.on('draw', (payload: { fromDiscard?: boolean }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.draw(playerId, payload?.fromDiscard ?? false)
+    if (result.ok) {
+      broadcastState(roomId)
+    } else {
+      socket.emit('error', { message: result.error })
+    }
+  })
+
+  socket.on('play_melds', (payload: { melds: { type: string; cards: { id: string; suit: string; rank: number }[] }[] }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.playMelds(playerId, payload.melds as { type: 'trio' | 'straight'; cards: import('./types.js').Card[] })
+    if (result.ok) {
+      broadcastState(roomId)
+      if (room.phase === 'round_end') {
+        io.to(roomId).emit('round_end', { roundScores: room.roundScores, roundEnderId: room.roundEnderId })
+      }
+    } else {
+      socket.emit('error', { message: result.error })
+    }
+  })
+
+  socket.on('add_to_meld', (payload: { meldId: string; cards: { id: string; suit: string; rank: number }[] }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.addToMeld(playerId, payload.meldId, payload.cards as import('./types.js').Card[])
+    if (result.ok) {
+      broadcastState(roomId)
+    } else {
+      socket.emit('error', { message: result.error })
+    }
+  })
+
+  socket.on('discard', (payload: { cardId: string }) => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.discard(playerId, payload?.cardId ?? '')
+    if (result.ok) {
+      broadcastState(roomId)
+    } else {
+      socket.emit('error', { message: result.error })
+    }
+  })
+
+  socket.on('next_round', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const hostId = room.players[0]?.id
+    if (hostId !== playerId) {
+      socket.emit('error', { message: 'Only host can advance' })
+      return
+    }
+    if (room.nextRound()) {
+      broadcastState(roomId)
+    } else {
+      broadcastState(roomId)
+      if (room.phase === 'game_end') {
+        io.to(roomId).emit('game_end', {})
+      }
+    }
+  })
+
+  socket.on('disconnect', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (room) {
+      room.setConnected(playerId, false)
+      room.removePlayer(playerId)
+      playerToRoom.delete(playerId)
+      broadcastState(roomId)
+      if (room.players.length === 0) rooms.delete(roomId)
+    }
+  })
+})
+
+const PORT = Number(process.env.PORT) || 3001
+httpServer.listen(PORT, () => {
+  console.log(`Continental Rummy server on http://localhost:${PORT}`)
+})

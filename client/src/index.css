@@ -1,0 +1,71 @@
+:root {
+  --felt: #0d5c2e;
+  --felt-dark: #083d1f;
+  --gold: #c9a227;
+  --gold-dim: #8b7312;
+  --cream: #f5f0e1;
+  --red: #b22222;
+  --black: #1a1a1a;
+  --card-shadow: 2px 2px 8px rgba(0,0,0,0.4);
+  --card-radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Outfit', sans-serif;
+  background: var(--felt-dark);
+  color: var(--cream);
+  overflow: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1, h2 {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 600;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+input {
+  font-family: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 2px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.2);
+  color: var(--cream);
+}
+
+input::placeholder {
+  color: rgba(255,255,255,0.4);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
