@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { PochaGameState, PochaCard, PochaPlayer } from '@shared/pochaTypes'
+import type { PochaGameState, PochaPlayer } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { SpanishCard, SpanishCardBack, POCHA_SUIT_LABEL } from './pocha'

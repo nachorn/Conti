@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { PochaGameState, PochaCard, PochaPlayer, SpanishSuit } from '@shared/pochaTypes'
 
 function makeId(): string {
@@ -44,10 +44,12 @@ export function usePochaMockState(
       const next = { ...prev }
       const pi = next.players.findIndex((p) => p.id === socketId)
       if (pi === -1) return prev
+      const current = next.players[pi]
+      if (!current) return prev
       next.players = [...next.players]
       next.players[pi] = {
-        ...next.players[pi],
-        hand: next.players[pi].hand.filter((c) => c.id !== cardId),
+        ...current,
+        hand: current.hand.filter((c) => c.id !== cardId),
       }
       next.currentTrick = [...next.currentTrick, { playerId: socketId, card }]
 
@@ -78,8 +80,8 @@ function buildMockState(
   const players: PochaPlayer[] = names.map((name, i) => {
     const hand: PochaCard[] = []
     for (let c = 0; c < cardsPerHand; c++) {
-      const s = suits[(i * 3 + c) % 4]
-      const r = ranks[(i * 2 + c) % ranks.length]
+      const s = suits[(i * 3 + c) % 4] ?? 'oros'
+      const r = ranks[(i * 2 + c) % ranks.length] ?? 1
       hand.push(makeCard(s, r))
     }
     return {
@@ -115,7 +117,7 @@ function buildMockState(
     dealerIndex: 0,
     leadPlayerIndex: 1,
     currentTrick:
-      phase === 'playing'
+      phase === 'playing' && players[1]
         ? [
             {
               playerId: players[1].id,
