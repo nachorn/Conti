@@ -39,24 +39,23 @@ export function shuffle<T>(arr: T[]): T[] {
   return out
 }
 
+const JOKERS_PER_DECK = 2
+
 /**
- * Deck size for Continental: 2 decks + jokers for <5 players, 3 decks for 6-8, 4 for 9+.
- * We use 2 jokers per deck typically.
+ * Create deck. If deckCount is 2 or 3, use it; else 2 for <5 players, 3 for 6-8, 4 for 9+.
  */
-export function createContinentalDeck(playerCount: number): Card[] {
+export function createContinentalDeck(playerCount: number, deckCount?: 2 | 3): Card[] {
   let decks: number
-  let jokersPerDeck: number
-  if (playerCount < 5) {
+  if (deckCount === 2 || deckCount === 3) {
+    decks = deckCount
+  } else if (playerCount < 5) {
     decks = 2
-    jokersPerDeck = 2
   } else if (playerCount <= 8) {
     decks = 3
-    jokersPerDeck = 2
   } else {
     decks = 4
-    jokersPerDeck = 2
   }
-  return shuffle(makeDeck(decks, jokersPerDeck))
+  return shuffle(makeDeck(decks, JOKERS_PER_DECK))
 }
 
 export function draw(deck: Card[], n: number): { drawn: Card[]; remaining: Card[] } {

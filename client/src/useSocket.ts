@@ -29,6 +29,11 @@ export function useSocket() {
       setState(newState)
     })
 
+    socket.on('left', () => {
+      setRoomId(null)
+      setState(null)
+    })
+
     socket.on('error', (payload: { message: string }) => {
       setError(payload?.message ?? 'Error')
     })
@@ -38,16 +43,16 @@ export function useSocket() {
     })
 
     return () => {
-      socket.off('connect').off('joined').off('state').off('error').off('connect_error')
+      socket.off('connect').off('joined').off('state').off('left').off('error').off('connect_error')
       socket.disconnect()
       socketRef.current = null
       setSocketId(null)
     }
   }, [])
 
-  const create = (name: string) => {
+  const create = (name: string, deckCount?: 2 | 3) => {
     setError(null)
-    socketRef.current?.emit('create', { name })
+    socketRef.current?.emit('create', { name, deckCount: deckCount ?? 2 })
   }
 
   const join = (id: string, name: string) => {
@@ -55,8 +60,8 @@ export function useSocket() {
     socketRef.current?.emit('join', { roomId: id.trim().toLowerCase(), name })
   }
 
-  const start = () => {
-    socketRef.current?.emit('start')
+  const start = (deckCount?: 2 | 3) => {
+    socketRef.current?.emit('start', { deckCount })
   }
 
   const draw = (fromDiscard: boolean) => {
@@ -75,6 +80,18 @@ export function useSocket() {
     socketRef.current?.emit('discard', { cardId })
   }
 
+  const takeDiscard = () => {
+    socketRef.current?.emit('take_discard')
+  }
+
+  const passDiscard = () => {
+    socketRef.current?.emit('pass_discard')
+  }
+
+  const leave = () => {
+    socketRef.current?.emit('leave')
+  }
+
   const nextRound = () => {
     socketRef.current?.emit('next_round')
   }
@@ -90,6 +107,9 @@ export function useSocket() {
     playMelds,
     addToMeld,
     discard,
+    takeDiscard,
+    passDiscard,
+    leave,
     nextRound,
     socketId,
   }

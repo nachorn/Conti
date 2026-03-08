@@ -2,13 +2,14 @@ import { useState } from 'react'
 import './Lobby.css'
 
 interface LobbyProps {
-  onCreate: (name: string) => void
+  onCreate: (name: string, deckCount?: 2 | 3) => void
   onJoin: (roomId: string, name: string) => void
   error: string | null
 }
 
 export function Lobby({ onCreate, onJoin, error }: LobbyProps) {
   const [createName, setCreateName] = useState('')
+  const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [joinRoomId, setJoinRoomId] = useState('')
   const [joinName, setJoinName] = useState('')
 
@@ -30,7 +31,14 @@ export function Lobby({ onCreate, onJoin, error }: LobbyProps) {
             onChange={(e) => setCreateName(e.target.value)}
             maxLength={24}
           />
-          <button onClick={() => onCreate(createName || 'Player')} disabled={!createName.trim()}>
+          <label className="lobby-deck-label">
+            Decks:
+            <select value={createDecks} onChange={(e) => setCreateDecks(Number(e.target.value) as 2 | 3)}>
+              <option value={2}>2 decks</option>
+              <option value={3}>3 decks</option>
+            </select>
+          </label>
+          <button onClick={() => onCreate(createName || 'Player', createDecks)} disabled={!createName.trim()}>
             Create room
           </button>
         </section>

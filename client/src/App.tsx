@@ -13,6 +13,9 @@ export default function App() {
     draw,
     playMelds,
     discard,
+    takeDiscard,
+    passDiscard,
+    leave,
     nextRound,
     socketId,
   } = useSocket()
@@ -26,6 +29,9 @@ export default function App() {
         onDraw={draw}
         onPlayMelds={playMelds}
         onDiscard={discard}
+        onTakeDiscard={takeDiscard}
+        onPassDiscard={passDiscard}
+        onLeave={leave}
         onNextRound={nextRound}
       />
     )

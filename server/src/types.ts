@@ -33,9 +33,10 @@ export const CONTINENTAL_ROUNDS: RoundContract[] = [
   { round: 7, minCards: 12, requirements: [{ type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }] },
 ]
 
+/** A=20, Joker=50, K/Q/J=10, rest = face value */
 export const CARD_PENALTIES: Record<number, number> = {
-  0: 50, 14: 20, 13: 10, 12: 10, 11: 10, 10: 10,
-  9: 5, 8: 5, 7: 5, 6: 5, 5: 5, 4: 5, 3: 5, 2: 5,
+  0: 50, 14: 20, 13: 10, 12: 10, 11: 10,
+  10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2,
 }
 
 export interface Player {
@@ -61,4 +62,8 @@ export interface GameState {
   topDiscard: Card | null
   dealerIndex: number
   roundScores: Record<string, number>
+  /** When set, this player can take the top discard or pass (only when >2 players). */
+  discardOptionPlayerIndex: number | null
+  /** 2 or 3 decks (lobby option). */
+  deckCount: 2 | 3
 }

@@ -39,8 +39,9 @@ io.on('connection', (socket) => {
   const playerId = socket.id
   let roomId: string | null = null
 
-  socket.on('create', (payload: { name: string }) => {
-    const room = new Room({ maxPlayers: 10 })
+  socket.on('create', (payload: { name: string; deckCount?: 2 | 3 }) => {
+    const deckCount = payload?.deckCount === 3 ? 3 : 2
+    const room = new Room({ maxPlayers: 10, deckCount })
     room.addPlayer(playerId, payload?.name ?? 'Player')
     rooms.set(room.roomId, room)
     playerToRoom.set(playerId, room.roomId)
@@ -69,13 +70,14 @@ io.on('connection', (socket) => {
     broadcastState(room.roomId)
   })
 
-  socket.on('start', () => {
+  socket.on('start', (payload?: { deckCount?: 2 | 3 }) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room || room.players[0]?.id !== playerId) {
       socket.emit('error', { message: 'Only host can start' })
       return
     }
+    if (payload?.deckCount === 3 || payload?.deckCount === 2) room.setDeckCount(payload.deckCount)
     if (room.startGame()) {
       broadcastState(roomId)
       io.to(roomId).emit('game_started', {})
@@ -103,9 +105,6 @@ io.on('connection', (socket) => {
     const result = room.playMelds(playerId, payload.melds as { type: 'trio' | 'straight'; cards: import('./types.js').Card[] }[])
     if (result.ok) {
       broadcastState(roomId)
-      if (room.phase === 'round_end') {
-        io.to(roomId).emit('round_end', { roundScores: room.roundScores, roundEnderId: room.roundEnderId })
-      }
     } else {
       socket.emit('error', { message: result.error })
     }
@@ -130,9 +129,30 @@ io.on('connection', (socket) => {
     const result = room.discard(playerId, payload?.cardId ?? '')
     if (result.ok) {
       broadcastState(roomId)
+      if (room.phase === 'round_end') {
+        io.to(roomId).emit('round_end', { roundScores: room.roundScores, roundEnderId: room.roundEnderId })
+      }
     } else {
       socket.emit('error', { message: result.error })
     }
+  })
+
+  socket.on('take_discard', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.takeDiscard(playerId)
+    if (result.ok) broadcastState(roomId)
+    else socket.emit('error', { message: result.error })
+  })
+
+  socket.on('pass_discard', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    const result = room.passDiscard(playerId)
+    if (result.ok) broadcastState(roomId)
+    else socket.emit('error', { message: result.error })
   })
 
   socket.on('next_round', () => {
@@ -152,6 +172,20 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('game_end', {})
       }
     }
+  })
+
+  socket.on('leave', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (room) {
+      room.removePlayer(playerId)
+      playerToRoom.delete(playerId)
+      socket.leave(roomId)
+      broadcastState(roomId)
+      if (room.players.length === 0) rooms.delete(roomId)
+    }
+    roomId = null
+    socket.emit('left')
   })
 
   socket.on('disconnect', () => {

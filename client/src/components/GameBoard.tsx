@@ -3,13 +3,22 @@ import type { Card as CardType, GameState, Meld } from '../types'
 import { Card } from './Card'
 import './GameBoard.css'
 
+const CARDS_ROUND_1 = 7
+
+function cardsPerPlayerForRound(round: number): number {
+  return CARDS_ROUND_1 + round - 1
+}
+
 interface GameBoardProps {
   state: GameState
   socketId: string | null
-  onStart: () => void
+  onStart: (deckCount?: 2 | 3) => void
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
   onDiscard: (cardId: string) => void
+  onTakeDiscard: () => void
+  onPassDiscard: () => void
+  onLeave: () => void
   onNextRound: () => void
 }
 
@@ -20,18 +29,24 @@ export function GameBoard({
   onDraw,
   onPlayMelds,
   onDiscard,
+  onTakeDiscard,
+  onPassDiscard,
+  onLeave,
   onNextRound,
 }: GameBoardProps) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
+  const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
   const me = state.players.find((p) => p.id === socketId)
   const isMyTurn = state.players[state.currentPlayerIndex]?.id === socketId
   const isHost = state.players[0]?.id === socketId
+  const discardOptionIndex = state.discardOptionPlayerIndex ?? null
+  const isMyDiscardOption = discardOptionIndex !== null && state.players[discardOptionIndex]?.id === socketId
 
   const myHand = me?.hand ?? []
-  const CARDS_AFTER_DEAL = 6
-  const needToDraw = isMyTurn && myHand.length === CARDS_AFTER_DEAL
-  const canDraw = state.phase === 'playing' && needToDraw
-  const canDiscard = state.phase === 'playing' && isMyTurn && myHand.length > CARDS_AFTER_DEAL
+  const cardsThisRound = cardsPerPlayerForRound(state.round)
+  const needToDraw = isMyTurn && myHand.length === cardsThisRound
+  const canDraw = state.phase === 'playing' && needToDraw && !isMyDiscardOption
+  const canDiscard = state.phase === 'playing' && isMyTurn && myHand.length > cardsThisRound && !isMyDiscardOption
 
   const toggleCard = (id: string) => {
     if (!canDiscard && !canDraw) return
@@ -77,6 +92,9 @@ export function GameBoard({
   if (state.phase === 'lobby') {
     return (
       <div className="game-board game-lobby">
+        <button type="button" className="game-back-btn" onClick={onLeave}>
+          ← Back to menu
+        </button>
         <div className="game-lobby-box">
           <h2>Room {state.roomId.toUpperCase()}</h2>
           <p>Players ({state.players.length}/10):</p>
@@ -88,9 +106,18 @@ export function GameBoard({
             ))}
           </ul>
           {isHost && (
-            <button onClick={onStart} disabled={state.players.length < 2}>
-              Start game ({state.players.length} players)
-            </button>
+            <>
+              <label className="lobby-deck-label">
+                Decks:
+                <select value={lobbyDeckCount} onChange={(e) => setLobbyDeckCount(Number(e.target.value) as 2 | 3)}>
+                  <option value={2}>2 decks</option>
+                  <option value={3}>3 decks</option>
+                </select>
+              </label>
+              <button onClick={() => onStart(lobbyDeckCount)} disabled={state.players.length < 2}>
+                Start game ({state.players.length} players)
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -100,9 +127,13 @@ export function GameBoard({
   if (state.phase === 'round_end') {
     return (
       <div className="game-board game-round-end">
+        <button type="button" className="game-back-btn" onClick={onLeave}>
+          ← Back to menu
+        </button>
+        <Scoreboard state={state} />
         <div className="game-round-end-box">
           <h2>Round {state.round} over</h2>
-          <p>Penalties this round:</p>
+          <p>This round:</p>
           <ul>
             {state.players.map((p) => (
               <li key={p.id}>
@@ -123,6 +154,10 @@ export function GameBoard({
     const winner = state.players.reduce((a, b) => (a.score <= b.score ? a : b))
     return (
       <div className="game-board game-round-end">
+        <button type="button" className="game-back-btn" onClick={onLeave}>
+          ← Back to menu
+        </button>
+        <Scoreboard state={state} />
         <div className="game-round-end-box">
           <h2>Game over</h2>
           <p>Winner: {winner.name} with {winner.score} points</p>
@@ -138,13 +173,18 @@ export function GameBoard({
 
   return (
     <div className="game-board">
+      <button type="button" className="game-back-btn" onClick={onLeave}>
+        ← Back to menu
+      </button>
+      <Scoreboard state={state} />
       <div className="game-info">
         <span>Room {state.roomId.toUpperCase()}</span>
         <span>Round {state.round}</span>
         <span>
           Contract: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type}`).join(', ')}
         </span>
-        {isMyTurn && <span className="turn-badge">Your turn</span>}
+        {isMyTurn && !isMyDiscardOption && <span className="turn-badge">Your turn</span>}
+        {isMyDiscardOption && <span className="turn-badge discard-option-badge">Take or pass discard</span>}
       </div>
 
       <div className="game-table">
@@ -229,6 +269,12 @@ export function GameBoard({
           ))}
         </div>
         <div className="game-actions">
+          {isMyDiscardOption && (
+            <>
+              <button onClick={onTakeDiscard}>Take discard</button>
+              <button onClick={onPassDiscard}>Pass</button>
+            </>
+          )}
           {canDraw && (
             <>
               <button onClick={handleDrawStock}>Draw from stock</button>
@@ -241,12 +287,32 @@ export function GameBoard({
             <button
               onClick={handlePlayMelds}
               disabled={selectedCards.size < 3}
-              title="Play selected cards as trios (same rank)"
+              title="Play full contract only (e.g. 2 trios for round 1)"
             >
               Play melds
             </button>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function Scoreboard({ state }: { state: GameState }) {
+  return (
+    <div className="scoreboard">
+      <h3 className="scoreboard-title">Scoreboard</h3>
+      <div className="scoreboard-list">
+        {state.players
+          .slice()
+          .sort((a, b) => a.score - b.score)
+          .map((p, i) => (
+            <div key={p.id} className="scoreboard-row">
+              <span className="scoreboard-rank">{i + 1}.</span>
+              <span className="scoreboard-name">{p.name}</span>
+              <span className="scoreboard-score">{p.score}</span>
+            </div>
+          ))}
       </div>
     </div>
   )

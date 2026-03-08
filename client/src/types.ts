@@ -45,4 +45,6 @@ export interface GameState {
   topDiscard: Card | null
   dealerIndex: number
   roundScores: Record<string, number>
+  discardOptionPlayerIndex?: number | null
+  deckCount?: 2 | 3
 }
