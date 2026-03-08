@@ -2,6 +2,7 @@ import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
 import { GameBoard } from './components/GameBoard'
 
+/** Root: lobby or game board based on room state. */
 export default function App() {
   const {
     state,
