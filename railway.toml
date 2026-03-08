@@ -1,0 +1,9 @@
+# Railway config-as-code: build and run the server only.
+# Deployments use this instead of dashboard settings.
+
+[build]
+builder = "railpack"
+buildCommand = "cd server && npm install && npm run build"
+
+[deploy]
+startCommand = "cd server && npm start"
