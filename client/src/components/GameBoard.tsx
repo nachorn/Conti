@@ -521,14 +521,22 @@ export function GameBoard({
         <div className="game-actions">
           {isMyDiscardOption && (
             <>
+              <span className="game-actions-label">Want the top card?</span>
               <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>Take discard</button>
-              <button onClick={onPassDiscard} disabled={!canTakeOrPass}>
-                {canTakeOrPass ? 'Pass' : `Wait ${discardDelayRemaining}s`}
+              <button
+                onClick={onPassDiscard}
+                disabled={!canTakeOrPass}
+                title={!canTakeOrPass && discardDelayRemaining > 0 ? `Pass available in ${discardDelayRemaining}s` : undefined}
+              >
+                Pass
               </button>
             </>
           )}
           {canDraw && (
             <>
+              <span className="game-actions-label">
+                {state.topDiscard ? 'Take the top card or draw from stock:' : 'Draw a card:'}
+              </span>
               <button onClick={handleDrawStock}>Draw from stock</button>
               <button onClick={handleDrawDiscard} disabled={!state.topDiscard}>
                 Draw discard
