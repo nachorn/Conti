@@ -124,6 +124,10 @@
 .lobby-dev {
   margin-top: 1.5rem;
   text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
 }
 
 .lobby-dev-btn {

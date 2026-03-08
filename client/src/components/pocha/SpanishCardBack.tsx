@@ -29,12 +29,17 @@ export function SpanishCardBack({
         <filter id="pocha-back-shadow" x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="1" dy="2" stdDeviation="1.5" floodOpacity="0.3" />
         </filter>
-        <pattern id="pocha-back-pattern" patternUnits="userSpaceOnUse" width="12" height="12">
-          <circle cx="2" cy="2" r="1" fill="#8b4513" opacity="0.6" />
-          <circle cx="8" cy="8" r="1" fill="#8b4513" opacity="0.6" />
+        <pattern id="pocha-back-pattern" patternUnits="userSpaceOnUse" width="16" height="16">
+          <path d="M0 0h4v4H0zM8 8h4v4H8z" fill="#8b6914" opacity="0.25" />
+          <path d="M4 4h4v4H4zM12 0h4v4h-4zM0 12h4v4H0z" fill="#5c3d0a" opacity="0.2" />
         </pattern>
         <linearGradient id="pocha-back-fill" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#5d3a1a" />
+          <stop offset="0" stopColor="#6b4423" />
+          <stop offset="0.5" stopColor="#4a2f18" />
+          <stop offset="1" stopColor="#2d1a0d" />
+        </linearGradient>
+        <linearGradient id="pocha-back-border" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#8b6914" />
           <stop offset="1" stopColor="#3d2612" />
         </linearGradient>
       </defs>
@@ -47,8 +52,8 @@ export function SpanishCardBack({
           rx={RADIUS}
           ry={RADIUS}
           fill="url(#pocha-back-fill)"
-          stroke="#2d1a0d"
-          strokeWidth="1"
+          stroke="url(#pocha-back-border)"
+          strokeWidth="1.5"
           filter="url(#pocha-back-shadow)"
         />
         <rect

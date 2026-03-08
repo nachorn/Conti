@@ -11,9 +11,11 @@ interface LobbyProps {
   setLang: (lang: Lang) => void
   /** Dev: open Pocha game with mock state */
   onOpenPochaDev?: () => void
+  /** Dev: open Continental game with mock state */
+  onOpenContinentalDev?: () => void
 }
 
-export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev }: LobbyProps) {
+export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, onOpenContinentalDev }: LobbyProps) {
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [joinRoomId, setJoinRoomId] = useState('')
@@ -82,11 +84,18 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev }
 
       {error && <p className="lobby-error">{error}</p>}
 
-      {onOpenPochaDev && (
+      {(onOpenPochaDev || onOpenContinentalDev) && (
         <p className="lobby-dev">
-          <button type="button" className="lobby-dev-btn" onClick={onOpenPochaDev}>
-            {lang === 'es' ? 'Jugar Pocha (dev)' : 'Play Pocha (dev)'}
-          </button>
+          {onOpenContinentalDev && (
+            <button type="button" className="lobby-dev-btn" onClick={onOpenContinentalDev}>
+              {lang === 'es' ? 'Jugar Continental (dev)' : 'Play Continental (dev)'}
+            </button>
+          )}
+          {onOpenPochaDev && (
+            <button type="button" className="lobby-dev-btn" onClick={onOpenPochaDev}>
+              {lang === 'es' ? 'Jugar Pocha (dev)' : 'Play Pocha (dev)'}
+            </button>
+          )}
         </p>
       )}
     </div>
