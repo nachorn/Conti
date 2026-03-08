@@ -17,10 +17,11 @@ export const SUIT_SYMBOL: Record<Suit, string> = {
   joker: '🃏',
 }
 
-/** Rank 2–14 (2..10,J,Q,K,A), 0 = joker. */
+/** Rank 2–14 (2..10,J,Q,K,A), 0 = joker. Treats 1 as A for robustness. */
 export function rankLabel(rank: number): string {
   if (rank === 0) return 'Joker'
+  if (rank === 1 || rank === 14) return 'A'
   if (rank >= 2 && rank <= 10) return String(rank)
-  const face: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' }
+  const face: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K' }
   return face[rank] ?? '?'
 }

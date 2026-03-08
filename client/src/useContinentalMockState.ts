@@ -139,14 +139,15 @@ function buildMockState(deckCount: 2 | 3 = 2, round = 1): GameState {
   const myId = 'dev-player-1'
   const otherId = 'dev-player-2'
   const cardsThisRound = 7 + round - 1
+  // Continental ranks: 2–10, J=11, Q=12, K=13, A=14. Joker=0.
   const myHand: Card[] = []
   for (let i = 0; i < cardsThisRound; i++) {
-    myHand.push(makeCard(SUITS[i % 4] ?? 'hearts', (i % 13) + 1))
+    myHand.push(makeCard(SUITS[i % 4] ?? 'hearts', (i % 13) + 2))
   }
   myHand.push(makeCard('joker', 0, true))
   const otherHand: Card[] = []
   for (let i = 0; i < cardsThisRound; i++) {
-    otherHand.push(makeCard(SUITS[(i + 2) % 4] ?? 'hearts', ((i + 5) % 13) + 1))
+    otherHand.push(makeCard(SUITS[(i + 2) % 4] ?? 'hearts', ((i + 5) % 13) + 2))
   }
   const topDiscard = makeCard('spades', 7)
   const totalCards = (deckCount === 2 ? 108 : 162) - cardsThisRound * 2 - 1
