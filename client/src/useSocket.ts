@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import type { GameState, Card } from './types'
 
-const SOCKET_URL = import.meta.env.DEV ? 'http://localhost:3001' : ''
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3001' : '')
 
 export function useSocket() {
   const [state, setState] = useState<GameState | null>(null)
