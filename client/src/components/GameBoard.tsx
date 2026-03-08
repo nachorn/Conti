@@ -493,11 +493,12 @@ export function GameBoard({
           const seats = getSeatsAroundTable([...state.players], socketId)
           const playerIndexToDisplayIndex: number[] = []
           for (let pi = 0; pi < n; pi++) {
-            const d = seats.findIndex((p) => p?.id === state.players[pi].id)
+            const player = state.players[pi]
+            const d = player ? seats.findIndex((p) => p?.id === player.id) : -1
             playerIndexToDisplayIndex[pi] = d >= 0 ? d : 0
           }
           const targetPlayerIndex = dealingIndex % n
-          const displayIndex = playerIndexToDisplayIndex[targetPlayerIndex]
+          const displayIndex = playerIndexToDisplayIndex[targetPlayerIndex] ?? 0
           const pos = seatPosition(displayIndex)
           return (
             <div
