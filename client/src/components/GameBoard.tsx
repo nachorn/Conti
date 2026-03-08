@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Card as CardType, GameState, Meld, Player } from '../types'
+import type { Lang } from '../i18n'
+import { t } from '../i18n'
 import { Card } from './Card'
 import { CardBack } from './cards/CardBack'
 import './GameBoard.css'
@@ -7,13 +9,13 @@ import './GameBoard.css'
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
 
-/** Seat positions around oval: angle in degrees (0 = bottom). Returns [x%, y%]. */
-function seatPosition(displayIndex: number): { x: number; y: number } {
+/** Seat positions around oval: angle in degrees (0 = bottom). radius in % from center (default 48). */
+function seatPosition(displayIndex: number, radius = 48): { x: number; y: number } {
   const angleDeg = displayIndex * (360 / POKER_SEAT_COUNT) - 90
   const rad = (angleDeg * Math.PI) / 180
   return {
-    x: 50 + 48 * Math.cos(rad),
-    y: 50 + 48 * Math.sin(rad),
+    x: 50 + radius * Math.cos(rad),
+    y: 50 + radius * Math.sin(rad),
   }
 }
 
@@ -67,9 +69,12 @@ function sortHandByOrder(hand: CardType[], order: string[]): CardType[] {
 interface GameBoardProps {
   state: GameState
   socketId: string | null
+  lang: Lang
+  setLang: (lang: Lang) => void
   onStart: (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => void
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
+  onAddToMeld: (meldId: string, cards: CardType[]) => void
   onDiscard: (cardId: string) => void
   onTakeDiscard: () => void
   onPassDiscard: () => void
@@ -81,9 +86,12 @@ interface GameBoardProps {
 export function GameBoard({
   state,
   socketId,
+  lang,
+  setLang,
   onStart,
   onDraw,
   onPlayMelds,
+  onAddToMeld,
   onDiscard,
   onTakeDiscard,
   onPassDiscard,
@@ -92,6 +100,7 @@ export function GameBoard({
   onSetSeat,
 }: GameBoardProps) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
+  const [selectedMeldId, setSelectedMeldId] = useState<string | null>(null)
   const [handOrder, setHandOrder] = useState<string[]>([])
   const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
   const [lobbyDiscardDelay, setLobbyDiscardDelay] = useState(state.discardOptionDelaySeconds ?? 10)
@@ -205,16 +214,31 @@ export function GameBoard({
     }
   }
 
+  const handleAddToMeld = () => {
+    if (!canDiscard || !selectedMeldId || selectedCards.size === 0) return
+    const cards = myHand.filter((c) => selectedCards.has(c.id))
+    if (cards.length === 0) return
+    onAddToMeld(selectedMeldId, cards)
+    setSelectedCards(new Set())
+    setSelectedMeldId(null)
+  }
+
   if (state.phase === 'lobby') {
     const lobbySeats = getSeatsAroundTable([...state.players], socketId)
     return (
       <div className="game-board game-lobby">
-        <button type="button" className="game-back-btn" onClick={onLeave}>
-          ← Back to menu
-        </button>
+        <div className="game-top-row">
+          <button type="button" className="game-back-btn" onClick={onLeave}>
+            {t(lang, 'backToMenu')}
+          </button>
+          <div className="game-lang">
+            <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+            <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+          </div>
+        </div>
         <div className="game-lobby-header">
-          <h2>Room {state.roomId}</h2>
-          <p className="game-lobby-sub">Choose your seat · {state.players.length}/10 players</p>
+          <h2>{t(lang, 'room')} {state.roomId}</h2>
+          <p className="game-lobby-sub">{t(lang, 'chooseSeat')} · {state.players.length}/10 {t(lang, 'players')}</p>
         </div>
         <div className="poker-table-wrap poker-table-lobby">
           <div className="poker-table-oval" />
@@ -234,13 +258,13 @@ export function GameBoard({
                 role={isEmpty ? 'button' : undefined}
               >
                 {player ? (
-                  <>
-                    <span className="poker-seat-name">{player.name}</span>
-                    {isMe && <span className="poker-seat-you">(you)</span>}
-                  </>
-                ) : (
-                  <span className="poker-seat-sit">Sit here</span>
-                )}
+                <>
+                  <span className="poker-seat-name">{player.name}</span>
+                  {isMe && <span className="poker-seat-you">{t(lang, 'you')}</span>}
+                </>
+              ) : (
+                <span className="poker-seat-sit">{t(lang, 'sitHere')}</span>
+              )}
               </div>
             )
           })}
@@ -283,7 +307,7 @@ export function GameBoard({
                 }
                 disabled={state.players.length < 2}
               >
-                Start game ({state.players.length} players)
+                {t(lang, 'startGame')} ({state.players.length} {t(lang, 'players')})
               </button>
             </>
           )}
@@ -296,23 +320,23 @@ export function GameBoard({
     return (
       <div className="game-board game-round-end">
         <button type="button" className="game-back-btn" onClick={onLeave}>
-          ← Back to menu
+          {t(lang, 'backToMenu')}
         </button>
-        <Scoreboard state={state} />
+        <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
-          <h2>Round {state.round} over</h2>
-          <p>This round:</p>
+          <h2>{t(lang, 'round')} {state.round} {lang === 'es' ? 'terminada' : 'over'}</h2>
+          <p>{lang === 'es' ? 'Esta ronda:' : 'This round:'}</p>
           <ul>
             {state.players.map((p) => (
               <li key={p.id}>
-                {p.name}: {state.roundScores[p.id] ?? 0} pts
+                {p.name}: {state.roundScores[p.id] ?? 0} {t(lang, 'points')}
               </li>
             ))}
           </ul>
           {state.round < 7 && isHost && (
-            <button onClick={onNextRound}>Next round</button>
+            <button onClick={onNextRound}>{t(lang, 'nextRound')}</button>
           )}
-          {state.round >= 7 && <p className="game-over-msg">Game over. Lowest total score wins.</p>}
+          {state.round >= 7 && <p className="game-over-msg">{lang === 'es' ? 'Fin de partida. Gana quien tenga menos puntos.' : 'Game over. Lowest total score wins.'}</p>}
         </div>
       </div>
     )
@@ -323,15 +347,15 @@ export function GameBoard({
     return (
       <div className="game-board game-round-end">
         <button type="button" className="game-back-btn" onClick={onLeave}>
-          ← Back to menu
+          {t(lang, 'backToMenu')}
         </button>
-        <Scoreboard state={state} />
+        <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
-          <h2>Game over</h2>
-          <p>Winner: {winner.name} with {winner.score} points</p>
+          <h2>{t(lang, 'gameOver')}</h2>
+          <p>{t(lang, 'winner')}: {winner.name} {t(lang, 'with')} {winner.score} {t(lang, 'points')}</p>
           <ul>
             {state.players.map((p) => (
-              <li key={p.id}>{p.name}: {p.score} pts</li>
+              <li key={p.id}>{p.name}: {p.score} {t(lang, 'points')}</li>
             ))}
           </ul>
         </div>
@@ -341,40 +365,41 @@ export function GameBoard({
 
   return (
     <div className="game-board">
-      <button type="button" className="game-back-btn" onClick={onLeave}>
-        ← Back to menu
-      </button>
-      <Scoreboard state={state} />
+      <div className="game-top-row">
+        <button type="button" className="game-back-btn" onClick={onLeave}>
+          {t(lang, 'backToMenu')}
+        </button>
+        <div className="game-lang">
+          <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+          <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+        </div>
+      </div>
+      <Scoreboard state={state} lang={lang} />
       <div className="game-info">
-        <span>Room {state.roomId.toUpperCase()}</span>
-        <span>Round {state.round}</span>
+        <span>{t(lang, 'room')} {state.roomId}</span>
+        <span>{t(lang, 'round')} {state.round}</span>
         <span>
-          Contract: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type}`).join(', ')}
+          {t(lang, 'contract')}: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type}`).join(', ')}
         </span>
         {turnPlayer && (
           <span className={`turn-badge ${isMyTurn ? 'turn-badge-you' : ''}`}>
-            {isMyTurn ? 'Your turn' : `${turnPlayer.name}'s turn`}
+            {isMyTurn ? t(lang, 'yourTurn') : `${turnPlayer.name}${t(lang, 'turn')}`}
           </span>
         )}
         {turnSecondsLeft != null && secondsPerTurn > 0 && (
-          <span className="turn-timer">{turnSecondsLeft}s</span>
+          <span className="turn-timer">{turnSecondsLeft}{t(lang, 's')}</span>
         )}
         {isMyDiscardOption && discardDelayRemaining > 0 && (
-          <span className="turn-badge discard-delay-badge">Take/pass in {discardDelayRemaining}s</span>
+          <span className="turn-badge discard-delay-badge">{t(lang, 'takePassIn')} {discardDelayRemaining}{t(lang, 's')}</span>
         )}
         {hasPriority && canTakeOrPass && (
-          <span className="turn-badge priority-badge">You have priority</span>
+          <span className="turn-badge priority-badge">{t(lang, 'youHavePriority')}</span>
         )}
       </div>
 
       <div className="poker-table-wrap poker-table-playing">
         <div className="poker-table-oval">
           <div className="game-table-center">
-            <div className="game-melds">
-              {state.melds.map((meld) => (
-                <MeldRow key={meld.id} meld={meld} />
-              ))}
-            </div>
             {canDiscard && (
               <div
                 className="game-discard-zone"
@@ -397,7 +422,7 @@ export function GameBoard({
                   }
                 }}
               >
-                <span className="discard-zone-label">Drop here to discard</span>
+                <span className="discard-zone-label">{t(lang, 'dropToDiscard')}</span>
               </div>
             )}
             <div className="game-piles">
@@ -419,6 +444,29 @@ export function GameBoard({
             </div>
           </div>
         </div>
+        {/* Meld zones: one per seat, in front of each player (inner radius) */}
+        {getSeatsAroundTable([...state.players], socketId).map((player, d) => {
+          const meldsForSeat = player ? state.melds.filter((m) => m.ownerId === player.id) : []
+          const pos = seatPosition(d, 32)
+          return (
+            <div
+              key={`meld-${d}`}
+              className="poker-seat-melds"
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
+            >
+              {meldsForSeat.map((meld) => (
+                <div
+                  key={meld.id}
+                  className={`meld-row-wrap ${canDiscard && selectedCards.size > 0 ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''}`}
+                  onClick={() => canDiscard && selectedCards.size > 0 && setSelectedMeldId((id) => (id === meld.id ? null : meld.id))}
+                  role={canDiscard && selectedCards.size > 0 ? 'button' : undefined}
+                >
+                  <MeldRow meld={meld} />
+                </div>
+              ))}
+            </div>
+          )
+        })}
         {getSeatsAroundTable([...state.players], socketId).map((player, d) => {
           const pos = seatPosition(d)
           const isMe = player?.id === socketId
@@ -432,7 +480,7 @@ export function GameBoard({
                 <>
                   <span className="poker-seat-name">{player.name}</span>
                   {isMe ? (
-                    <span className="poker-seat-you">(you)</span>
+                    <span className="poker-seat-you">{t(lang, 'you')}</span>
                   ) : (
                     <div className="opponent-cards opponent-cards-single">
                       <CardBack width={48} height={67} count={player.hand.length} />
@@ -490,7 +538,7 @@ export function GameBoard({
           ))}
         </div>
         <div className="game-hand-toolbar">
-          <span className="hand-toolbar-label">Sort:</span>
+          <span className="hand-toolbar-label">{t(lang, 'sort')}</span>
           <button
             type="button"
             className="hand-sort-btn"
@@ -502,7 +550,7 @@ export function GameBoard({
               )
             }
           >
-            Rank
+            {t(lang, 'rank')}
           </button>
           <button
             type="button"
@@ -515,42 +563,53 @@ export function GameBoard({
               )
             }
           >
-            Suit
+            {t(lang, 'suit')}
           </button>
         </div>
         <div className="game-actions">
           {isMyDiscardOption && (
             <>
-              <span className="game-actions-label">Want the top card?</span>
-              <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>Take discard</button>
+              <span className="game-actions-label">{t(lang, 'wantTheTopCard')}</span>
+              <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>{t(lang, 'takeDiscard')}</button>
               <button
                 onClick={onPassDiscard}
                 disabled={!canTakeOrPass}
-                title={!canTakeOrPass && discardDelayRemaining > 0 ? `Pass available in ${discardDelayRemaining}s` : undefined}
+                title={!canTakeOrPass && discardDelayRemaining > 0 ? `${t(lang, 'passAvailableIn')} ${discardDelayRemaining}${t(lang, 's')}` : undefined}
               >
-                Pass
+                {t(lang, 'pass')}
               </button>
             </>
           )}
           {canDraw && (
             <>
               <span className="game-actions-label">
-                {state.topDiscard ? 'Take the top card or draw from stock:' : 'Draw a card:'}
+                {state.topDiscard ? t(lang, 'takeTopOrDraw') : t(lang, 'drawCard')}
               </span>
-              <button onClick={handleDrawStock}>Draw from stock</button>
+              <button onClick={handleDrawStock}>{t(lang, 'drawFromStock')}</button>
               <button onClick={handleDrawDiscard} disabled={!state.topDiscard}>
-                Draw discard
+                {t(lang, 'drawDiscard')}
               </button>
             </>
           )}
           {canDiscard && (
-            <button
-              onClick={handlePlayMelds}
-              disabled={selectedCards.size < 3}
-              title="Play full contract only (e.g. 2 trios for round 1)"
-            >
-              Play melds
-            </button>
+            <>
+              <button
+                onClick={handlePlayMelds}
+                disabled={selectedCards.size < 3}
+                title={lang === 'es' ? 'Bajar contrato completo (ej. 2 trios en ronda 1)' : 'Play full contract only (e.g. 2 trios for round 1)'}
+              >
+                {t(lang, 'playMelds')}
+              </button>
+              {state.melds.length > 0 && selectedCards.size > 0 && (
+                <button
+                  onClick={handleAddToMeld}
+                  disabled={!selectedMeldId}
+                  title={lang === 'es' ? 'Elige una bajada arriba y luego pulsa aquí' : 'Select a meld above, then click here'}
+                >
+                  {t(lang, 'addToMeld')}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -558,10 +617,10 @@ export function GameBoard({
   )
 }
 
-function Scoreboard({ state }: { state: GameState }) {
+function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
   return (
     <div className="scoreboard">
-      <h3 className="scoreboard-title">Scoreboard</h3>
+      <h3 className="scoreboard-title">{t(lang, 'scoreboard')}</h3>
       <div className="scoreboard-list">
         {state.players
           .slice()

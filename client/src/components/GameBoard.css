@@ -25,11 +25,18 @@
   font-family: inherit;
 }
 
-.game-back-btn {
+.game-top-row {
   position: absolute;
   top: 0.5rem;
   left: 0.5rem;
+  right: 0.5rem;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.game-back-btn {
   background: rgba(0, 0, 0, 0.4);
   color: var(--cream);
   padding: 0.4rem 0.75rem;
@@ -38,6 +45,27 @@
 
 .game-back-btn:hover {
   background: rgba(0, 0, 0, 0.6);
+}
+
+.game-lang {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.game-lang button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background: rgba(255,255,255,0.15);
+  color: var(--cream);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.game-lang button.active {
+  background: var(--gold);
+  color: var(--black);
+  border-color: var(--gold);
 }
 
 .scoreboard {
@@ -212,6 +240,38 @@
 .poker-seat-sit {
   font-size: 0.75rem;
   opacity: 0.85;
+}
+
+.poker-seat-melds {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  z-index: 1;
+  pointer-events: auto;
+  max-width: 180px;
+}
+
+.meld-row-wrap {
+  padding: 2px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.meld-row-wrap.meld-row-can-add {
+  cursor: pointer;
+}
+
+.meld-row-wrap.meld-row-can-add:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.meld-row-wrap.meld-row-selected {
+  border-color: var(--gold);
+  background: rgba(212, 175, 55, 0.15);
 }
 
 .poker-table-lobby {

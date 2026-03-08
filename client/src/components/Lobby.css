@@ -11,6 +11,31 @@
 .lobby-header {
   text-align: center;
   margin-bottom: 3rem;
+  position: relative;
+}
+
+.lobby-lang {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.lobby-lang button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background: rgba(255,255,255,0.15);
+  color: var(--cream);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.lobby-lang button.active {
+  background: var(--gold);
+  color: var(--black);
+  border-color: var(--gold);
 }
 
 .lobby-header h1 {
