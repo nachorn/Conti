@@ -40,9 +40,9 @@ io.on('connection', (socket) => {
 
   socket.on('create', (payload: { name: string; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
     const deckCount = payload?.deckCount === 3 ? 3 : 2
-    const roomId = generateRoomId()
+    const newRoomId = generateRoomId()
     const room = new Room({
-      roomId,
+      roomId: newRoomId,
       maxPlayers: 10,
       deckCount,
       discardOptionDelaySeconds: payload?.discardOptionDelaySeconds,
