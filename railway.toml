@@ -1,9 +1,9 @@
 # Railway config-as-code: build and run the server only.
-# Deployments use this instead of dashboard settings.
+# If build still fails with TS6059/shared, set env NO_CACHE=1 and redeploy once.
 
 [build]
 builder = "railpack"
-buildCommand = "cd server && npm install && npm run build"
+buildCommand = "cd server && npm install && node scripts/fix-pocha-imports.cjs && npm run build"
 
 [deploy]
 startCommand = "cd server && npm start"

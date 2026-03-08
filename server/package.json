@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "postinstall": "node scripts/fix-pocha-imports.cjs",
     "build": "node scripts/fix-pocha-imports.cjs && tsc",
     "start": "node dist/index.js",
     "deploy": "npm run build && npm start"
