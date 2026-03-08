@@ -174,6 +174,14 @@ export class Room {
     }
 
     this.currentPlayerIndex = (this.dealerIndex + 1) % n
+    if (n > 2 && this.topDiscard) {
+      this.discarderIndex = this.dealerIndex
+      this.discardOptionPlayerIndex = (this.dealerIndex + 1) % n
+      this.discardOptionAvailableAt =
+        this.discardOptionDelaySeconds > 0
+          ? Date.now() + this.discardOptionDelaySeconds * 1000
+          : null
+    }
     return true
   }
 
