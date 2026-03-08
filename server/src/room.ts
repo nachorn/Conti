@@ -15,6 +15,8 @@ export interface RoomOptions {
   roomId?: string
   maxPlayers?: number
   deckCount?: 2 | 3
+  discardOptionDelaySeconds?: number
+  secondsPerTurn?: number
 }
 
 export class Room {
@@ -38,11 +40,17 @@ export class Room {
   discardOptionPlayerIndex: number | null = null
   /** Who discarded (so we know who is "next" for take/pass). */
   discarderIndex: number | null = null
+  /** Timestamp (ms) when take/pass becomes allowed. */
+  discardOptionAvailableAt: number | null = null
+  discardOptionDelaySeconds: number = 10
+  secondsPerTurn: number = 0
 
   constructor(options: RoomOptions = {}) {
     this.roomId = options.roomId ?? uuidv4().slice(0, 8)
     this.maxPlayers = Math.min(MAX_PLAYERS, options.maxPlayers ?? MAX_PLAYERS)
     this.deckCount = options.deckCount ?? 2
+    this.discardOptionDelaySeconds = Math.max(0, Math.min(30, options.discardOptionDelaySeconds ?? 10))
+    this.secondsPerTurn = Math.max(0, Math.min(120, options.secondsPerTurn ?? 0))
   }
 
   addPlayer(id: string, name: string): boolean {
@@ -79,6 +87,16 @@ export class Room {
     this.deckCount = count
   }
 
+  setDiscardOptionDelaySeconds(secs: number): void {
+    if (this.phase !== 'lobby') return
+    this.discardOptionDelaySeconds = Math.max(0, Math.min(30, secs))
+  }
+
+  setSecondsPerTurn(secs: number): void {
+    if (this.phase !== 'lobby') return
+    this.secondsPerTurn = Math.max(0, Math.min(120, secs))
+  }
+
   startGame(): boolean {
     if (this.phase !== 'lobby' || this.players.length < MIN_PLAYERS) return false
     this.phase = 'playing'
@@ -99,6 +117,7 @@ export class Room {
     this.roundPenalties = {}
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
+    this.discardOptionAvailableAt = null
     const n = this.players.length
     const cardsPer = this.cardsPerPlayerThisRound()
     const deck = createContinentalDeck(n, this.deckCount)
@@ -112,6 +131,14 @@ export class Room {
     for (const p of this.players) {
       p.hand = drawn.slice(i * cardsPer, (i + 1) * cardsPer)
       i++
+    }
+
+    // First card face-up in the middle so first player can take it or draw from stock
+    const { drawn: initialDiscard, remaining: stockAfter } = draw(this.stock, 1)
+    this.stock = stockAfter
+    if (initialDiscard[0]) {
+      this.discardPile.push(initialDiscard[0])
+      this.topDiscard = initialDiscard[0]
     }
 
     this.currentPlayerIndex = (this.dealerIndex + 1) % n
@@ -151,6 +178,10 @@ export class Room {
     if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null || this.discarderIndex === null) {
       return { ok: false, error: 'No discard to take' }
     }
+    if (this.discardOptionAvailableAt !== null && Date.now() < this.discardOptionAvailableAt) {
+      const secs = Math.ceil((this.discardOptionAvailableAt - Date.now()) / 1000)
+      return { ok: false, error: `Wait ${secs}s before take/pass` }
+    }
     const n = this.players.length
     const optionIndex = this.discardOptionPlayerIndex
     const p = this.players[optionIndex]
@@ -166,12 +197,17 @@ export class Room {
     this.currentPlayerIndex = optionIndex
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
+    this.discardOptionAvailableAt = null
     return { ok: true }
   }
 
   passDiscard(playerId: string): { ok: boolean; error?: string } {
     if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null || this.discarderIndex === null) {
       return { ok: false, error: 'No discard to pass' }
+    }
+    if (this.discardOptionAvailableAt !== null && Date.now() < this.discardOptionAvailableAt) {
+      const secs = Math.ceil((this.discardOptionAvailableAt - Date.now()) / 1000)
+      return { ok: false, error: `Wait ${secs}s before take/pass` }
     }
     const n = this.players.length
     const optionIndex = this.discardOptionPlayerIndex
@@ -180,6 +216,7 @@ export class Room {
     const nextOption = (optionIndex + 1) % n
     if (nextOption === this.discarderIndex) {
       this.discardOptionPlayerIndex = null
+      this.discardOptionAvailableAt = null
       this.currentPlayerIndex = (this.discarderIndex + 1) % n
       this.discarderIndex = null
     } else {
@@ -254,6 +291,10 @@ export class Room {
     if (n > 2) {
       this.discarderIndex = this.currentPlayerIndex
       this.discardOptionPlayerIndex = (this.currentPlayerIndex + 1) % n
+      this.discardOptionAvailableAt =
+        this.discardOptionDelaySeconds > 0
+          ? Date.now() + this.discardOptionDelaySeconds * 1000
+          : null
     } else {
       this.currentPlayerIndex = (this.currentPlayerIndex + 1) % n
     }
@@ -307,7 +348,11 @@ export class Room {
       dealerIndex: this.dealerIndex,
       roundScores: this.roundScores,
       discardOptionPlayerIndex: this.discardOptionPlayerIndex,
+      discarderIndex: this.discarderIndex,
+      discardOptionAvailableAt: this.discardOptionAvailableAt,
       deckCount: this.deckCount,
+      discardOptionDelaySeconds: this.discardOptionDelaySeconds,
+      secondsPerTurn: this.secondsPerTurn,
     }
   }
 }

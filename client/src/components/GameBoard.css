@@ -89,7 +89,18 @@
   color: var(--gold);
 }
 
-.discard-option-badge {
+.turn-badge-you {
+  background: var(--gold);
+  color: var(--black);
+}
+
+.turn-timer {
+  font-weight: 600;
+  color: var(--gold);
+  min-width: 2.5rem;
+}
+
+.discard-delay-badge {
   background: #2a5a8a;
 }
 
@@ -236,8 +247,47 @@
   gap: 4px;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
   min-height: 110px;
+}
+
+.game-hand-card-wrap {
+  display: inline-block;
+}
+
+.game-hand-card-wrap.drop-target {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--card-radius);
+}
+
+.game-hand-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hand-toolbar-label {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.hand-sort-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--cream);
+}
+
+.hand-sort-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.priority-badge {
+  background: #1a7a3a;
 }
 
 .game-actions {

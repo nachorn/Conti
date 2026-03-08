@@ -60,8 +60,8 @@ export function useSocket() {
     socketRef.current?.emit('join', { roomId: id.trim().toLowerCase(), name })
   }
 
-  const start = (deckCount?: 2 | 3) => {
-    socketRef.current?.emit('start', { deckCount })
+  const start = (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
+    socketRef.current?.emit('start', opts)
   }
 
   const draw = (fromDiscard: boolean) => {

@@ -46,5 +46,9 @@ export interface GameState {
   dealerIndex: number
   roundScores: Record<string, number>
   discardOptionPlayerIndex?: number | null
+  discarderIndex?: number | null
+  discardOptionAvailableAt?: number | null
   deckCount?: 2 | 3
+  discardOptionDelaySeconds?: number
+  secondsPerTurn?: number
 }

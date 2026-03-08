@@ -39,9 +39,14 @@ io.on('connection', (socket) => {
   const playerId = socket.id
   let roomId: string | null = null
 
-  socket.on('create', (payload: { name: string; deckCount?: 2 | 3 }) => {
+  socket.on('create', (payload: { name: string; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
     const deckCount = payload?.deckCount === 3 ? 3 : 2
-    const room = new Room({ maxPlayers: 10, deckCount })
+    const room = new Room({
+      maxPlayers: 10,
+      deckCount,
+      discardOptionDelaySeconds: payload?.discardOptionDelaySeconds,
+      secondsPerTurn: payload?.secondsPerTurn,
+    })
     room.addPlayer(playerId, payload?.name ?? 'Player')
     rooms.set(room.roomId, room)
     playerToRoom.set(playerId, room.roomId)
@@ -70,7 +75,7 @@ io.on('connection', (socket) => {
     broadcastState(room.roomId)
   })
 
-  socket.on('start', (payload?: { deckCount?: 2 | 3 }) => {
+  socket.on('start', (payload?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room || room.players[0]?.id !== playerId) {
@@ -78,6 +83,8 @@ io.on('connection', (socket) => {
       return
     }
     if (payload?.deckCount === 3 || payload?.deckCount === 2) room.setDeckCount(payload.deckCount)
+    if (typeof payload?.discardOptionDelaySeconds === 'number') room.setDiscardOptionDelaySeconds(payload.discardOptionDelaySeconds)
+    if (typeof payload?.secondsPerTurn === 'number') room.setSecondsPerTurn(payload.secondsPerTurn)
     if (room.startGame()) {
       broadcastState(roomId)
       io.to(roomId).emit('game_started', {})

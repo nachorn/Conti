@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Card as CardType, GameState, Meld } from '../types'
 import { Card } from './Card'
 import './GameBoard.css'
@@ -7,6 +7,24 @@ const CARDS_ROUND_1 = 7
 
 function cardsPerPlayerForRound(round: number): number {
   return CARDS_ROUND_1 + round - 1
+}
+
+/** Sort hand by custom order (card IDs); cards not in order go at the end. */
+function sortHandByOrder(hand: CardType[], order: string[]): CardType[] {
+  const byId = new Map(hand.map((c) => [c.id, c]))
+  const result: CardType[] = []
+  const seen = new Set<string>()
+  for (const id of order) {
+    const c = byId.get(id)
+    if (c && !seen.has(id)) {
+      result.push(c)
+      seen.add(id)
+    }
+  }
+  for (const c of hand) {
+    if (!seen.has(c.id)) result.push(c)
+  }
+  return result
 }
 
 interface GameBoardProps {
@@ -35,18 +53,79 @@ export function GameBoard({
   onNextRound,
 }: GameBoardProps) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
+  const [handOrder, setHandOrder] = useState<string[]>([])
   const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
+  const [lobbyDiscardDelay, setLobbyDiscardDelay] = useState(state.discardOptionDelaySeconds ?? 10)
+  const [lobbyTurnSecs, setLobbyTurnSecs] = useState(state.secondsPerTurn ?? 0)
   const me = state.players.find((p) => p.id === socketId)
-  const isMyTurn = state.players[state.currentPlayerIndex]?.id === socketId
-  const isHost = state.players[0]?.id === socketId
+  const myIndex = me ? state.players.findIndex((p) => p.id === socketId) : -1
   const discardOptionIndex = state.discardOptionPlayerIndex ?? null
+  const turnPlayerIndex = discardOptionIndex !== null ? discardOptionIndex : state.currentPlayerIndex
+  const turnPlayer = state.players[turnPlayerIndex]
+  const isMyTurn = turnPlayer?.id === socketId
+  const isHost = state.players[0]?.id === socketId
   const isMyDiscardOption = discardOptionIndex !== null && state.players[discardOptionIndex]?.id === socketId
+  const isMyNormalTurn = discardOptionIndex === null && state.players[state.currentPlayerIndex]?.id === socketId
 
-  const myHand = me?.hand ?? []
+  const rawHand = me?.hand ?? []
+  const myHand = sortHandByOrder(rawHand, handOrder)
+  const n = state.players.length
+  const discarderIndex = state.discarderIndex ?? null
+  const hasPriority =
+    isMyDiscardOption &&
+    discarderIndex !== null &&
+    (discarderIndex + 1) % n === discardOptionIndex
+  const handIdsKey = rawHand.map((c) => c.id).sort().join(',')
+  useEffect(() => {
+    const ids = rawHand.map((c) => c.id)
+    setHandOrder((prev) => {
+      const kept = prev.filter((id) => ids.includes(id))
+      const added = ids.filter((id) => !prev.includes(id))
+      return [...kept, ...added]
+    })
+  }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
-  const needToDraw = isMyTurn && myHand.length === cardsThisRound
-  const canDraw = state.phase === 'playing' && needToDraw && !isMyDiscardOption
-  const canDiscard = state.phase === 'playing' && isMyTurn && myHand.length > cardsThisRound && !isMyDiscardOption
+  const needToDraw = isMyNormalTurn && myHand.length === cardsThisRound
+  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length === cardsThisRound
+  const canDiscard = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length > cardsThisRound
+
+  const discardOptionAvailableAt = state.discardOptionAvailableAt ?? null
+  const now = Date.now()
+  const discardDelayRemaining = discardOptionAvailableAt != null && now < discardOptionAvailableAt
+    ? Math.ceil((discardOptionAvailableAt - now) / 1000)
+    : 0
+  const canTakeOrPass = isMyDiscardOption && !discardDelayRemaining
+
+  const secondsPerTurn = state.secondsPerTurn ?? 0
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null)
+  const autoActedRef = useRef(false)
+  const onPassDiscardRef = useRef(onPassDiscard)
+  const onDrawRef = useRef(() => onDraw(false))
+  onPassDiscardRef.current = onPassDiscard
+  onDrawRef.current = () => onDraw(false)
+  useEffect(() => {
+    if (!isMyTurn) {
+      setTurnSecondsLeft(null)
+      autoActedRef.current = false
+      return
+    }
+    if (state.phase !== 'playing' || secondsPerTurn <= 0) {
+      setTurnSecondsLeft(null)
+      return
+    }
+    const endAt = Date.now() + secondsPerTurn * 1000
+    setTurnSecondsLeft(secondsPerTurn)
+    const t = setInterval(() => {
+      const left = Math.ceil((endAt - Date.now()) / 1000)
+      setTurnSecondsLeft(left <= 0 ? 0 : left)
+      if (left <= 0 && !autoActedRef.current) {
+        autoActedRef.current = true
+        if (discardOptionIndex !== null) onPassDiscardRef.current()
+        else onDrawRef.current()
+      }
+    }, 500)
+    return () => clearInterval(t)
+  }, [state.phase, state.currentPlayerIndex, discardOptionIndex, isMyTurn, secondsPerTurn])
 
   const toggleCard = (id: string) => {
     if (!canDiscard && !canDraw) return
@@ -114,7 +193,34 @@ export function GameBoard({
                   <option value={3}>3 decks</option>
                 </select>
               </label>
-              <button onClick={() => onStart(lobbyDeckCount)} disabled={state.players.length < 2}>
+              <label className="lobby-deck-label">
+                Delay before take/pass (s):
+                <select value={lobbyDiscardDelay} onChange={(e) => setLobbyDiscardDelay(Number(e.target.value))}>
+                  <option value={0}>0</option>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                </select>
+              </label>
+              <label className="lobby-deck-label">
+                Seconds per turn (0 = none):
+                <select value={lobbyTurnSecs} onChange={(e) => setLobbyTurnSecs(Number(e.target.value))}>
+                  <option value={0}>No limit</option>
+                  <option value={30}>30</option>
+                  <option value={60}>60</option>
+                  <option value={90}>90</option>
+                </select>
+              </label>
+              <button
+                onClick={() =>
+                  onStart({
+                    deckCount: lobbyDeckCount,
+                    discardOptionDelaySeconds: lobbyDiscardDelay,
+                    secondsPerTurn: lobbyTurnSecs,
+                  })
+                }
+                disabled={state.players.length < 2}
+              >
                 Start game ({state.players.length} players)
               </button>
             </>
@@ -183,8 +289,20 @@ export function GameBoard({
         <span>
           Contract: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type}`).join(', ')}
         </span>
-        {isMyTurn && !isMyDiscardOption && <span className="turn-badge">Your turn</span>}
-        {isMyDiscardOption && <span className="turn-badge discard-option-badge">Take or pass discard</span>}
+        {turnPlayer && (
+          <span className={`turn-badge ${isMyTurn ? 'turn-badge-you' : ''}`}>
+            {isMyTurn ? 'Your turn' : `${turnPlayer.name}'s turn`}
+          </span>
+        )}
+        {turnSecondsLeft != null && secondsPerTurn > 0 && (
+          <span className="turn-timer">{turnSecondsLeft}s</span>
+        )}
+        {isMyDiscardOption && discardDelayRemaining > 0 && (
+          <span className="turn-badge discard-delay-badge">Take/pass in {discardDelayRemaining}s</span>
+        )}
+        {hasPriority && canTakeOrPass && (
+          <span className="turn-badge priority-badge">You have priority</span>
+        )}
       </div>
 
       <div className="game-table">
@@ -258,21 +376,80 @@ export function GameBoard({
       <div className="game-hand-area">
         <div className="game-hand">
           {myHand.map((c) => (
-            <Card
+            <div
               key={c.id}
-              card={c}
-              selected={selectedCards.has(c.id)}
-              onClick={() => toggleCard(c.id)}
-              draggable={canDiscard}
-              onDragStart={canDiscard ? (e) => { e.dataTransfer.setData('cardId', c.id); e.dataTransfer.effectAllowed = 'move' } : undefined}
-            />
+              className="game-hand-card-wrap"
+              data-card-id={c.id}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                e.currentTarget.classList.add('drop-target')
+              }}
+              onDragLeave={(e) => e.currentTarget.classList.remove('drop-target')}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.currentTarget.classList.remove('drop-target')
+                const draggedId = e.dataTransfer.getData('cardId')
+                const targetId = e.currentTarget.dataset.cardId
+                if (!draggedId || !targetId || draggedId === targetId) return
+                setHandOrder((prev) => {
+                  const next = prev.filter((id) => id !== draggedId)
+                  const idx = next.indexOf(targetId)
+                  if (idx === -1) return [...next, draggedId]
+                  next.splice(idx, 0, draggedId)
+                  return next
+                })
+              }}
+            >
+              <Card
+                card={c}
+                selected={selectedCards.has(c.id)}
+                onClick={() => toggleCard(c.id)}
+                draggable={state.phase === 'playing'}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('cardId', c.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+              />
+            </div>
           ))}
+        </div>
+        <div className="game-hand-toolbar">
+          <span className="hand-toolbar-label">Sort:</span>
+          <button
+            type="button"
+            className="hand-sort-btn"
+            onClick={() =>
+              setHandOrder(
+                [...myHand]
+                  .sort((a, b) => a.rank - b.rank || String(a.suit).localeCompare(String(b.suit)))
+                  .map((c) => c.id)
+              )
+            }
+          >
+            Rank
+          </button>
+          <button
+            type="button"
+            className="hand-sort-btn"
+            onClick={() =>
+              setHandOrder(
+                [...myHand]
+                  .sort((a, b) => String(a.suit).localeCompare(String(b.suit)) || a.rank - b.rank)
+                  .map((c) => c.id)
+              )
+            }
+          >
+            Suit
+          </button>
         </div>
         <div className="game-actions">
           {isMyDiscardOption && (
             <>
-              <button onClick={onTakeDiscard}>Take discard</button>
-              <button onClick={onPassDiscard}>Pass</button>
+              <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>Take discard</button>
+              <button onClick={onPassDiscard} disabled={!canTakeOrPass}>
+                {canTakeOrPass ? 'Pass' : `Wait ${discardDelayRemaining}s`}
+              </button>
             </>
           )}
           {canDraw && (

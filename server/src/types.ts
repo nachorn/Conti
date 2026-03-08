@@ -64,6 +64,14 @@ export interface GameState {
   roundScores: Record<string, number>
   /** When set, this player can take the top discard or pass (only when >2 players). */
   discardOptionPlayerIndex: number | null
+  /** Who discarded (index); first to take/pass after is (discarderIndex+1)%n and has priority. */
+  discarderIndex: number | null
+  /** Timestamp (ms) when take/pass becomes available; before that, countdown is shown. */
+  discardOptionAvailableAt: number | null
   /** 2 or 3 decks (lobby option). */
   deckCount: 2 | 3
+  /** Seconds to wait before first take/pass option (0 = no delay). */
+  discardOptionDelaySeconds: number
+  /** Max seconds per turn (0 = no limit). */
+  secondsPerTurn: number
 }
