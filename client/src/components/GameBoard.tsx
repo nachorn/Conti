@@ -65,7 +65,6 @@ export function GameBoard({
   const isMyTurn = turnPlayer?.id === socketId
   const isHost = state.players[0]?.id === socketId
   const isMyDiscardOption = discardOptionIndex !== null && state.players[discardOptionIndex]?.id === socketId
-  const isMyNormalTurn = discardOptionIndex === null && state.players[state.currentPlayerIndex]?.id === socketId
 
   const rawHand = me?.hand ?? []
   const myHand = sortHandByOrder(rawHand, handOrder)
