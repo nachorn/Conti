@@ -133,7 +133,12 @@ export function GameBoard({
   }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
   const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length === cardsThisRound
-  const canDiscard = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && myHand.length > cardsThisRound
+  const canDiscard =
+    state.phase === 'playing' &&
+    discardOptionIndex === null &&
+    state.currentPlayerIndex === myIndex &&
+    myHand.length >= 1 &&
+    myHand.length !== cardsThisRound
 
   const discardOptionAvailableAt = state.discardOptionAvailableAt ?? null
   const now = Date.now()
