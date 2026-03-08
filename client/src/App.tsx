@@ -25,7 +25,7 @@ export default function App() {
       <GameBoard
         state={state}
         socketId={socketId}
-        onStart={start}
+        onStart={(opts) => start(opts)}
         onDraw={draw}
         onPlayMelds={playMelds}
         onDiscard={discard}
