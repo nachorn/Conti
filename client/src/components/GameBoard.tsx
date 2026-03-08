@@ -53,15 +53,6 @@ export function GameBoard({
     onDraw(true)
   }
 
-  const handleDiscard = () => {
-    if (!canDiscard || selectedCards.size !== 1) return
-    const [cardId] = selectedCards
-    if (cardId) {
-      onDiscard(cardId)
-      setSelectedCards(new Set())
-    }
-  }
-
   const handlePlayMelds = () => {
     if (!canDiscard || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
@@ -163,6 +154,33 @@ export function GameBoard({
           ))}
         </div>
 
+        {/* Drop zone: drag a card here to discard (or tap here when one card selected) */}
+        {canDiscard && (
+          <div
+            className="game-discard-zone"
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+            onDrop={(e) => {
+              e.preventDefault()
+              const cardId = e.dataTransfer.getData('cardId')
+              if (cardId) {
+                onDiscard(cardId)
+                setSelectedCards(new Set())
+              }
+            }}
+            onClick={() => {
+              if (selectedCards.size === 1) {
+                const [cardId] = selectedCards
+                if (cardId) {
+                  onDiscard(cardId)
+                  setSelectedCards(new Set())
+                }
+              }
+            }}
+          >
+            <span className="discard-zone-label">Drop here to discard</span>
+          </div>
+        )}
+
         <div className="game-piles">
           <div className="game-stock" onClick={canDraw ? handleDrawStock : undefined}>
             <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
@@ -205,6 +223,8 @@ export function GameBoard({
               card={c}
               selected={selectedCards.has(c.id)}
               onClick={() => toggleCard(c.id)}
+              draggable={canDiscard}
+              onDragStart={canDiscard ? (e) => { e.dataTransfer.setData('cardId', c.id); e.dataTransfer.effectAllowed = 'move' } : undefined}
             />
           ))}
         </div>
@@ -218,18 +238,13 @@ export function GameBoard({
             </>
           )}
           {canDiscard && (
-            <>
-              <button
-                onClick={handlePlayMelds}
-                disabled={selectedCards.size < 3}
-                title="Play selected cards as trios (same rank)"
-              >
-                Play melds
-              </button>
-              <button onClick={handleDiscard} disabled={selectedCards.size !== 1}>
-                Discard (pick 1)
-              </button>
-            </>
+            <button
+              onClick={handlePlayMelds}
+              disabled={selectedCards.size < 3}
+              title="Play selected cards as trios (same rank)"
+            >
+              Play melds
+            </button>
           )}
         </div>
       </div>

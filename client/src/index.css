@@ -14,13 +14,19 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow: auto;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   font-family: 'Outfit', sans-serif;
   background: var(--felt-dark);
   color: var(--cream);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root {

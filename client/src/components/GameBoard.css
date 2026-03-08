@@ -3,6 +3,7 @@
   display: flex;
   flex-direction: column;
   background: radial-gradient(ellipse at 50% 50%, var(--felt) 0%, var(--felt-dark) 100%);
+  overflow: visible;
 }
 
 .game-info {
@@ -47,6 +48,30 @@
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
   align-items: center;
+}
+
+.game-discard-zone {
+  min-width: 140px;
+  min-height: 100px;
+  padding: 1rem 1.5rem;
+  border: 2px dashed rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.game-discard-zone:hover,
+.game-discard-zone:focus-visible {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: var(--gold);
+}
+.discard-zone-label {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  pointer-events: none;
 }
 
 .game-piles {

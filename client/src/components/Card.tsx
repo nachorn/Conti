@@ -12,9 +12,11 @@ interface CardProps {
   selected?: boolean
   onClick?: () => void
   size?: 'small' | 'normal' | 'large'
+  draggable?: boolean
+  onDragStart?: (e: React.DragEvent) => void
 }
 
-export function Card({ card, faceDown, selected, onClick, size = 'normal' }: CardProps) {
+export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart }: CardProps) {
   const rank = RANK_SYMBOLS[card.rank] ?? '?'
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds'
   const suitChar = card.suit === 'joker' ? '★' : { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' }[card.suit] ?? ''
@@ -32,6 +34,8 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal' }: Car
       className={`card card-${size} ${isRed ? 'card-red' : 'card-black'}`}
       data-selected={selected}
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
     >
       <div className="card-corner card-top">
         <span className="card-rank">{rank}</span>
