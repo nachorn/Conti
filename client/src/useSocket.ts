@@ -28,6 +28,7 @@ export function useSocket() {
 
     socket.on('state', (newState: GameState) => {
       setState(newState)
+      setError(null)
     })
 
     socket.on('left', () => {
@@ -54,9 +55,9 @@ export function useSocket() {
     }
   }, [])
 
-  const create = (name: string, deckCount?: 2 | 3) => {
+  const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3) => {
     setError(null)
-    socketRef.current?.emit('create', { name, deckCount: deckCount ?? 2 })
+    socketRef.current?.emit('create', { name, gameType, deckCount: deckCount ?? 2 })
   }
 
   const join = (id: string, name: string) => {

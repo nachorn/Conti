@@ -11,8 +11,11 @@ const MAX_PLAYERS = 10
 const WIN_BONUS = -10
 const OUT_OF_TURN_DISCARD_PENALTY = 10
 
+export type GameType = 'continental' | 'pocha'
+
 export interface RoomOptions {
   roomId?: string
+  gameType?: GameType
   maxPlayers?: number
   deckCount?: 2 | 3
   discardOptionDelaySeconds?: number
@@ -21,6 +24,7 @@ export interface RoomOptions {
 
 export class Room {
   roomId: string
+  gameType: GameType
   maxPlayers: number
   deckCount: 2 | 3
   players: Player[] = []
@@ -50,6 +54,7 @@ export class Room {
 
   constructor(options: RoomOptions = {}) {
     this.roomId = options.roomId ?? ''
+    this.gameType = options.gameType ?? 'continental'
     this.maxPlayers = Math.min(MAX_PLAYERS, options.maxPlayers ?? MAX_PLAYERS)
     this.deckCount = options.deckCount ?? 2
     this.discardOptionDelaySeconds = Math.max(0, Math.min(30, options.discardOptionDelaySeconds ?? 10))
@@ -445,6 +450,7 @@ export class Room {
     }))
     return {
       roomId: this.roomId,
+      gameType: this.gameType,
       phase: this.phase,
       round: this.round,
       contract: this.contract,

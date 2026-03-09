@@ -2,10 +2,18 @@ import { useState, useEffect, useRef } from 'react'
 import type { Card as CardType, GameState, Meld, Player } from '../types'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
-import { copyReportToClipboard } from '../lib/reportBug'
 import { Card } from './Card'
+import { ReportBugButton } from './ReportBugButton'
 import { CardBack } from './cards/CardBack'
+import { rankLabel, SUIT_SYMBOL } from './cards'
+import { GameShell } from './GameShell'
 import './GameBoard.css'
+
+/** Short label for a card (e.g. "7♥") for toasts. */
+function cardLabel(c: CardType): string {
+  if (c.suit === 'joker' || c.rank === 0) return 'Joker'
+  return rankLabel(c.rank) + SUIT_SYMBOL[c.suit]
+}
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
@@ -72,6 +80,7 @@ interface GameBoardProps {
   socketId: string | null
   lang: Lang
   setLang: (lang: Lang) => void
+  error?: string | null
   onStart: (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => void
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
@@ -91,6 +100,7 @@ export function GameBoard({
   socketId,
   lang,
   setLang,
+  error: serverError,
   onStart,
   onDraw,
   onPlayMelds,
@@ -118,9 +128,12 @@ export function GameBoard({
   const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
   const [reportCopied, setReportCopied] = useState(false)
   const [animationsOn, setAnimationsOn] = useState(true)
+  const [jokerToast, setJokerToast] = useState<string | null>(null)
+  const jokerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
   const prevHandIdsRef = useRef<string[]>([])
+  useEffect(() => () => { if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current) }, [])
   const me = state.players.find((p) => p.id === socketId)
   const myIndex = me ? state.players.findIndex((p) => p.id === socketId) : -1
   const discardOptionIndex = state.discardOptionPlayerIndex ?? null
@@ -435,8 +448,8 @@ export function GameBoard({
         </div>
         <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
-          <h2>{t(lang, 'round')} {state.round} {lang === 'es' ? 'terminada' : 'over'}</h2>
-          <p>{lang === 'es' ? 'Esta ronda:' : 'This round:'}</p>
+          <h2>{t(lang, 'round')} {state.round} {t(lang, 'roundOver')}</h2>
+          <p>{t(lang, 'thisRound')}</p>
           <ul>
             {state.players.map((p) => (
               <li key={p.id}>
@@ -448,9 +461,9 @@ export function GameBoard({
             <button className="game-next-round-btn" onClick={onNextRound}>{t(lang, 'nextRound')}</button>
           )}
           {state.round < 7 && !isHost && (
-            <p className="game-wait-host-msg">{lang === 'es' ? 'Esperando al host para la siguiente ronda.' : 'Waiting for host to start next round.'}</p>
+            <p className="game-wait-host-msg">{t(lang, 'waitingForHost')}</p>
           )}
-          {state.round >= 7 && <p className="game-over-msg">{lang === 'es' ? 'Fin de partida. Gana quien tenga menos puntos.' : 'Game over. Lowest total score wins.'}</p>}
+          {state.round >= 7 && <p className="game-over-msg">{t(lang, 'gameOverLowest')}</p>}
         </div>
       </div>
     )
@@ -491,54 +504,60 @@ export function GameBoard({
 
   return (
     <div className={`game-board ${dealingPhase ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''}`}>
-      <div className="game-top-row">
-        <button type="button" className="game-back-btn" onClick={onLeave}>
-          {t(lang, 'backToMenu')}
-        </button>
-        <div className="game-lang">
-          <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
-          <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
-        </div>
-        <button
-          type="button"
-          className="game-debug-btn"
-          onClick={() => setAnimationsOn((v) => !v)}
-          title={animationsOn ? (lang === 'es' ? 'Desactivar animaciones' : 'Hide animations') : (lang === 'es' ? 'Mostrar animaciones' : 'Show animations')}
-        >
-          {animationsOn ? (lang === 'es' ? 'Sin anim.' : 'No anim.') : (lang === 'es' ? 'Anim.' : 'Anim.')}
-        </button>
-        {onDebugSkipRound && state.phase === 'playing' && (
-          <button type="button" className="game-debug-btn game-debug-skip" onClick={onDebugSkipRound}>
-            {lang === 'es' ? 'Saltar ronda (debug)' : 'Skip round (debug)'}
-          </button>
-        )}
-        <div className="game-top-right">
-          <Scoreboard state={state} lang={lang} />
-          <ReportBugButton
-            lang={lang}
-            reportCopied={reportCopied}
-            setReportCopied={setReportCopied}
-            context={{
-              roomId: state.roomId,
-              phase: state.phase,
-              round: state.round,
-              players: state.players.length,
-              myId: socketId ?? undefined,
-              currentPlayerIndex: state.currentPlayerIndex,
-              discardOptionPlayerIndex: state.discardOptionPlayerIndex ?? undefined,
-              stockCount: state.stockCount,
-              topDiscard: state.topDiscard ? `${state.topDiscard.rank}/${state.topDiscard.suit}` : null,
-              myHandLength: me?.hand.length ?? 0,
-              meldsCount: state.melds.length,
-            }}
-          />
-        </div>
-      </div>
+      <GameShell
+        backLabel={t(lang, 'backToMenu')}
+        onBack={onLeave}
+        lang={lang}
+        setLang={setLang}
+        error={serverError}
+        toast={jokerToast}
+        toastSuccess
+        debugSlot={
+          <>
+            <button
+              type="button"
+              className="game-debug-btn"
+              onClick={() => setAnimationsOn((v) => !v)}
+              title={animationsOn ? t(lang, 'hideAnimations') : t(lang, 'showAnimations')}
+            >
+              {animationsOn ? t(lang, 'noAnim') : t(lang, 'anim')}
+            </button>
+            {onDebugSkipRound && state.phase === 'playing' && (
+              <button type="button" className="game-debug-btn game-debug-skip" onClick={onDebugSkipRound}>
+                {t(lang, 'skipRoundDebug')}
+              </button>
+            )}
+          </>
+        }
+        rightSlot={
+          <>
+            <Scoreboard state={state} lang={lang} />
+            <ReportBugButton
+              lang={lang}
+              reportCopied={reportCopied}
+              setReportCopied={setReportCopied}
+              context={{
+                roomId: state.roomId,
+                phase: state.phase,
+                round: state.round,
+                players: state.players.length,
+                myId: socketId ?? undefined,
+                currentPlayerIndex: state.currentPlayerIndex,
+                discardOptionPlayerIndex: state.discardOptionPlayerIndex ?? undefined,
+                stockCount: state.stockCount,
+                topDiscard: state.topDiscard ? `${state.topDiscard.rank}/${state.topDiscard.suit}` : null,
+                myHandLength: me?.hand.length ?? 0,
+                meldsCount: state.melds.length,
+              }}
+            />
+          </>
+        }
+      />
       <div className="game-info">
         <span>{t(lang, 'room')} {state.roomId}</span>
         <span>{t(lang, 'round')} {state.round}</span>
         <span>
-          {t(lang, 'contract')}: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type}`).join(', ')}
+          {t(lang, 'contract')}: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type === 'trio' ? t(lang, 'trioNum') : t(lang, 'straightNum')}`).join(', ')}
         </span>
         {turnPlayer && (
           <span className={`turn-badge ${isMyTurn ? 'turn-badge-you' : ''}`}>
@@ -563,7 +582,7 @@ export function GameBoard({
         {shuffleActive && (
           <div className="deal-overlay" aria-hidden>
             <span className="deal-overlay-text">
-              {lang === 'es' ? 'Barajando' : 'Shuffling'}… {t(lang, 'round')} {state.round}
+              {t(lang, 'shuffling')}… {t(lang, 'round')} {state.round}
             </span>
           </div>
         )}
@@ -656,8 +675,8 @@ export function GameBoard({
                 const isTrio = meld.type === 'trio'
                 const labelNum = isTrio ? ++trioNum : ++straightNum
                 const showLabel = isTrio
-                  ? (lang === 'es' ? `Trío #${labelNum}` : `Trio #${labelNum}`)
-                  : (lang === 'es' ? `Escala #${labelNum}` : `Straight #${labelNum}`)
+                  ? `${t(lang, 'trioNum')} #${labelNum}`
+                  : `${t(lang, 'straightNum')} #${labelNum}`
                 const expanded = expandedMeldIds.has(meld.id)
                 const meldHasJoker = meld.cards.some((c) => c.suit === 'joker')
                 const oneCardSelected = selectedCards.size === 1
@@ -684,22 +703,31 @@ export function GameBoard({
                       if (oneCardSelected && meldHasJoker) {
                         const [cardId] = Array.from(selectedCards)
                         if (cardId) {
+                          const card = myHand.find((c) => c.id === cardId)
                           onSwapJoker(meld.id, cardId)
                           setSelectedCards(new Set())
+                          if (card) {
+                            setJokerToast(`${t(lang, 'jokerReplacedWith')} ${cardLabel(card)}`)
+                            if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current)
+                            jokerToastTimerRef.current = setTimeout(() => {
+                              setJokerToast(null)
+                              jokerToastTimerRef.current = null
+                            }, 3000)
+                          }
                         }
                       } else {
                         setSelectedMeldId((id) => (id === meld.id ? null : meld.id))
                       }
                     }}
                     role={canAddOrSwap ? 'button' : undefined}
-                    title={canSwap ? (lang === 'es' ? 'Sustituir comodín con esta carta' : 'Swap joker with this card') : undefined}
+                    title={canSwap ? t(lang, 'swapJokerWith') : undefined}
                   >
                     {expanded ? (
                       <>
                         <div className="meld-row-header">
                           <span className="meld-row-title">{showLabel}</span>
-                          <button type="button" className="meld-hide-btn" onClick={(e) => { e.stopPropagation(); setExpandedMeldIds((prev) => { const n = new Set(prev); n.delete(meld.id); return n }); }} aria-label={lang === 'es' ? 'Ocultar' : 'Hide'}>
-                            {lang === 'es' ? 'Ocultar' : 'Hide'}
+                          <button type="button" className="meld-hide-btn" onClick={(e) => { e.stopPropagation(); setExpandedMeldIds((prev) => { const n = new Set(prev); n.delete(meld.id); return n }); }} aria-label={t(lang, 'hide')}>
+                            {t(lang, 'hide')}
                           </button>
                         </div>
                         <MeldRow meld={meld} />
@@ -731,8 +759,8 @@ export function GameBoard({
                     <span className="poker-seat-you">{t(lang, 'you')}</span>
                   ) : (
                     <div className="opponent-cards opponent-cards-single">
-                      <span className="opponent-cards-label" aria-label={`${player.hand.length} cards`}>
-                        {player.hand.length} {lang === 'es' ? 'cartas' : 'cards'}
+                      <span className="opponent-cards-label" aria-label={`${player.hand.length} ${t(lang, 'cards')}`}>
+                        {player.hand.length} {t(lang, 'cards')}
                       </span>
                     </div>
                   )}
@@ -751,7 +779,7 @@ export function GameBoard({
             <div
               key={c.id}
               className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''}`}
-              style={dealAnimKey != null ? { animationDelay: `${i * 55}ms` } : undefined}
+              style={dealAnimKey != null ? { animationDelay: `${i * (totalToDeal > 20 ? 30 : 55)}ms` } : undefined}
               data-card-id={c.id}
               onDragOver={(e) => {
                 e.preventDefault()
@@ -847,7 +875,7 @@ export function GameBoard({
               <button
                 onClick={handlePlayMelds}
                 disabled={selectedCards.size < 3}
-                title={lang === 'es' ? 'Bajar contrato completo (ej. 2 trios en ronda 1)' : 'Play full contract only (e.g. 2 trios for round 1)'}
+                title={t(lang, 'playFullContract')}
               >
                 {t(lang, 'playMelds')}
               </button>
@@ -855,7 +883,7 @@ export function GameBoard({
                 <button
                   onClick={handleAddToMeld}
                   disabled={!selectedMeldId}
-                  title={lang === 'es' ? 'Elige una bajada arriba y luego pulsa aquí' : 'Select a meld above, then click here'}
+                  title={t(lang, 'selectMeldThenAdd')}
                 >
                   {t(lang, 'addToMeld')}
                 </button>
@@ -865,35 +893,6 @@ export function GameBoard({
         </div>
       </div>
     </div>
-  )
-}
-
-function ReportBugButton({
-  lang,
-  reportCopied,
-  setReportCopied,
-  context,
-}: {
-  lang: Lang
-  reportCopied: boolean
-  setReportCopied: (v: boolean) => void
-  context: Record<string, unknown>
-}) {
-  return (
-    <button
-      type="button"
-      className="game-report-bug-btn"
-      onClick={async () => {
-        const ok = await copyReportToClipboard(context)
-        if (ok) {
-          setReportCopied(true)
-          setTimeout(() => setReportCopied(false), 2500)
-        }
-      }}
-      title={lang === 'es' ? 'Copiar logs para reportar un error' : 'Copy logs to report a bug'}
-    >
-      {reportCopied ? (lang === 'es' ? '¡Copiado!' : 'Copied!') : (lang === 'es' ? 'Reportar error' : 'Report bug')}
-    </button>
   )
 }
 
@@ -907,7 +906,7 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
         type="button"
         className="scoreboard scoreboard-btn"
         onClick={() => setOpen(true)}
-        title={lang === 'es' ? 'Ver marcador' : 'View scoreboard'}
+        title={t(lang, 'viewAll')}
         aria-label={t(lang, 'scoreboard')}
       >
         <h3 className="scoreboard-title">{t(lang, 'scoreboard')}</h3>
@@ -920,7 +919,7 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
             </div>
           ))}
         </div>
-        <span className="scoreboard-expand-hint">{lang === 'es' ? 'Ver todo' : 'View all'}</span>
+        <span className="scoreboard-expand-hint">{t(lang, 'viewAll')}</span>
       </button>
       {open && (
         <div className="scoreboard-overlay" role="dialog" aria-modal="true" aria-label={t(lang, 'scoreboard')}>
@@ -928,13 +927,13 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
           <div className="scoreboard-panel">
             <div className="scoreboard-panel-header">
               <h2 className="scoreboard-panel-title">{t(lang, 'scoreboard')}</h2>
-              <button type="button" className="scoreboard-close" onClick={() => setOpen(false)} aria-label={lang === 'es' ? 'Cerrar' : 'Close'}>
+              <button type="button" className="scoreboard-close" onClick={() => setOpen(false)} aria-label={t(lang, 'close')}>
                 ×
               </button>
             </div>
             <div className="scoreboard-panel-body">
               <section className="scoreboard-section">
-                <h3 className="scoreboard-section-title">{lang === 'es' ? 'Puntos totales' : 'Total points'}</h3>
+                <h3 className="scoreboard-section-title">{t(lang, 'totalPoints')}</h3>
                 <div className="scoreboard-panel-list">
                   {sorted.map((p, i) => (
                     <div key={p.id} className="scoreboard-panel-row">
@@ -948,7 +947,7 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
               {hasRoundScores && (
                 <section className="scoreboard-section">
                   <h3 className="scoreboard-section-title">
-                    {lang === 'es' ? `Ronda ${state.round}` : `Round ${state.round}`}
+                    {`${t(lang, 'roundPoints')} ${state.round}`}
                   </h3>
                   <div className="scoreboard-panel-list">
                     {state.players.map((p) => {

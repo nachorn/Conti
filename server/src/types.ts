@@ -51,8 +51,11 @@ export interface Player {
 
 export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'
 
+export type GameType = 'continental' | 'pocha'
+
 export interface GameState {
   roomId: string
+  gameType: GameType
   phase: GamePhase
   round: number
   contract: RoundContract

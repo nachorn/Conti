@@ -1,34 +1,51 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
 import './Lobby.css'
 
 interface LobbyProps {
-  onCreate: (name: string, deckCount?: 2 | 3) => void
+  onCreateContinental: (name: string, deckCount?: 2 | 3) => void
+  onCreatePocha: () => void
   onJoin: (roomId: string, name: string) => void
   error: string | null
   lang: Lang
   setLang: (lang: Lang) => void
+  /** Pre-fill join room code (e.g. from /room/:roomId) */
+  initialJoinRoomId?: string | null
   /** Dev: open Pocha game with mock state */
   onOpenPochaDev?: () => void
   /** Dev: open Continental game with mock state */
   onOpenContinentalDev?: () => void
 }
 
-export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, onOpenContinentalDev }: LobbyProps) {
+export function Lobby({
+  onCreateContinental,
+  onCreatePocha,
+  onJoin,
+  error,
+  lang,
+  setLang,
+  initialJoinRoomId = null,
+  onOpenPochaDev,
+  onOpenContinentalDev,
+}: LobbyProps) {
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
-  const [joinRoomId, setJoinRoomId] = useState('')
+  const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState('')
   const [reportCopied, setReportCopied] = useState(false)
+
+  useEffect(() => {
+    if (initialJoinRoomId != null) setJoinRoomId(initialJoinRoomId)
+  }, [initialJoinRoomId])
 
   return (
     <div className="lobby">
       <header className="lobby-header">
-        <div className="lobby-lang">
-          <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
-          <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+        <div className="lobby-lang" role="group" aria-label={t(lang, 'language')}>
+          <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')} aria-label={t(lang, 'langEn')} aria-pressed={lang === 'en'}>EN</button>
+          <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')} aria-label={t(lang, 'langEs')} aria-pressed={lang === 'es'}>ES</button>
           <button
             type="button"
             className="lobby-report-bug-btn"
@@ -39,44 +56,53 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, 
                 setTimeout(() => setReportCopied(false), 2500)
               }
             }}
-            title={lang === 'es' ? 'Copiar logs para reportar un error' : 'Copy logs to report a bug'}
+            title={t(lang, 'reportBugTitle')}
+            aria-label={t(lang, 'reportBug')}
           >
-            {reportCopied ? (lang === 'es' ? '¡Copiado!' : 'Copied!') : (lang === 'es' ? 'Reportar error' : 'Report bug')}
+            {reportCopied ? t(lang, 'copied') : t(lang, 'reportBug')}
           </button>
         </div>
-        <h1>Continental Rummy</h1>
-        <p className="lobby-subtitle">2–10 players · 7 rounds · trios &amp; straights</p>
+        <h1>{t(lang, 'appTitle')}</h1>
+        <p className="lobby-subtitle">{t(lang, 'appSubtitle')}</p>
       </header>
 
       <div className="lobby-cards">
         <section className="lobby-card">
-          <h2>{lang === 'es' ? 'Crear partida' : 'Create game'}</h2>
-          <p>{lang === 'es' ? 'Crea una sala y comparte el código.' : 'Start a new room and share the code with friends.'}</p>
+          <h2>{t(lang, 'createContinental')}</h2>
+          <p>{t(lang, 'createContinentalDesc')}</p>
           <input
             type="text"
-            placeholder={lang === 'es' ? 'Tu nombre' : 'Your name'}
+            placeholder={t(lang, 'yourName')}
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
             maxLength={24}
           />
           <label className="lobby-deck-label">
-            {lang === 'es' ? 'Mazos:' : 'Decks:'}
+            {t(lang, 'decks')}:
             <select value={createDecks} onChange={(e) => setCreateDecks(Number(e.target.value) as 2 | 3)}>
               <option value={2}>2</option>
               <option value={3}>3</option>
             </select>
           </label>
-          <button onClick={() => onCreate(createName || 'Player', createDecks)} disabled={!createName.trim()}>
+          <button onClick={() => onCreateContinental(createName || 'Player', createDecks)} disabled={!createName.trim()}>
             {t(lang, 'createRoom')}
           </button>
         </section>
 
         <section className="lobby-card">
-          <h2>{lang === 'es' ? 'Unirse' : 'Join game'}</h2>
-          <p>{lang === 'es' ? 'Código de sala del host.' : 'Enter the room code from the host.'}</p>
+          <h2>{t(lang, 'createPocha')}</h2>
+          <p>{t(lang, 'createPochaDesc')}</p>
+          <button type="button" className="lobby-create-pocha-btn" onClick={onCreatePocha}>
+            {t(lang, 'createPocha')}
+          </button>
+        </section>
+
+        <section className="lobby-card">
+          <h2>{t(lang, 'joinGame')}</h2>
+          <p>{t(lang, 'joinGameDesc')}</p>
           <input
             type="text"
-            placeholder="4-digit code (e.g. 1234)"
+            placeholder={t(lang, 'roomCodePlaceholder')}
             value={joinRoomId}
             onChange={(e) => setJoinRoomId(e.target.value.replace(/\D/g, '').slice(0, 4))}
             maxLength={4}
@@ -84,7 +110,7 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, 
           />
           <input
             type="text"
-            placeholder={lang === 'es' ? 'Tu nombre' : 'Your name'}
+            placeholder={t(lang, 'yourName')}
             value={joinName}
             onChange={(e) => setJoinName(e.target.value)}
             maxLength={24}
@@ -104,12 +130,12 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, 
         <p className="lobby-dev">
           {onOpenContinentalDev && (
             <button type="button" className="lobby-dev-btn" onClick={onOpenContinentalDev}>
-              {lang === 'es' ? 'Jugar Continental (dev)' : 'Play Continental (dev)'}
+              {t(lang, 'playContinentalDev')}
             </button>
           )}
           {onOpenPochaDev && (
             <button type="button" className="lobby-dev-btn" onClick={onOpenPochaDev}>
-              {lang === 'es' ? 'Jugar Pocha (dev)' : 'Play Pocha (dev)'}
+              {t(lang, 'playPochaDev')}
             </button>
           )}
         </p>

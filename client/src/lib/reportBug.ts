@@ -71,10 +71,11 @@ export function getReportText(context?: Record<string, unknown>): string {
     lines.push('')
   }
   lines.push('Recent logs / errors:')
-  if (LOGS.length === 0) {
+  const logsToInclude = LOGS.length === 0 ? [] : LOGS.slice(-100)
+  if (logsToInclude.length === 0) {
     lines.push('  (No console logs or errors captured. Describe what you did before the bug.)')
   } else {
-    for (const { level, time, args } of LOGS) {
+    for (const { level, time, args } of logsToInclude) {
       lines.push(`[${time}] ${level.toUpperCase()}: ${formatArgs(args)}`)
     }
   }

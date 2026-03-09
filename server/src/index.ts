@@ -38,11 +38,17 @@ io.on('connection', (socket) => {
   const playerId = socket.id
   let roomId: string | null = null
 
-  socket.on('create', (payload: { name: string; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
+  socket.on('create', (payload: { name: string; gameType?: 'continental' | 'pocha'; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
+    if (payload?.gameType === 'pocha') {
+      socket.emit('error', { message: 'Pocha multiplayer not available yet' })
+      return
+    }
+    const gameType = 'continental'
     const deckCount = payload?.deckCount === 3 ? 3 : 2
     const newRoomId = generateRoomId()
     const room = new Room({
       roomId: newRoomId,
+      gameType,
       maxPlayers: 10,
       deckCount,
       discardOptionDelaySeconds: payload?.discardOptionDelaySeconds,

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { PochaGameState, PochaPlayer } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
+import { GameShell } from './GameShell'
+import { ReportBugButton } from './ReportBugButton'
 import { SpanishCard, SpanishCardBack, POCHA_SUIT_LABEL } from './pocha'
 import './PochaBoard.css'
 
@@ -65,6 +67,7 @@ export function PochaBoard({
   onPlayCard,
 }: PochaBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [reportCopied, setReportCopied] = useState(false)
   const me = state.players.find((p) => p.id === socketId)
   const myHand = me?.hand ?? []
   const isBidding = state.phase === 'bidding'
@@ -88,48 +91,32 @@ export function PochaBoard({
 
   return (
     <div className="pocha-board">
-      <div className="pocha-top-row">
-        <button type="button" className="pocha-back-btn" onClick={onLeave}>
-          {t(lang, 'backToMenu')}
-        </button>
-        <div className="pocha-lang">
-          <button
-            type="button"
-            className={lang === 'es' ? 'active' : ''}
-            onClick={() => setLang('es')}
-          >
-            ES
-          </button>
-          <button
-            type="button"
-            className={lang === 'en' ? 'active' : ''}
-            onClick={() => setLang('en')}
-          >
-            EN
-          </button>
-        </div>
-      </div>
-
+      <GameShell
+        backLabel={t(lang, 'backToMenu')}
+        onBack={onLeave}
+        lang={lang}
+        setLang={setLang}
+        rightSlot={
+          <ReportBugButton
+            lang={lang}
+            reportCopied={reportCopied}
+            setReportCopied={setReportCopied}
+            context={{ game: 'pocha', phase: state.phase, handNumber: state.handNumber, players: state.players.length }}
+          />
+        }
+      />
       <div className="pocha-info">
         <span className="pocha-hand-info">
-          {lang === 'es' ? 'Mano' : 'Hand'} {state.handNumber} ·{' '}
-          {state.cardsPerHand}{' '}
-          {lang === 'es' ? 'cartas' : 'cards'}
+          {t(lang, 'pochaHand')} {state.handNumber} · {state.cardsPerHand} {t(lang, 'cards')}
         </span>
         {state.trump && (
           <span className="pocha-trump-badge">
-            {lang === 'es' ? 'Triunfo' : 'Trump'}: {POCHA_SUIT_LABEL[state.trump]}
+            {t(lang, 'pochaTrump')}: {POCHA_SUIT_LABEL[state.trump]}
           </span>
         )}
         {(isMyBid || isMyTurn) && (
           <span className="pocha-turn-badge">
-            {isMyBid
-              ? lang === 'es'
-                ? 'Tu apuesta'
-                : 'Your bid'
-              : lang === 'es'
-                ? 'Tu turno'
-                : 'Your turn'}
+            {isMyBid ? t(lang, 'pochaYourBid') : t(lang, 'yourTurn')}
           </span>
         )}
       </div>
@@ -171,8 +158,7 @@ export function PochaBoard({
                     )}
                     {player.bid != null && (
                       <span className="pocha-seat-bid">
-                        {player.bid} {lang === 'es' ? 'baza' : 'trick'}
-                        {player.bid !== 1 ? 's' : ''}
+                        {player.bid} {player.bid === 1 ? t(lang, 'pochaTrick') : t(lang, 'pochaTricks')}
                       </span>
                     )}
                   </>
@@ -216,7 +202,7 @@ export function PochaBoard({
           {isBidding && isMyBid && onBid && (
             <div className="pocha-bid-buttons">
               <span className="pocha-actions-label">
-                {lang === 'es' ? '¿Cuántas bazas?' : 'How many tricks?'}
+                {t(lang, 'pochaHowManyTricks')}
               </span>
               {Array.from({ length: totalTricks + 1 }, (_, n) => (
                 <button
@@ -225,13 +211,7 @@ export function PochaBoard({
                   className="pocha-bid-btn"
                   onClick={() => onBid(n)}
                   disabled={blockedBid === n}
-                  title={
-                    blockedBid === n && me
-                      ? lang === 'es'
-                        ? 'El repartidor no puede apostar este número'
-                        : "Dealer can't bid this number"
-                      : undefined
-                  }
+                  title={blockedBid === n && me ? t(lang, 'pochaDealerCantBid') : undefined}
                 >
                   {n}
                 </button>
@@ -241,7 +221,7 @@ export function PochaBoard({
           {isPlaying && isMyTurn && onPlayCard && (
             <>
               <span className="pocha-actions-label">
-                {lang === 'es' ? 'Juega una carta' : 'Play a card'}
+                {t(lang, 'pochaPlayACard')}
               </span>
               <button
                 type="button"
@@ -249,7 +229,7 @@ export function PochaBoard({
                 disabled={!selectedCardId}
                 onClick={handlePlay}
               >
-                {lang === 'es' ? 'Jugar' : 'Play'}
+                {t(lang, 'pochaPlay')}
               </button>
             </>
           )}
