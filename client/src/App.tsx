@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
@@ -134,11 +134,9 @@ export default function App() {
               discard={discard}
               takeDiscard={takeDiscard}
               passDiscard={passDiscard}
-              leave={leave}
               nextRound={nextRound}
               debugSkipRound={debugSkipRound}
               setSeat={setSeat}
-              navigate={navigate}
             />
           }
         />
@@ -178,11 +176,9 @@ function GamePage({
   discard,
   takeDiscard,
   passDiscard,
-  leave,
   nextRound,
   debugSkipRound,
   setSeat,
-  navigate,
 }: {
   state: import('./types').GameState | null
   roomId: string | null
@@ -205,12 +201,11 @@ function GamePage({
   discard: (cardId: string) => void
   takeDiscard: () => void
   passDiscard: () => void
-  leave: () => void
   nextRound: () => void
   debugSkipRound?: () => void
   setSeat: (seatIndex: number) => void
-  navigate: (path: string) => void
 }) {
+  const navigate = useNavigate()
   useEffect(() => {
     if (!showPochaDev && !showContinentalDev && !(state && roomId)) {
       navigate('/', { replace: true })
