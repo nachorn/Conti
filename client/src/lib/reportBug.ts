@@ -20,6 +20,13 @@ function capture(level: string, original: (...args: unknown[]) => void) {
   }
 }
 
+/** Call from app to add an entry to the bug report log (e.g. socket errors, key events). */
+export function pushLog(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
+  const time = new Date().toISOString()
+  LOGS.push({ level, time, args })
+  if (LOGS.length > MAX_LOGS) LOGS.shift()
+}
+
 export function initLogCapture(): void {
   if (typeof window === 'undefined') return
   const patched = (console as unknown as { __reportBugPatched?: boolean }).__reportBugPatched
@@ -31,6 +38,13 @@ export function initLogCapture(): void {
   if (typeof origWarn === 'function') console.warn = capture('warn', origWarn)
   if (typeof origError === 'function') console.error = capture('error', origError)
   ;(console as unknown as { __reportBugPatched?: boolean }).__reportBugPatched = true
+
+  window.addEventListener('error', (event) => {
+    pushLog('error', `Uncaught: ${event.message}`, event.filename, event.lineno, event.colno, event.error)
+  })
+  window.addEventListener('unhandledrejection', (event) => {
+    pushLog('error', 'Unhandled promise rejection', event.reason)
+  })
 }
 
 export function getReportText(context?: Record<string, unknown>): string {
@@ -40,16 +54,29 @@ export function getReportText(context?: Record<string, unknown>): string {
     `URL: ${typeof window !== 'undefined' ? window.location.href : ''}`,
     '',
   ]
+  if (typeof window !== 'undefined') {
+    lines.push('Environment:')
+    lines.push(`  userAgent: ${navigator.userAgent.slice(0, 80)}...`)
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    if (vw && vh) lines.push(`  viewport: ${vw}x${vh}`)
+    lines.push('')
+  }
   if (context && Object.keys(context).length > 0) {
-    lines.push('Context:')
+    lines.push('Game context:')
     for (const [k, v] of Object.entries(context)) {
-      lines.push(`  ${k}: ${typeof v === 'object' && v !== null ? JSON.stringify(v) : v}`)
+      const val = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)
+      lines.push(`  ${k}: ${val}`)
     }
     lines.push('')
   }
-  lines.push('Recent logs:')
-  for (const { level, time, args } of LOGS) {
-    lines.push(`[${time}] ${level.toUpperCase()}: ${formatArgs(args)}`)
+  lines.push('Recent logs / errors:')
+  if (LOGS.length === 0) {
+    lines.push('  (No console logs or errors captured. Describe what you did before the bug.)')
+  } else {
+    for (const { level, time, args } of LOGS) {
+      lines.push(`[${time}] ${level.toUpperCase()}: ${formatArgs(args)}`)
+    }
   }
   lines.push('')
   lines.push('--- End ---')

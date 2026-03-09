@@ -759,8 +759,18 @@
 .opponent-cards-single {
   min-height: 67px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
+}
+
+.opponent-card-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--gold);
+  opacity: 0.85;
+  line-height: 1;
 }
 
 .game-hand-area {

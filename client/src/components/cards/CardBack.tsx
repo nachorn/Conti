@@ -60,43 +60,18 @@ export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a
           fill="url(#back-pattern)"
           opacity="0.4"
         />
-        {count != null ? (
-          <>
-            <circle
-              cx={CARD_W - 14}
-              cy={CARD_H - 14}
-              r="10"
-              fill="rgba(0,0,0,0.5)"
-              stroke="rgba(255,255,255,0.35)"
-              strokeWidth="1"
-            />
-            <text
-              x={CARD_W - 14}
-              y={CARD_H - 14}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="rgba(255,255,255,0.95)"
-              fontSize="11"
-              fontWeight="600"
-              fontFamily="system-ui, sans-serif"
-            >
-              {count}
-            </text>
-          </>
-        ) : (
-          <text
-            x={CARD_W / 2}
-            y={CARD_H / 2}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(255,255,255,0.15)"
-            fontSize="10"
-            fontWeight="700"
-            fontFamily="system-ui, sans-serif"
-          >
-            CONTI
-          </text>
-        )}
+        <text
+          x={CARD_W / 2}
+          y={CARD_H / 2}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill="rgba(255,255,255,0.12)"
+          fontSize="9"
+          fontWeight="600"
+          fontFamily="system-ui, sans-serif"
+        >
+          CONTI
+        </text>
       </g>
     </svg>
   )

@@ -497,7 +497,19 @@ export function GameBoard({
             lang={lang}
             reportCopied={reportCopied}
             setReportCopied={setReportCopied}
-            context={{ roomId: state.roomId, phase: state.phase, round: state.round, players: state.players.length, myId: socketId ?? undefined }}
+            context={{
+              roomId: state.roomId,
+              phase: state.phase,
+              round: state.round,
+              players: state.players.length,
+              myId: socketId ?? undefined,
+              currentPlayerIndex: state.currentPlayerIndex,
+              discardOptionPlayerIndex: state.discardOptionPlayerIndex ?? undefined,
+              stockCount: state.stockCount,
+              topDiscard: state.topDiscard ? `${state.topDiscard.rank}/${state.topDiscard.suit}` : null,
+              myHandLength: me?.hand.length ?? 0,
+              meldsCount: state.melds.length,
+            }}
           />
         </div>
       </div>
@@ -698,7 +710,8 @@ export function GameBoard({
                     <span className="poker-seat-you">{t(lang, 'you')}</span>
                   ) : (
                     <div className="opponent-cards opponent-cards-single">
-                      <CardBack width={48} height={67} count={player.hand.length} />
+                      <CardBack width={48} height={67} />
+                      <span className="opponent-card-count" aria-label={`${player.hand.length} cards`}>{player.hand.length}</span>
                     </div>
                   )}
                 </>

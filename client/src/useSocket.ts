@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
+import { pushLog } from './lib/reportBug'
 import type { GameState, Card } from './types'
 
 const SOCKET_URL =
@@ -35,11 +36,14 @@ export function useSocket() {
     })
 
     socket.on('error', (payload: { message: string }) => {
-      setError(payload?.message ?? 'Error')
+      const msg = payload?.message ?? 'Error'
+      setError(msg)
+      pushLog('error', 'Socket error', msg)
     })
 
-    socket.on('connect_error', () => {
+    socket.on('connect_error', (err) => {
       setError('Cannot connect to server')
+      pushLog('error', 'Socket connect_error', err?.message ?? err)
     })
 
     return () => {
