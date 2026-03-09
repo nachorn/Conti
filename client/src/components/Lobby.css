@@ -38,6 +38,11 @@
   border-color: var(--gold);
 }
 
+.lobby-report-bug-btn {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
 .lobby-header h1 {
   font-size: 2.5rem;
   margin: 0 0 0.5rem;

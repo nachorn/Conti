@@ -70,6 +70,22 @@
   border-color: var(--gold);
 }
 
+.game-report-bug-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.game-report-bug-btn:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .scoreboard {
   position: absolute;
   top: 0.5rem;
@@ -79,6 +95,26 @@
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   min-width: 120px;
+}
+
+.scoreboard-btn {
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: left;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.scoreboard-btn:hover {
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.scoreboard-expand-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.65rem;
+  color: var(--gold);
+  opacity: 0.8;
 }
 
 .scoreboard-title {
@@ -117,6 +153,127 @@
 .scoreboard-score {
   font-weight: 600;
   color: var(--gold);
+}
+
+/* Expanded scoreboard overlay */
+.scoreboard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.scoreboard-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+
+.scoreboard-panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 85vh;
+  overflow: auto;
+  background: linear-gradient(180deg, #1a2e1a 0%, #0f1f0f 100%);
+  border: 2px solid var(--gold);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.scoreboard-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.scoreboard-panel-title {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--gold);
+}
+
+.scoreboard-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 1.75rem;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.scoreboard-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scoreboard-panel-body {
+  padding: 1.25rem;
+}
+
+.scoreboard-section {
+  margin-bottom: 1.5rem;
+}
+
+.scoreboard-section:last-child {
+  margin-bottom: 0;
+}
+
+.scoreboard-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.95;
+}
+
+.scoreboard-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.scoreboard-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.scoreboard-panel-row .scoreboard-rank {
+  min-width: 1.5rem;
+  font-size: 1rem;
+}
+
+.scoreboard-panel-row .scoreboard-name {
+  flex: 1;
+}
+
+.scoreboard-panel-row .scoreboard-score {
+  font-size: 1.1rem;
+}
+
+.scoreboard-round-row .scoreboard-score.score-positive {
+  color: #7dd87d;
+}
+
+.scoreboard-round-row .scoreboard-score.score-negative {
+  color: #e08080;
 }
 
 .turn-badge-you {
@@ -363,6 +520,53 @@
 .meld-row-wrap.meld-row-selected {
   border-color: var(--gold);
   background: rgba(212, 175, 55, 0.15);
+}
+
+.meld-show-btn {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--gold);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.meld-show-btn:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.meld-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 2px;
+}
+
+.meld-row-title {
+  font-size: 0.7rem;
+  color: var(--gold);
+  opacity: 0.95;
+}
+
+.meld-hide-btn {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.65rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.meld-hide-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .poker-table-lobby {

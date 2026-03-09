@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
+import { copyReportToClipboard } from '../lib/reportBug'
 import './Lobby.css'
 
 interface LobbyProps {
@@ -20,6 +21,7 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, 
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [joinRoomId, setJoinRoomId] = useState('')
   const [joinName, setJoinName] = useState('')
+  const [reportCopied, setReportCopied] = useState(false)
 
   return (
     <div className="lobby">
@@ -27,6 +29,20 @@ export function Lobby({ onCreate, onJoin, error, lang, setLang, onOpenPochaDev, 
         <div className="lobby-lang">
           <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
           <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+          <button
+            type="button"
+            className="lobby-report-bug-btn"
+            onClick={async () => {
+              const ok = await copyReportToClipboard({ screen: 'lobby', error: error ?? undefined })
+              if (ok) {
+                setReportCopied(true)
+                setTimeout(() => setReportCopied(false), 2500)
+              }
+            }}
+            title={lang === 'es' ? 'Copiar logs para reportar un error' : 'Copy logs to report a bug'}
+          >
+            {reportCopied ? (lang === 'es' ? '¡Copiado!' : 'Copied!') : (lang === 'es' ? 'Reportar error' : 'Report bug')}
+          </button>
         </div>
         <h1>Continental Rummy</h1>
         <p className="lobby-subtitle">2–10 players · 7 rounds · trios &amp; straights</p>

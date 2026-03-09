@@ -271,7 +271,8 @@ export class Room {
     const p = this.players[optionIndex]
     if (!p || p.id !== playerId) return { ok: false, error: 'Not your option to take or pass' }
     const nextOption = (optionIndex + 1) % n
-    if (nextOption === this.discarderIndex) {
+    const firstOption = (this.discarderIndex + 1) % n
+    if (nextOption === firstOption) {
       this.discardOptionPlayerIndex = null
       this.discardOptionAvailableAt = null
       this.currentPlayerIndex = (this.discarderIndex + 1) % n

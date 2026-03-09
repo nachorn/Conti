@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { Card as CardType, GameState, Meld, Player } from '../types'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
+import { copyReportToClipboard } from '../lib/reportBug'
 import { Card } from './Card'
 import { CardBack } from './cards/CardBack'
 import './GameBoard.css'
@@ -112,6 +113,8 @@ export function GameBoard({
   const [dealingPhase, setDealingPhase] = useState(false)
   const [dealingIndex, setDealingIndex] = useState(0)
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
+  const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
+  const [reportCopied, setReportCopied] = useState(false)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
   const prevHandIdsRef = useRef<string[]>([])
@@ -142,7 +145,7 @@ export function GameBoard({
     })
   }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
-  const handCountOkToDraw = myHand.length === cardsThisRound || myHand.length === cardsThisRound - 1
+  const handCountOkToDraw = myHand.length === cardsThisRound
   const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && handCountOkToDraw
   const canDiscard =
     state.phase === 'playing' &&
@@ -269,16 +272,27 @@ export function GameBoard({
     if (!canDiscard || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
     if (cards.length < 3) return
+    const wilds = cards.filter((c) => c.rank === 0 || c.isWild || c.suit === 'joker')
     const byRank = new Map<number, CardType[]>()
     for (const c of cards) {
-      if (c.rank === 0 || c.isWild) continue
+      if (c.rank === 0 || c.isWild || c.suit === 'joker') continue
       const list = byRank.get(c.rank) ?? []
       list.push(c)
       byRank.set(c.rank, list)
     }
     const melds: { type: 'trio' | 'straight'; cards: CardType[] }[] = []
+    let wildsUsed = 0
     for (const [, list] of byRank) {
-      if (list.length >= 3) melds.push({ type: 'trio', cards: list.slice(0, 3) })
+      const need = 3 - Math.min(list.length, 3)
+      const availableWilds = wilds.length - wildsUsed
+      if (list.length >= 3) {
+        melds.push({ type: 'trio', cards: list.slice(0, 3) })
+      } else if (list.length + availableWilds >= 3) {
+        const fillCount = 3 - list.length
+        const trio = [...list.slice(0, 3), ...wilds.slice(wildsUsed, wildsUsed + fillCount)]
+        wildsUsed += fillCount
+        melds.push({ type: 'trio', cards: trio })
+      }
     }
     if (melds.length > 0) {
       onPlayMelds(melds)
@@ -307,6 +321,12 @@ export function GameBoard({
             <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
             <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
           </div>
+          <ReportBugButton
+            lang={lang}
+            reportCopied={reportCopied}
+            setReportCopied={setReportCopied}
+            context={{ roomId: state.roomId, phase: state.phase, players: state.players.length }}
+          />
         </div>
         <div className="game-lobby-header">
           <h2>{t(lang, 'room')} {state.roomId}</h2>
@@ -399,6 +419,12 @@ export function GameBoard({
             <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
             <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
           </div>
+          <ReportBugButton
+            lang={lang}
+            reportCopied={reportCopied}
+            setReportCopied={setReportCopied}
+            context={{ roomId: state.roomId, phase: state.phase, round: state.round }}
+          />
         </div>
         <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
@@ -427,9 +453,21 @@ export function GameBoard({
     const winner = state.players.reduce((a, b) => (a.score <= b.score ? a : b))
     return (
       <div className="game-board game-round-end">
-        <button type="button" className="game-back-btn" onClick={onLeave}>
-          {t(lang, 'backToMenu')}
-        </button>
+        <div className="game-round-end-top">
+          <button type="button" className="game-back-btn" onClick={onLeave}>
+            {t(lang, 'backToMenu')}
+          </button>
+          <div className="game-lang">
+            <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+            <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
+          </div>
+          <ReportBugButton
+            lang={lang}
+            reportCopied={reportCopied}
+            setReportCopied={setReportCopied}
+            context={{ roomId: state.roomId, phase: state.phase }}
+          />
+        </div>
         <Scoreboard state={state} lang={lang} />
         <div className="game-round-end-box">
           <h2>{t(lang, 'gameOver')}</h2>
@@ -454,6 +492,12 @@ export function GameBoard({
           <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
           <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
         </div>
+        <ReportBugButton
+          lang={lang}
+          reportCopied={reportCopied}
+          setReportCopied={setReportCopied}
+          context={{ roomId: state.roomId, phase: state.phase, round: state.round, players: state.players.length, myId: socketId ?? undefined }}
+        />
       </div>
       <Scoreboard state={state} lang={lang} />
       <div className="game-info">
@@ -566,6 +610,8 @@ export function GameBoard({
         {getSeatsAroundTable([...state.players], socketId).map((player, d) => {
           const meldsForSeat = player ? state.melds.filter((m) => m.ownerId === player.id) : []
           const pos = seatPosition(d, 32)
+          let trioNum = 0
+          let straightNum = 0
           return (
             <div
               key={`meld-${d}`}
@@ -573,6 +619,12 @@ export function GameBoard({
               style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
             >
               {meldsForSeat.map((meld) => {
+                const isTrio = meld.type === 'trio'
+                const labelNum = isTrio ? ++trioNum : ++straightNum
+                const showLabel = isTrio
+                  ? (lang === 'es' ? `Trío #${labelNum}` : `Trio #${labelNum}`)
+                  : (lang === 'es' ? `Escala #${labelNum}` : `Straight #${labelNum}`)
+                const expanded = expandedMeldIds.has(meld.id)
                 const meldHasJoker = meld.cards.some((c) => c.suit === 'joker')
                 const oneCardSelected = selectedCards.size === 1
                 const canAddOrSwap = canDiscard && hasPlayedMelds && selectedCards.size > 0
@@ -580,8 +632,20 @@ export function GameBoard({
                 return (
                   <div
                     key={meld.id}
-                    className={`meld-row-wrap ${canAddOrSwap ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''} ${canSwap ? 'meld-row-can-swap' : ''}`}
-                    onClick={() => {
+                    className={`meld-row-wrap ${canAddOrSwap ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''} ${canSwap ? 'meld-row-can-swap' : ''} ${expanded ? 'meld-row-expanded' : 'meld-row-collapsed'}`}
+                    onClick={(e) => {
+                      if (!expanded && (e.target as HTMLElement).closest('.meld-show-btn')) {
+                        setExpandedMeldIds((prev) => new Set(prev).add(meld.id))
+                        return
+                      }
+                      if (expanded && (e.target as HTMLElement).closest('.meld-hide-btn')) {
+                        setExpandedMeldIds((prev) => {
+                          const next = new Set(prev)
+                          next.delete(meld.id)
+                          return next
+                        })
+                        return
+                      }
                       if (!canAddOrSwap || selectedCards.size === 0) return
                       if (oneCardSelected && meldHasJoker) {
                         const [cardId] = Array.from(selectedCards)
@@ -596,7 +660,21 @@ export function GameBoard({
                     role={canAddOrSwap ? 'button' : undefined}
                     title={canSwap ? (lang === 'es' ? 'Sustituir comodín con esta carta' : 'Swap joker with this card') : undefined}
                   >
-                    <MeldRow meld={meld} />
+                    {expanded ? (
+                      <>
+                        <div className="meld-row-header">
+                          <span className="meld-row-title">{showLabel}</span>
+                          <button type="button" className="meld-hide-btn" onClick={(e) => { e.stopPropagation(); setExpandedMeldIds((prev) => { const n = new Set(prev); n.delete(meld.id); return n }); }} aria-label={lang === 'es' ? 'Ocultar' : 'Hide'}>
+                            {lang === 'es' ? 'Ocultar' : 'Hide'}
+                          </button>
+                        </div>
+                        <MeldRow meld={meld} />
+                      </>
+                    ) : (
+                      <button type="button" className="meld-show-btn">
+                        {showLabel}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -754,23 +832,108 @@ export function GameBoard({
   )
 }
 
-function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
+function ReportBugButton({
+  lang,
+  reportCopied,
+  setReportCopied,
+  context,
+}: {
+  lang: Lang
+  reportCopied: boolean
+  setReportCopied: (v: boolean) => void
+  context: Record<string, unknown>
+}) {
   return (
-    <div className="scoreboard">
-      <h3 className="scoreboard-title">{t(lang, 'scoreboard')}</h3>
-      <div className="scoreboard-list">
-        {state.players
-          .slice()
-          .sort((a, b) => a.score - b.score)
-          .map((p, i) => (
+    <button
+      type="button"
+      className="game-report-bug-btn"
+      onClick={async () => {
+        const ok = await copyReportToClipboard(context)
+        if (ok) {
+          setReportCopied(true)
+          setTimeout(() => setReportCopied(false), 2500)
+        }
+      }}
+      title={lang === 'es' ? 'Copiar logs para reportar un error' : 'Copy logs to report a bug'}
+    >
+      {reportCopied ? (lang === 'es' ? '¡Copiado!' : 'Copied!') : (lang === 'es' ? 'Reportar error' : 'Report bug')}
+    </button>
+  )
+}
+
+function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
+  const [open, setOpen] = useState(false)
+  const sorted = [...state.players].sort((a, b) => a.score - b.score)
+  const hasRoundScores = state.roundScores && Object.keys(state.roundScores).length > 0
+  return (
+    <>
+      <button
+        type="button"
+        className="scoreboard scoreboard-btn"
+        onClick={() => setOpen(true)}
+        title={lang === 'es' ? 'Ver marcador' : 'View scoreboard'}
+        aria-label={t(lang, 'scoreboard')}
+      >
+        <h3 className="scoreboard-title">{t(lang, 'scoreboard')}</h3>
+        <div className="scoreboard-list">
+          {sorted.slice(0, 3).map((p, i) => (
             <div key={p.id} className="scoreboard-row">
               <span className="scoreboard-rank">{i + 1}.</span>
               <span className="scoreboard-name">{p.name}</span>
               <span className="scoreboard-score">{p.score}</span>
             </div>
           ))}
-      </div>
-    </div>
+        </div>
+        <span className="scoreboard-expand-hint">{lang === 'es' ? 'Ver todo' : 'View all'}</span>
+      </button>
+      {open && (
+        <div className="scoreboard-overlay" role="dialog" aria-modal="true" aria-label={t(lang, 'scoreboard')}>
+          <div className="scoreboard-backdrop" onClick={() => setOpen(false)} aria-hidden />
+          <div className="scoreboard-panel">
+            <div className="scoreboard-panel-header">
+              <h2 className="scoreboard-panel-title">{t(lang, 'scoreboard')}</h2>
+              <button type="button" className="scoreboard-close" onClick={() => setOpen(false)} aria-label={lang === 'es' ? 'Cerrar' : 'Close'}>
+                ×
+              </button>
+            </div>
+            <div className="scoreboard-panel-body">
+              <section className="scoreboard-section">
+                <h3 className="scoreboard-section-title">{lang === 'es' ? 'Puntos totales' : 'Total points'}</h3>
+                <div className="scoreboard-panel-list">
+                  {sorted.map((p, i) => (
+                    <div key={p.id} className="scoreboard-panel-row">
+                      <span className="scoreboard-rank">{i + 1}.</span>
+                      <span className="scoreboard-name">{p.name}</span>
+                      <span className="scoreboard-score">{p.score}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              {hasRoundScores && (
+                <section className="scoreboard-section">
+                  <h3 className="scoreboard-section-title">
+                    {lang === 'es' ? `Ronda ${state.round}` : `Round ${state.round}`}
+                  </h3>
+                  <div className="scoreboard-panel-list">
+                    {state.players.map((p) => {
+                      const pts = state.roundScores[p.id] ?? 0
+                      return (
+                        <div key={p.id} className="scoreboard-panel-row scoreboard-round-row">
+                          <span className="scoreboard-name">{p.name}</span>
+                          <span className={`scoreboard-score ${pts >= 0 ? 'score-positive' : 'score-negative'}`}>
+                            {pts >= 0 ? '+' : ''}{pts}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
