@@ -11,7 +11,7 @@ export interface CardBackProps {
   count?: number
 }
 
-export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a5f', count }: CardBackProps) {
+export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a5f' }: CardBackProps) {
   const scaleX = width / CARD_W
   const scaleY = height / CARD_H
 
