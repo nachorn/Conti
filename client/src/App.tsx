@@ -33,6 +33,7 @@ export default function App() {
     passDiscard,
     leave,
     nextRound,
+    debugSkipRound,
     socketId,
   } = useSocket()
 
@@ -64,6 +65,7 @@ export default function App() {
           onPassDiscard={continentalMock.passDiscard}
           onLeave={() => setShowContinentalDev(false)}
           onNextRound={continentalMock.nextRound}
+          onDebugSkipRound={continentalMock.debugSkipRound}
           onSetSeat={continentalMock.setSeat}
         />
       ) : state && roomId ? (
@@ -82,6 +84,7 @@ export default function App() {
           onPassDiscard={passDiscard}
           onLeave={leave}
           onNextRound={nextRound}
+          onDebugSkipRound={debugSkipRound}
           onSetSeat={setSeat}
         />
       ) : (

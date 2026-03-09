@@ -114,6 +114,15 @@ export function useContinentalMockState() {
     )
   }
 
+  const debugSkipRound = () => {
+    setState((prev) => {
+      if (prev.phase !== 'playing') return prev
+      const roundScores: Record<string, number> = {}
+      prev.players.forEach((p) => { roundScores[p.id] = 0 })
+      return { ...prev, phase: 'round_end' as const, roundScores }
+    })
+  }
+
   const setSeat = (_seatIndex: number) => {}
 
   const leave = () => {}
@@ -131,6 +140,7 @@ export function useContinentalMockState() {
     passDiscard,
     leave,
     nextRound,
+    debugSkipRound,
     setSeat,
   }
 }

@@ -419,6 +419,13 @@ export class Room {
     }
   }
 
+  debugSkipRound(): boolean {
+    if (this.phase !== 'playing') return false
+    this.roundEnderId = null
+    this.endRound(null)
+    return true
+  }
+
   nextRound(): boolean {
     if (this.phase !== 'round_end') return false
     this.round++

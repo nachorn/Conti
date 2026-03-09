@@ -96,6 +96,34 @@
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+.game-debug-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  background: rgba(80, 60, 0, 0.4);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.game-debug-btn:hover {
+  background: rgba(80, 60, 0, 0.6);
+}
+
+.game-debug-skip {
+  font-size: 0.65rem;
+}
+
+/* Disable all animations when .animations-off is on the game board */
+.game-board.animations-off .shuffle-animate .card,
+.game-board.animations-off .deal-in,
+.game-board.animations-off .card-just-drawn .card,
+.game-board.animations-off .discard-card-wrap,
+.game-board.animations-off .flying-deal-card,
+.game-board.animations-off .deal-overlay {
+  animation: none !important;
+}
+
 .scoreboard {
   position: absolute;
   top: 0.5rem;

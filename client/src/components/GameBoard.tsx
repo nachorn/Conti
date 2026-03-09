@@ -82,6 +82,7 @@ interface GameBoardProps {
   onPassDiscard: () => void
   onLeave: () => void
   onNextRound: () => void
+  onDebugSkipRound?: () => void
   onSetSeat?: (seatIndex: number) => void
 }
 
@@ -100,6 +101,7 @@ export function GameBoard({
   onPassDiscard,
   onLeave,
   onNextRound,
+  onDebugSkipRound,
   onSetSeat,
 }: GameBoardProps) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
@@ -115,6 +117,7 @@ export function GameBoard({
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
   const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
   const [reportCopied, setReportCopied] = useState(false)
+  const [animationsOn, setAnimationsOn] = useState(true)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
   const prevHandIdsRef = useRef<string[]>([])
@@ -206,6 +209,11 @@ export function GameBoard({
     const roundJustStarted = prevPhase !== 'playing' || prevRound !== state.round
     if (!roundJustStarted) return
     setDealAnimKey(null)
+    if (!animationsOn) {
+      setDealAnimKey(Date.now())
+      const t = setTimeout(() => setDealAnimKey(null), 500)
+      return () => clearTimeout(t)
+    }
     setShuffleActive(true)
     setDealingPhase(false)
     setDealingIndex(0)
@@ -219,7 +227,7 @@ export function GameBoard({
       }
     }, 1200)
     return () => clearTimeout(t1)
-  }, [state.phase, state.round, totalToDeal])
+  }, [state.phase, state.round, totalToDeal, animationsOn])
 
   const handleDealCardAnimationEnd = () => {
     setDealingIndex((prev) => {
@@ -482,7 +490,7 @@ export function GameBoard({
   }
 
   return (
-    <div className={`game-board ${dealingPhase ? 'dealing-cards' : ''}`}>
+    <div className={`game-board ${dealingPhase ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''}`}>
       <div className="game-top-row">
         <button type="button" className="game-back-btn" onClick={onLeave}>
           {t(lang, 'backToMenu')}
@@ -491,6 +499,19 @@ export function GameBoard({
           <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
           <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
         </div>
+        <button
+          type="button"
+          className="game-debug-btn"
+          onClick={() => setAnimationsOn((v) => !v)}
+          title={animationsOn ? (lang === 'es' ? 'Desactivar animaciones' : 'Hide animations') : (lang === 'es' ? 'Mostrar animaciones' : 'Show animations')}
+        >
+          {animationsOn ? (lang === 'es' ? 'Sin anim.' : 'No anim.') : (lang === 'es' ? 'Anim.' : 'Anim.')}
+        </button>
+        {onDebugSkipRound && state.phase === 'playing' && (
+          <button type="button" className="game-debug-btn game-debug-skip" onClick={onDebugSkipRound}>
+            {lang === 'es' ? 'Saltar ronda (debug)' : 'Skip round (debug)'}
+          </button>
+        )}
         <div className="game-top-right">
           <Scoreboard state={state} lang={lang} />
           <ReportBugButton

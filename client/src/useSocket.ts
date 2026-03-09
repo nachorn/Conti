@@ -108,6 +108,10 @@ export function useSocket() {
     socketRef.current?.emit('next_round')
   }
 
+  const debugSkipRound = () => {
+    socketRef.current?.emit('debug_skip_round')
+  }
+
   return {
     state,
     roomId,
@@ -125,6 +129,7 @@ export function useSocket() {
     passDiscard,
     leave,
     nextRound,
+    debugSkipRound,
     socketId,
   }
 }

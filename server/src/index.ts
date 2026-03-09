@@ -188,6 +188,16 @@ io.on('connection', (socket) => {
     else socket.emit('error', { message: result.error })
   })
 
+  socket.on('debug_skip_round', () => {
+    if (!roomId) return
+    const room = rooms.get(roomId)
+    if (!room) return
+    if (room.debugSkipRound()) {
+      broadcastState(roomId)
+      io.to(roomId).emit('round_end', { roundScores: room.roundScores, roundEnderId: room.roundEnderId })
+    }
+  })
+
   socket.on('next_round', () => {
     if (!roomId) return
     const room = rooms.get(roomId)
