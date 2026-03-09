@@ -22,13 +22,15 @@ function capture(level: string, original: (...args: unknown[]) => void) {
 
 export function initLogCapture(): void {
   if (typeof window === 'undefined') return
-  const c = console as Record<string, (...args: unknown[]) => void>
-  if (c.log && !(c as unknown as { __reportBugPatched?: boolean }).__reportBugPatched) {
-    c.log = capture('log', c.log)
-    c.warn = capture('warn', c.warn)
-    c.error = capture('error', c.error)
-    ;(console as unknown as { __reportBugPatched?: boolean }).__reportBugPatched = true
-  }
+  const patched = (console as unknown as { __reportBugPatched?: boolean }).__reportBugPatched
+  if (patched) return
+  const origLog = console.log
+  const origWarn = console.warn
+  const origError = console.error
+  if (typeof origLog === 'function') console.log = capture('log', origLog)
+  if (typeof origWarn === 'function') console.warn = capture('warn', origWarn)
+  if (typeof origError === 'function') console.error = capture('error', origError)
+  ;(console as unknown as { __reportBugPatched?: boolean }).__reportBugPatched = true
 }
 
 export function getReportText(context?: Record<string, unknown>): string {

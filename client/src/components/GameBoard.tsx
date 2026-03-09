@@ -283,7 +283,6 @@ export function GameBoard({
     const melds: { type: 'trio' | 'straight'; cards: CardType[] }[] = []
     let wildsUsed = 0
     for (const [, list] of byRank) {
-      const need = 3 - Math.min(list.length, 3)
       const availableWilds = wilds.length - wildsUsed
       if (list.length >= 3) {
         melds.push({ type: 'trio', cards: list.slice(0, 3) })
