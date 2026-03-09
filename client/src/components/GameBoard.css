@@ -36,6 +36,16 @@
   justify-content: space-between;
 }
 
+.game-top-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.game-top-right .scoreboard {
+  position: static;
+}
+
 .game-back-btn {
   background: rgba(0, 0, 0, 0.4);
   color: var(--cream);

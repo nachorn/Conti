@@ -491,14 +491,16 @@ export function GameBoard({
           <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
           <button type="button" className={lang === 'es' ? 'active' : ''} onClick={() => setLang('es')}>ES</button>
         </div>
-        <ReportBugButton
-          lang={lang}
-          reportCopied={reportCopied}
-          setReportCopied={setReportCopied}
-          context={{ roomId: state.roomId, phase: state.phase, round: state.round, players: state.players.length, myId: socketId ?? undefined }}
-        />
+        <div className="game-top-right">
+          <Scoreboard state={state} lang={lang} />
+          <ReportBugButton
+            lang={lang}
+            reportCopied={reportCopied}
+            setReportCopied={setReportCopied}
+            context={{ roomId: state.roomId, phase: state.phase, round: state.round, players: state.players.length, myId: socketId ?? undefined }}
+          />
+        </div>
       </div>
-      <Scoreboard state={state} lang={lang} />
       <div className="game-info">
         <span>{t(lang, 'room')} {state.roomId}</span>
         <span>{t(lang, 'round')} {state.round}</span>
