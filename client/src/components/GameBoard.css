@@ -785,20 +785,20 @@
 }
 
 .opponent-cards-single {
-  min-height: 67px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
 }
 
-.opponent-card-count {
-  font-size: 0.7rem;
+.opponent-cards-label {
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--gold);
-  opacity: 0.85;
-  line-height: 1;
+  opacity: 0.9;
+  padding: 0.35rem 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .game-hand-area {

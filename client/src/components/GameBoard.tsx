@@ -731,8 +731,9 @@ export function GameBoard({
                     <span className="poker-seat-you">{t(lang, 'you')}</span>
                   ) : (
                     <div className="opponent-cards opponent-cards-single">
-                      <CardBack width={48} height={67} />
-                      <span className="opponent-card-count" aria-label={`${player.hand.length} cards`}>{player.hand.length}</span>
+                      <span className="opponent-cards-label" aria-label={`${player.hand.length} cards`}>
+                        {player.hand.length} {lang === 'es' ? 'cartas' : 'cards'}
+                      </span>
                     </div>
                   )}
                 </>
