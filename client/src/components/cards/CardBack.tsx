@@ -7,8 +7,6 @@ export interface CardBackProps {
   height?: number
   /** Optional fill for the back pattern (e.g. blue, red). */
   accentColor?: string
-  /** When set, show this number on the back (e.g. opponent card count). */
-  count?: number
 }
 
 export function CardBack({ width = CARD_W, height = CARD_H, accentColor = '#1e3a5f' }: CardBackProps) {

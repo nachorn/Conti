@@ -585,7 +585,7 @@ export function GameBoard({
               style={{ '--end-x': pos.x, '--end-y': pos.y } as React.CSSProperties}
               onAnimationEnd={handleDealCardAnimationEnd}
             >
-              <CardBack width={72} height={100} count={1} />
+              <CardBack width={72} height={100} />
             </div>
           )
         })()}
