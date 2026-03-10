@@ -684,7 +684,7 @@ export function GameBoard({
                 className={`game-stock ${shuffleActive ? 'shuffle-animate' : ''}`}
                 onClick={canDraw ? handleDrawStock : undefined}
               >
-                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
+                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="large" />
                 <span className="stock-count">{state.stockCount}</span>
               </div>
               <div
@@ -694,7 +694,7 @@ export function GameBoard({
               >
                 {state.topDiscard ? (
                   <div key={state.topDiscard.id} className="discard-card-wrap">
-                    <Card card={state.topDiscard} size="normal" />
+                    <Card card={state.topDiscard} size="large" />
                   </div>
                 ) : (
                   <div className="discard-placeholder" />

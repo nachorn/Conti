@@ -479,16 +479,6 @@
   visibility: hidden;
 }
 
-.game-board.dealing-cards .game-hand-area {
-  visibility: hidden;
-  max-height: 0;
-  min-height: 0;
-  padding: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-height 0.25s ease;
-}
-
 @keyframes dealOverlayIn {
   0% { opacity: 0; }
   100% { opacity: 1; }
@@ -499,9 +489,9 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 85%;
-  max-width: 620px;
-  aspect-ratio: 1.85 / 1;
+  width: 80%;
+  max-width: 560px;
+  aspect-ratio: 1.7 / 1;
   background: linear-gradient(165deg, #0d5c2e 0%, #0a4724 50%, #073d1e 100%);
   border-radius: 50%;
   box-shadow:
