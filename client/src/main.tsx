@@ -7,6 +7,12 @@ import './index.css'
 
 initLogCapture()
 
+// Preload bull back image so it is ready before first deal.
+if (typeof window !== 'undefined') {
+  const img = new Image()
+  img.src = '/bull-back.png'
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>

@@ -75,18 +75,15 @@
 }
 
 .card-back {
-  background: #000;
-  border: 2px solid var(--gold);
+  background-image: url('/bull-back.png');
+  background-size: cover;
+  background-position: center;
+  border: none;
   overflow: hidden;
 }
 
 .card-back-pattern {
-  width: 100%;
-  height: 100%;
-  border-radius: calc(var(--card-radius) - 2px);
-  background-image: url('/bull-back.png');
-  background-size: cover;
-  background-position: center;
+  display: none;
 }
 
 /* Sizes */
