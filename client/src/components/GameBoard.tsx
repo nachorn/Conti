@@ -376,6 +376,14 @@ export function GameBoard({
         </div>
         <div className="game-lobby-header">
           <h2>{t(lang, 'room')} {state.roomId}</h2>
+          <button
+            type="button"
+            className="game-copy-room-link-btn"
+            onClick={handleCopyRoomLink}
+            title={roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
+          >
+            {roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
+          </button>
           <p className="game-lobby-sub">{t(lang, 'chooseSeat')} · {state.players.length}/10 {t(lang, 'players')}</p>
         </div>
         <div className="poker-table-wrap poker-table-lobby">
