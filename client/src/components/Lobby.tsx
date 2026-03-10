@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
@@ -35,9 +35,18 @@ export function Lobby({
   const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState('')
   const [reportCopied, setReportCopied] = useState(false)
+  const joinSectionRef = useRef<HTMLElement | null>(null)
+  const joinNameInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    if (initialJoinRoomId != null) setJoinRoomId(initialJoinRoomId)
+    if (initialJoinRoomId != null) {
+      setJoinRoomId(initialJoinRoomId)
+      // Scroll to join card and focus name when coming from /room/:roomId
+      setTimeout(() => {
+        joinSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        joinNameInputRef.current?.focus()
+      }, 0)
+    }
   }, [initialJoinRoomId])
 
   return (
@@ -67,7 +76,7 @@ export function Lobby({
       </header>
 
       <div className="lobby-cards">
-        <section className="lobby-card">
+        <section className="lobby-card" ref={joinSectionRef as React.RefObject<HTMLElement>}>
           <h2>{t(lang, 'createContinental')}</h2>
           <p>{t(lang, 'createContinentalDesc')}</p>
           <input
@@ -113,6 +122,7 @@ export function Lobby({
             placeholder={t(lang, 'yourName')}
             value={joinName}
             onChange={(e) => setJoinName(e.target.value)}
+            ref={joinNameInputRef}
             maxLength={24}
           />
           <button
