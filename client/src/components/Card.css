@@ -75,10 +75,13 @@
 }
 
 .card-back {
+  padding: 0;
+  background-color: #000;
   background-image: url('/bull-back.png');
-  background-size: cover;
+  background-size: contain;
+  background-repeat: no-repeat;
   background-position: center;
-  border: 2px solid rgba(0,0,0,0.35);
+  border: 2px solid rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
 
