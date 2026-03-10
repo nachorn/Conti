@@ -184,7 +184,7 @@ export class Room {
     }
 
     this.currentPlayerIndex = (this.dealerIndex + 1) % n
-    if (n > 2 && this.topDiscard) {
+    if (n >= 2 && this.topDiscard) {
       this.discarderIndex = this.dealerIndex
       this.discardOptionPlayerIndex = (this.dealerIndex + 1) % n
       this.discardOptionAvailableAt =
@@ -393,7 +393,7 @@ export class Room {
       return { ok: true }
     }
     const n = this.players.length
-    if (n > 2) {
+    if (n >= 2) {
       this.discarderIndex = this.currentPlayerIndex
       this.discardOptionPlayerIndex = (this.currentPlayerIndex + 1) % n
       this.discardOptionAvailableAt =
