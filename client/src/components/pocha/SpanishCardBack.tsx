@@ -1,6 +1,6 @@
-const CARD_W = 70
-const CARD_H = 98
-const RADIUS = 6
+const CARD_W = 72
+const CARD_H = 100
+const RADIUS = 8
 
 // Static bull back artwork. Put the PNG in client/public at this path.
 const BULL_BACK_SRC = '/bull-back.png'
@@ -44,12 +44,11 @@ export function SpanishCardBack({
         {/* Bull artwork from static PNG */}
         <image
           href={BULL_BACK_SRC}
-          x="2"
-          y="2"
-          width={CARD_W - 4}
-          height={CARD_H - 4}
+          x="-2"
+          y="-2"
+          width={CARD_W + 4}
+          height={CARD_H + 4}
           preserveAspectRatio="xMidYMid slice"
-          clipPath={`inset(0 round ${RADIUS - 1})`}
         />
         {/* Optional count badge on top-right when used as facedown stack indicator */}
         <text

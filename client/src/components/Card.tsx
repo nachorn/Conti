@@ -1,4 +1,5 @@
 import type { Card as CardType } from '../types'
+import { CardBack } from './cards/CardBack'
 import './Card.css'
 
 const RANK_SYMBOLS: Record<number, string> = {
@@ -24,9 +25,15 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
   const suitChar = card.suit === 'joker' ? '★' : { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' }[card.suit] ?? ''
 
   if (faceDown) {
+    const dims =
+      size === 'small'
+        ? { width: 48, height: 67 }
+        : size === 'large'
+          ? { width: 90, height: 125 }
+          : { width: 72, height: 100 }
     return (
-      <div className={`card card-back card-${size}`} data-selected={selected} onClick={onClick}>
-        <div className="card-back-pattern" />
+      <div className={`card card-${size}`} data-selected={selected} onClick={onClick}>
+        <CardBack width={dims.width} height={dims.height} />
       </div>
     )
   }

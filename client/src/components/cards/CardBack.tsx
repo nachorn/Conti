@@ -1,6 +1,6 @@
-const CARD_W = 70
-const CARD_H = 98
-const RADIUS = 6
+const CARD_W = 72
+const CARD_H = 100
+const RADIUS = 8
 
 // Shared bull-back artwork used for both Continental and Pocha.
 const BULL_BACK_SRC = '/bull-back.png'
@@ -40,10 +40,10 @@ export function CardBack({ width = CARD_W, height = CARD_H }: CardBackProps) {
         />
         <image
           href={BULL_BACK_SRC}
-          x="2"
-          y="2"
-          width={CARD_W - 4}
-          height={CARD_H - 4}
+          x="-2"
+          y="-2"
+          width={CARD_W + 4}
+          height={CARD_H + 4}
           preserveAspectRatio="xMidYMid slice"
         />
       </g>

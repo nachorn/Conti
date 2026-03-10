@@ -76,13 +76,10 @@
 
 .card-back {
   padding: 0;
-  background-color: #000;
-  background-image: url('/bull-back.png');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  border: 2px solid rgba(0, 0, 0, 0.35);
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
 }
 
 .card-back-pattern {
