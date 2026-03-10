@@ -129,6 +129,22 @@
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+.game-copy-room-link-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.game-copy-room-link-btn:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .game-debug-btn {
   padding: 0.25rem 0.5rem;
   font-size: 0.7rem;
@@ -1111,6 +1127,12 @@
     margin: 0 0.25rem 0.2rem;
     padding: 0.5rem 0.6rem;
     font-size: 0.85rem;
+  }
+
+  .game-copy-room-link-btn {
+    min-height: 36px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
   }
 
   .game-toast {
