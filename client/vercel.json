@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    {
+      "source": "/room/:roomId",
+      "destination": "/"
+    },
+    {
+      "source": "/game",
+      "destination": "/"
+    }
+  ]
+}
+
