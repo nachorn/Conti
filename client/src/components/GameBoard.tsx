@@ -549,21 +549,13 @@ export function GameBoard({
         toast={jokerToast}
         toastSuccess
         debugSlot={
-          <>
-            <button
-              type="button"
-              className="game-debug-btn"
-              onClick={() => setAnimationsOn((v) => !v)}
-              title={animationsOn ? t(lang, 'hideAnimations') : t(lang, 'showAnimations')}
-            >
-              {animationsOn ? t(lang, 'noAnim') : t(lang, 'anim')}
-            </button>
-            {onDebugSkipRound && state.phase === 'playing' && (
-              <button type="button" className="game-debug-btn game-debug-skip" onClick={onDebugSkipRound}>
-                {t(lang, 'skipRoundDebug')}
-              </button>
-            )}
-          </>
+          <OptionsMenu
+            lang={lang}
+            animationsOn={animationsOn}
+            toggleAnimations={() => setAnimationsOn((v) => !v)}
+            onBack={onLeave}
+            onDebugSkipRound={state.phase === 'playing' ? onDebugSkipRound : undefined}
+          />
         }
         rightSlot={
           <>
@@ -684,7 +676,7 @@ export function GameBoard({
                 className={`game-stock ${shuffleActive ? 'shuffle-animate' : ''}`}
                 onClick={canDraw ? handleDrawStock : undefined}
               >
-                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="large" />
+                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
                 <span className="stock-count">{state.stockCount}</span>
               </div>
               <div
@@ -694,7 +686,7 @@ export function GameBoard({
               >
                 {state.topDiscard ? (
                   <div key={state.topDiscard.id} className="discard-card-wrap">
-                    <Card card={state.topDiscard} size="large" />
+                    <Card card={state.topDiscard} size="normal" />
                   </div>
                 ) : (
                   <div className="discard-placeholder" />
@@ -1022,6 +1014,47 @@ function MeldRow({ meld }: { meld: Meld }) {
       {meld.cards.map((c) => (
         <Card key={c.id} card={c} size="small" />
       ))}
+    </div>
+  )
+}
+
+interface OptionsMenuProps {
+  lang: Lang
+  animationsOn: boolean
+  toggleAnimations: () => void
+  onBack: () => void
+  onDebugSkipRound?: () => void
+}
+
+function OptionsMenu({ lang, animationsOn, toggleAnimations, onBack, onDebugSkipRound }: OptionsMenuProps) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="options-menu">
+      <button
+        type="button"
+        className="options-menu-btn"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {t(lang, 'room')} ▾
+      </button>
+      {open && (
+        <div className="options-menu-panel">
+          <button type="button" onClick={onBack}>
+            {t(lang, 'backToMenu')}
+          </button>
+          <button
+            type="button"
+            onClick={toggleAnimations}
+          >
+            {animationsOn ? t(lang, 'hideAnimations') : t(lang, 'showAnimations')}
+          </button>
+          {onDebugSkipRound && (
+            <button type="button" onClick={onDebugSkipRound}>
+              {t(lang, 'skipRoundDebug')}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

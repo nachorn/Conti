@@ -196,6 +196,43 @@
   border-color: rgba(255, 255, 255, 0.35);
 }
 
+.options-menu {
+  position: relative;
+}
+
+.options-menu-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.options-menu-panel {
+  position: absolute;
+  top: 2.2rem;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.9);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  z-index: 50;
+}
+
+.options-menu-panel button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  text-align: left;
+  background: transparent;
+  color: var(--cream);
+  border: none;
+}
+
 .scoreboard-expand-hint {
   display: block;
   margin-top: 0.25rem;
@@ -489,9 +526,9 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 80%;
-  max-width: 560px;
-  aspect-ratio: 1.7 / 1;
+  width: 78%;
+  max-width: 540px;
+  aspect-ratio: 1.6 / 1;
   background: linear-gradient(165deg, #0d5c2e 0%, #0a4724 50%, #073d1e 100%);
   border-radius: 50%;
   box-shadow:
