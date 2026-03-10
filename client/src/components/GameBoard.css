@@ -129,21 +129,6 @@
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-.game-copy-room-link-btn {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
-  background: rgba(0, 0, 0, 0.35);
-  color: var(--cream);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.game-copy-room-link-btn:hover {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: rgba(255, 255, 255, 0.4);
-}
 
 .game-debug-btn {
   padding: 0.25rem 0.5rem;
@@ -178,7 +163,7 @@
   top: 0.5rem;
   right: 0.5rem;
   z-index: 10;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.75);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   min-width: 120px;
@@ -276,7 +261,7 @@
 
 .scoreboard-score {
   font-weight: 600;
-  color: var(--gold);
+  color: var(--cream);
 }
 
 /* Expanded scoreboard overlay */

@@ -127,7 +127,6 @@ export function GameBoard({
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
   const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
   const [reportCopied, setReportCopied] = useState(false)
-  const [roomLinkCopied, setRoomLinkCopied] = useState(false)
   const [animationsOn, setAnimationsOn] = useState(true)
   const [jokerToast, setJokerToast] = useState<string | null>(null)
   const jokerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -211,30 +210,6 @@ export function GameBoard({
     return () => clearInterval(t)
   }, [state.phase, state.currentPlayerIndex, discardOptionIndex, isMyTurn, secondsPerTurn])
 
-  const handleCopyRoomLink = async () => {
-    if (typeof window === 'undefined') return
-    const base = window.location.origin
-    const url = `${base}/room/${state.roomId}`
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url)
-      } else {
-        const textArea = document.createElement('textarea')
-        textArea.value = url
-        textArea.style.position = 'fixed'
-        textArea.style.left = '-9999px'
-        document.body.appendChild(textArea)
-        textArea.focus()
-        textArea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textArea)
-      }
-      setRoomLinkCopied(true)
-      setTimeout(() => setRoomLinkCopied(false), 2000)
-    } catch {
-      // ignore copy errors
-    }
-  }
 
   // Shuffle then circular deal when round starts or game enters playing
   const totalToDeal = n * cardsThisRound
@@ -543,6 +518,7 @@ export function GameBoard({
       <GameShell
         backLabel={t(lang, 'backToMenu')}
         onBack={onLeave}
+        hideBack
         lang={lang}
         setLang={setLang}
         error={serverError}
@@ -557,40 +533,10 @@ export function GameBoard({
             onDebugSkipRound={state.phase === 'playing' ? onDebugSkipRound : undefined}
           />
         }
-        rightSlot={
-          <>
-            <Scoreboard state={state} lang={lang} />
-            <ReportBugButton
-              lang={lang}
-              reportCopied={reportCopied}
-              setReportCopied={setReportCopied}
-              context={{
-                roomId: state.roomId,
-                phase: state.phase,
-                round: state.round,
-                players: state.players.length,
-                myId: socketId ?? undefined,
-                currentPlayerIndex: state.currentPlayerIndex,
-                discardOptionPlayerIndex: state.discardOptionPlayerIndex ?? undefined,
-                stockCount: state.stockCount,
-                topDiscard: state.topDiscard ? `${state.topDiscard.rank}/${state.topDiscard.suit}` : null,
-                myHandLength: me?.hand.length ?? 0,
-                meldsCount: state.melds.length,
-              }}
-            />
-          </>
-        }
+        rightSlot={<Scoreboard state={state} lang={lang} />}
       />
       <div className="game-info">
         <span>{t(lang, 'room')} {state.roomId}</span>
-        <button
-          type="button"
-          className="game-copy-room-link-btn"
-          onClick={handleCopyRoomLink}
-          title={roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
-        >
-          {roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
-        </button>
         <span>{t(lang, 'round')} {state.round}</span>
         <span>
           {t(lang, 'contract')}: {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type === 'trio' ? t(lang, 'trioNum') : t(lang, 'straightNum')}`).join(', ')}

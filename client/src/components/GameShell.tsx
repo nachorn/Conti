@@ -5,6 +5,7 @@ import './GameShell.css'
 export interface GameShellProps {
   backLabel: string
   onBack: () => void
+  hideBack?: boolean
   lang: Lang
   setLang: (l: Lang) => void
   error?: string | null
@@ -20,6 +21,7 @@ export interface GameShellProps {
 export function GameShell({
   backLabel,
   onBack,
+  hideBack,
   lang,
   setLang,
   error,
@@ -45,9 +47,11 @@ export function GameShell({
         </div>
       )}
       <div className="game-shell-top-row">
-        <button type="button" className="game-shell-back" onClick={onBack}>
-          {backLabel}
-        </button>
+        {!hideBack && (
+          <button type="button" className="game-shell-back" onClick={onBack}>
+            {backLabel}
+          </button>
+        )}
         <div className="game-shell-lang" role="group" aria-label={t(lang, 'language')}>
           <button
             type="button"
