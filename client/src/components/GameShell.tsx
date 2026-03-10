@@ -8,6 +8,7 @@ export interface GameShellProps {
   hideBack?: boolean
   lang: Lang
   setLang: (l: Lang) => void
+  hideLang?: boolean
   error?: string | null
   toast?: string | null
   toastSuccess?: boolean
@@ -24,6 +25,7 @@ export function GameShell({
   hideBack,
   lang,
   setLang,
+  hideLang,
   error,
   toast,
   toastSuccess = true,
@@ -52,26 +54,28 @@ export function GameShell({
             {backLabel}
           </button>
         )}
-        <div className="game-shell-lang" role="group" aria-label={t(lang, 'language')}>
-          <button
-            type="button"
-            className={lang === 'en' ? 'active' : ''}
-            onClick={() => setLang('en')}
-            aria-label={t(lang, 'langEn')}
-            aria-pressed={lang === 'en'}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            className={lang === 'es' ? 'active' : ''}
-            onClick={() => setLang('es')}
-            aria-label={t(lang, 'langEs')}
-            aria-pressed={lang === 'es'}
-          >
-            ES
-          </button>
-        </div>
+        {!hideLang && (
+          <div className="game-shell-lang" role="group" aria-label={t(lang, 'language')}>
+            <button
+              type="button"
+              className={lang === 'en' ? 'active' : ''}
+              onClick={() => setLang('en')}
+              aria-label={t(lang, 'langEn')}
+              aria-pressed={lang === 'en'}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={lang === 'es' ? 'active' : ''}
+              onClick={() => setLang('es')}
+              aria-label={t(lang, 'langEs')}
+              aria-pressed={lang === 'es'}
+            >
+              ES
+            </button>
+          </div>
+        )}
         {debugSlot}
         {rightSlot != null && <div className="game-shell-right">{rightSlot}</div>}
       </div>

@@ -513,19 +513,23 @@ export function GameBoard({
         hideBack
         lang={lang}
         setLang={setLang}
+        hideLang
         error={serverError}
         toast={jokerToast}
         toastSuccess
-        debugSlot={
-          <OptionsMenu
-            lang={lang}
-            animationsOn={animationsOn}
-            toggleAnimations={() => setAnimationsOn((v) => !v)}
-            onBack={onLeave}
-            onDebugSkipRound={state.phase === 'playing' ? onDebugSkipRound : undefined}
-          />
+        rightSlot={
+          <>
+            <OptionsMenu
+              lang={lang}
+              animationsOn={animationsOn}
+              toggleAnimations={() => setAnimationsOn((v) => !v)}
+              onBack={onLeave}
+              onDebugSkipRound={state.phase === 'playing' ? onDebugSkipRound : undefined}
+              setLang={setLang}
+            />
+            <Scoreboard state={state} lang={lang} />
+          </>
         }
-        rightSlot={<Scoreboard state={state} lang={lang} />}
       />
       <div className="game-info">
         <span>{t(lang, 'room')} {state.roomId}</span>
@@ -962,9 +966,10 @@ interface OptionsMenuProps {
   toggleAnimations: () => void
   onBack: () => void
   onDebugSkipRound?: () => void
+  setLang: (lang: Lang) => void
 }
 
-function OptionsMenu({ lang, animationsOn, toggleAnimations, onBack, onDebugSkipRound }: OptionsMenuProps) {
+function OptionsMenu({ lang, animationsOn, toggleAnimations, onBack, onDebugSkipRound, setLang }: OptionsMenuProps) {
   const [open, setOpen] = useState(false)
   return (
     <div className="options-menu">
@@ -986,6 +991,26 @@ function OptionsMenu({ lang, animationsOn, toggleAnimations, onBack, onDebugSkip
           >
             {animationsOn ? t(lang, 'hideAnimations') : t(lang, 'showAnimations')}
           </button>
+          <div className="options-menu-lang" role="group" aria-label={t(lang, 'language')}>
+            <button
+              type="button"
+              className={lang === 'en' ? 'active' : ''}
+              onClick={() => setLang('en')}
+              aria-label={t(lang, 'langEn')}
+              aria-pressed={lang === 'en'}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={lang === 'es' ? 'active' : ''}
+              onClick={() => setLang('es')}
+              aria-label={t(lang, 'langEs')}
+              aria-pressed={lang === 'es'}
+            >
+              ES
+            </button>
+          </div>
           {onDebugSkipRound && (
             <button type="button" onClick={onDebugSkipRound}>
               {t(lang, 'skipRoundDebug')}
