@@ -78,7 +78,7 @@
   background-image: url('/bull-back.png');
   background-size: cover;
   background-position: center;
-  border: none;
+  border: 2px solid rgba(0,0,0,0.35);
   overflow: hidden;
 }
 
