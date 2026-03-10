@@ -1,6 +1,4 @@
 import type { SpanishSuit } from '@shared/pochaTypes'
-import { POCHA_SUIT_COLOR } from './pochaCardUtils'
-
 const VB = 24
 const GOLD = '#c9a227'
 const GOLD_DARK = '#8b6914'
@@ -24,7 +22,6 @@ export interface SpanishPipProps {
  */
 export function SpanishPip({ suit, x, y, size = 1, rotate = 0 }: SpanishPipProps) {
   const s = size
-  const color = POCHA_SUIT_COLOR[suit]
 
   const coin = (
     <g fill={GOLD} stroke={GOLD_DARK} strokeWidth="0.6">

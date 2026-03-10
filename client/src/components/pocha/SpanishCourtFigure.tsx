@@ -1,6 +1,4 @@
 import type { SpanishSuit } from '@shared/pochaTypes'
-import { POCHA_SUIT_COLOR } from './pochaCardUtils'
-
 const CARD_W = 70
 const CARD_H = 98
 const CX = CARD_W / 2
@@ -17,7 +15,6 @@ export interface SpanishCourtFigureProps {
  * Simplified but recognizable figures with suit-appropriate colors and props.
  */
 export function SpanishCourtFigure({ suit, rank }: SpanishCourtFigureProps) {
-  const color = POCHA_SUIT_COLOR[suit]
   const isOros = suit === 'oros'
   const isCopas = suit === 'copas'
   const isEspadas = suit === 'espadas'
