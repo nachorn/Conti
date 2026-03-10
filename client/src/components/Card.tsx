@@ -32,7 +32,7 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
           ? { width: 90, height: 125 }
           : { width: 72, height: 100 }
     return (
-      <div className={`card card-${size}`} data-selected={selected} onClick={onClick}>
+      <div className={`card card-${size} card-back`} data-selected={selected} onClick={onClick}>
         <CardBack width={dims.width} height={dims.height} />
       </div>
     )

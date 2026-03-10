@@ -536,8 +536,10 @@ export function GameBoard({
     )
   }
 
+  const isDealingActive = dealingPhase && dealingIndex < totalToDeal
+
   return (
-    <div className={`game-board ${dealingPhase ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''}`}>
+    <div className={`game-board ${isDealingActive ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''}`}>
       <GameShell
         backLabel={t(lang, 'backToMenu')}
         onBack={onLeave}
