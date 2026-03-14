@@ -161,14 +161,17 @@ export function GameBoard({
     })
   }, [state.round, handIdsKey])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
-  const handCountOkToDraw = myHand.length === cardsThisRound
-  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && handCountOkToDraw
+  const currentPlayerHasDrawn = state.currentPlayerHasDrawn ?? (myHand.length !== cardsThisRound)
+  const needToDraw = state.currentPlayerHasDrawn != null ? !state.currentPlayerHasDrawn : (myHand.length === cardsThisRound)
+  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && needToDraw
+  const everyoneHadTurn = (state.hasHadTurn?.length === n && state.hasHadTurn.every(Boolean)) ?? false
   const canDiscard =
     state.phase === 'playing' &&
     discardOptionIndex === null &&
     state.currentPlayerIndex === myIndex &&
-    myHand.length >= 1 &&
-    myHand.length !== cardsThisRound
+    currentPlayerHasDrawn &&
+    myHand.length >= 1
+  const canPlayMeld = canDiscard && everyoneHadTurn
 
   const hasPlayedMelds = state.melds.some((m) => m.ownerId === socketId)
 
@@ -291,7 +294,7 @@ export function GameBoard({
   }
 
   const handlePlayMelds = () => {
-    if (!canDiscard || selectedCards.size < 3) return
+    if (!canPlayMeld || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
     if (cards.length < 3) return
     const wilds = cards.filter((c) => c.rank === 0 || c.isWild || c.suit === 'joker')
@@ -572,7 +575,8 @@ export function GameBoard({
             const d = player ? seats.findIndex((p) => p?.id === player.id) : -1
             playerIndexToDisplayIndex[pi] = d >= 0 ? d : 0
           }
-          const targetPlayerIndex = dealingIndex % n
+          const firstTurnIndex = state.firstTurnIndex ?? state.dealerIndex ?? 0
+          const targetPlayerIndex = (firstTurnIndex + dealingIndex) % n
           const displayIndex = playerIndexToDisplayIndex[targetPlayerIndex] ?? 0
           const pos = seatPosition(displayIndex)
           return (
@@ -848,7 +852,10 @@ export function GameBoard({
               </button>
             </>
           )}
-          {canDiscard && (
+          {canDiscard && !everyoneHadTurn && (
+            <p className="game-meld-wait-msg" role="status">{t(lang, 'everyoneMustHaveTurn')}</p>
+          )}
+          {canPlayMeld && (
             <>
               <button
                 onClick={handlePlayMelds}

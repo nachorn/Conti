@@ -22,6 +22,7 @@ export function useContinentalMockState() {
       const next = { ...prev }
       const me = next.players[0]
       if (!me || next.phase !== 'playing' || next.currentPlayerIndex !== 0) return prev
+      if ((next.currentPlayerHasDrawn ?? false)) return prev
       if (fromDiscard && next.topDiscard) {
         next.players[0] = { ...me, hand: [...me.hand, next.topDiscard!] }
         next.discardPile = next.discardPile.slice(0, -1)
@@ -31,7 +32,12 @@ export function useContinentalMockState() {
         next.players[0] = { ...me, hand: [...me.hand, stockCard] }
         next.stockCount = Math.max(0, next.stockCount - 1)
       }
+      next.currentPlayerHasDrawn = true
+      next.hasHadTurn = [...(next.hasHadTurn ?? [false, false])]
+      next.hasHadTurn[0] = true
       next.currentPlayerIndex = 1
+      next.discardOptionPlayerIndex = null
+      next.discarderIndex = null
       return next
     })
   }
@@ -41,6 +47,7 @@ export function useContinentalMockState() {
       const next = { ...prev }
       const me = next.players[0]
       if (!me || next.phase !== 'playing' || next.currentPlayerIndex !== 0) return prev
+      if (!(next.currentPlayerHasDrawn ?? true)) return prev
       const card = me.hand.find((c) => c.id === cardId)
       if (!card) return prev
       next.players[0] = { ...me, hand: me.hand.filter((c) => c.id !== cardId) }
@@ -48,6 +55,8 @@ export function useContinentalMockState() {
       next.topDiscard = card
       next.currentPlayerIndex = 1
       next.discarderIndex = 0
+      next.discardOptionPlayerIndex = 1
+      next.currentPlayerHasDrawn = false
       return next
     })
   }
@@ -90,16 +99,40 @@ export function useContinentalMockState() {
   }
 
   const takeDiscard = () => {
-    draw(true)
+    setState((prev) => {
+      const next = { ...prev }
+      const idx = next.discardOptionPlayerIndex ?? 0
+      const me = next.players[idx]
+      if (!me || !next.topDiscard) return prev
+      next.players[idx] = { ...me, hand: [...me.hand, next.topDiscard!] }
+      next.discardPile = next.discardPile.slice(0, -1)
+      next.topDiscard = (next.discardPile as Card[]).slice(-1)[0] ?? null
+      next.hasHadTurn = [...(next.hasHadTurn ?? [false, false])]
+      next.hasHadTurn[idx] = true
+      next.currentPlayerHasDrawn = true
+      next.currentPlayerIndex = idx
+      next.discardOptionPlayerIndex = null
+      next.discarderIndex = null
+      return next
+    })
   }
 
   const passDiscard = () => {
     setState((prev) => {
       const next = { ...prev }
-      next.discardOptionPlayerIndex = null
-      next.discarderIndex = null
-      next.discardOptionAvailableAt = null
-      next.currentPlayerIndex = (next.currentPlayerIndex + 1) % next.players.length
+      const n = next.players.length
+      const optionIndex = next.discardOptionPlayerIndex ?? 0
+      const nextOption = (optionIndex + 1) % n
+      const discarderIndex = next.discarderIndex ?? next.dealerIndex ?? 0
+      const fullCircle = nextOption === discarderIndex
+      if (fullCircle) {
+        next.discardOptionPlayerIndex = null
+        next.discarderIndex = null
+        next.currentPlayerIndex = (discarderIndex + 1) % n
+        next.currentPlayerHasDrawn = false
+      } else {
+        next.discardOptionPlayerIndex = nextOption
+      }
       return next
     })
   }
@@ -167,11 +200,11 @@ function buildMockState(deckCount: 2 | 3 = 2, round = 1): GameState {
     round,
     contract: {
       round,
-      minCards: cardsThisRound,
-      requirements: [
-        { type: 'trio', minLength: 3 },
-        { type: 'straight', minLength: 3 },
-      ],
+      minCards: 5 + round,
+      requirements:
+        round === 1
+          ? [{ type: 'trio', minLength: 3 }, { type: 'trio', minLength: 3 }]
+          : [{ type: 'trio', minLength: 3 }, { type: 'straight', minLength: 4 }],
     },
     players: [
       { id: myId, name: 'You', score: 0, hand: myHand, connected: true, seatIndex: 0 },
@@ -185,5 +218,11 @@ function buildMockState(deckCount: 2 | 3 = 2, round = 1): GameState {
     dealerIndex: 0,
     roundScores: {},
     deckCount,
+    discardOptionPlayerIndex: 0,
+    discarderIndex: null,
+    discardOptionAvailableAt: null,
+    firstTurnIndex: 0,
+    hasHadTurn: [false, false],
+    currentPlayerHasDrawn: false,
   }
 }

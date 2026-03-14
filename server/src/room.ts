@@ -2,13 +2,15 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Card, GameState, Meld, Player } from './types.js'
 import { CONTINENTAL_ROUNDS, type GamePhase, type RoundContract } from './types.js'
 import { createContinentalDeck, draw } from './game/deck.js'
-import { canReplaceJokerInMeld, getContract, isValidMeld, satisfiesContract } from './game/meld.js'
+import { canReplaceJokerInMeld, canSatisfyContractWithHand, getContract, isValidMeld, satisfiesContract } from './game/meld.js'
 import { handPenalty } from './game/scoring.js'
 
 const CARDS_ROUND_1 = 7
 const MIN_PLAYERS = 2
 const MAX_PLAYERS = 10
-const WIN_BONUS = -10
+/** Win in same turn as playing meld: -10 * round. Win in a later turn: -10. */
+const WIN_BONUS_SAME_TURN_MULTIPLIER = 10
+const WIN_BONUS_OTHER = -10
 const OUT_OF_TURN_DISCARD_PENALTY = 10
 
 export type GameType = 'continental' | 'pocha'
@@ -51,6 +53,12 @@ export class Room {
   /** If set, this player swapped a joker this turn and must play it in a meld before discarding. */
   swappedJokerCardId: string | null = null
   swappedJokerPlayerId: string | null = null
+  /** For each player index: has had a turn this round (drawn). No melds until all true. */
+  hasHadTurn: boolean[] = []
+  /** Current player has drawn this turn. Must be true before meld/discard. */
+  currentPlayerHasDrawn: boolean = false
+  /** Current player played contract meld this turn (for same-turn win scoring). */
+  playedMeldThisTurn: boolean = false
 
   constructor(options: RoomOptions = {}) {
     this.roomId = options.roomId ?? ''
@@ -125,26 +133,7 @@ export class Room {
     this.phase = 'playing'
     this.round = 1
     this.roundScores = {}
-    if (!this.determineDealer()) return false
     return this.startRound()
-  }
-
-  /** Each player draws one card; highest rank is dealer (ace high). Ties: first wins. */
-  determineDealer(): boolean {
-    const n = this.players.length
-    const deck = createContinentalDeck(n, this.deckCount)
-    const { drawn: dealCards, remaining } = draw(deck, n)
-    let maxRank = -1
-    let dealerIdx = 0
-    for (let i = 0; i < n; i++) {
-      const r = dealCards[i]?.rank ?? -1
-      if (r > maxRank) {
-        maxRank = r
-        dealerIdx = i
-      }
-    }
-    this.dealerIndex = dealerIdx
-    return true
   }
 
   cardsPerPlayerThisRound(): number {
@@ -163,14 +152,21 @@ export class Room {
     this.swappedJokerPlayerId = null
     const n = this.players.length
     const cardsPer = this.cardsPerPlayerThisRound()
+    // Random first turn; deal starts with that player (one card per player in order).
+    this.dealerIndex = Math.floor(Math.random() * n)
+    const firstTurnIndex = this.dealerIndex
+    this.hasHadTurn = this.players.map(() => false)
+    this.currentPlayerHasDrawn = false
+    this.playedMeldThisTurn = false
+
     const deck = createContinentalDeck(n, this.deckCount)
     const total = cardsPer * n
     const { drawn: handCards, remaining: afterHands } = draw(deck, total)
     for (const p of this.players) p.hand = []
     for (let i = 0; i < handCards.length; i++) {
-      const rec = (this.dealerIndex - 1 - (i % n) + 2 * n) % n
+      const seat = (firstTurnIndex + i) % n
       const card = handCards[i]
-      if (card) this.players[rec]!.hand.push(card)
+      if (card) this.players[seat]!.hand.push(card)
     }
     this.stock = afterHands
     this.discardPile = []
@@ -183,10 +179,9 @@ export class Room {
       this.topDiscard = initialDiscard[0]
     }
 
-    this.currentPlayerIndex = (this.dealerIndex + 1) % n
+    this.currentPlayerIndex = firstTurnIndex
     if (n >= 2 && this.topDiscard) {
-      this.discarderIndex = this.dealerIndex
-      this.discardOptionPlayerIndex = (this.dealerIndex + 1) % n
+      this.discardOptionPlayerIndex = firstTurnIndex
       this.discardOptionAvailableAt =
         this.discardOptionDelaySeconds > 0
           ? Date.now() + this.discardOptionDelaySeconds * 1000
@@ -203,6 +198,7 @@ export class Room {
     }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (this.currentPlayerHasDrawn) return { ok: false, error: 'You already drew this turn' }
     if (fromDiscard) {
       if (!this.topDiscard) return { ok: false, error: 'No discard' }
       cp.hand.push(this.topDiscard)
@@ -211,21 +207,23 @@ export class Room {
     } else {
       if (this.stock.length === 0) {
         if (this.discardPile.length === 0) {
-          this.endRound(null)
+          this.endRound(null, false)
           return { ok: true }
         }
         this.stock = this.discardPile.slice(0, -1).reverse()
         this.discardPile = this.topDiscard ? [this.topDiscard] : []
       }
-      const { drawn, remaining } = draw(this.stock, 1)
+      const { drawn: drawnCards, remaining } = draw(this.stock, 1)
       this.stock = remaining
-      if (drawn[0]) cp.hand.push(drawn[0])
+      if (drawnCards[0]) cp.hand.push(drawnCards[0])
     }
+    this.currentPlayerHasDrawn = true
+    this.hasHadTurn[this.currentPlayerIndex] = true
     return { ok: true }
   }
 
   takeDiscard(playerId: string): { ok: boolean; error?: string } {
-    if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null || this.discarderIndex === null) {
+    if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null) {
       return { ok: false, error: 'No discard to take' }
     }
     if (this.discardOptionAvailableAt !== null && Date.now() < this.discardOptionAvailableAt) {
@@ -237,26 +235,23 @@ export class Room {
     const p = this.players[optionIndex]
     if (!p || p.id !== playerId) return { ok: false, error: 'Not your option to take or pass' }
     if (!this.topDiscard) return { ok: false, error: 'No discard' }
+    const turnPlayerIndex = this.discarderIndex !== null ? (this.discarderIndex + 1) % n : this.dealerIndex
+    const isPriority = optionIndex === turnPlayerIndex
+
     p.hand.push(this.topDiscard)
     this.discardPile.pop()
     this.topDiscard = this.discardPile.length > 0 ? this.discardPile[this.discardPile.length - 1]! : null
-    const turnPlayerIndex = (this.discarderIndex + 1) % n
-    const isPriority = optionIndex === turnPlayerIndex
+    this.hasHadTurn[optionIndex] = true
+    this.currentPlayerHasDrawn = true
+    this.playedMeldThisTurn = false
+
     if (!isPriority) {
       this.roundPenalties[playerId] = (this.roundPenalties[playerId] ?? 0) + OUT_OF_TURN_DISCARD_PENALTY
       const { drawn: penaltyDraw, remaining: stockAfterPenalty } = draw(this.stock, 1)
       this.stock = stockAfterPenalty
       if (penaltyDraw[0]) p.hand.push(penaltyDraw[0])
-      const turnPlayer = this.players[turnPlayerIndex]
-      if (turnPlayer) {
-        const { drawn: turnDraw, remaining: stockAfterTurn } = draw(this.stock, 1)
-        this.stock = stockAfterTurn
-        if (turnDraw[0]) turnPlayer.hand.push(turnDraw[0])
-      }
-      this.currentPlayerIndex = turnPlayerIndex
-    } else {
-      this.currentPlayerIndex = optionIndex
     }
+    this.currentPlayerIndex = optionIndex
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
     this.discardOptionAvailableAt = null
@@ -264,7 +259,7 @@ export class Room {
   }
 
   passDiscard(playerId: string): { ok: boolean; error?: string } {
-    if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null || this.discarderIndex === null) {
+    if (this.phase !== 'playing' || this.discardOptionPlayerIndex === null) {
       return { ok: false, error: 'No discard to pass' }
     }
     if (this.discardOptionAvailableAt !== null && Date.now() < this.discardOptionAvailableAt) {
@@ -276,11 +271,14 @@ export class Room {
     const p = this.players[optionIndex]
     if (!p || p.id !== playerId) return { ok: false, error: 'Not your option to take or pass' }
     const nextOption = (optionIndex + 1) % n
-    if (nextOption === this.discarderIndex) {
+    const discarderIndex = this.discarderIndex
+    const fullCircle = discarderIndex !== null ? nextOption === discarderIndex : nextOption === this.dealerIndex
+    if (fullCircle) {
       this.discardOptionPlayerIndex = null
       this.discardOptionAvailableAt = null
-      this.currentPlayerIndex = (this.discarderIndex + 1) % n
+      this.currentPlayerIndex = discarderIndex !== null ? (discarderIndex + 1) % n : this.dealerIndex
       this.discarderIndex = null
+      this.currentPlayerHasDrawn = false
     } else {
       this.discardOptionPlayerIndex = nextOption
     }
@@ -292,6 +290,10 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before playing a meld' }
+    const n = this.players.length
+    const everyoneHadTurn = this.hasHadTurn.length === n && this.hasHadTurn.every(Boolean)
+    if (!everyoneHadTurn) return { ok: false, error: 'Everyone must have had a turn before any meld can be played' }
     if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null) {
       const playedIds = new Set<string>()
       for (const m of melds) for (const c of m.cards) playedIds.add(c.id)
@@ -319,6 +321,7 @@ export class Room {
         ownerId: playerId,
       })
     }
+    this.playedMeldThisTurn = true
     if (this.swappedJokerPlayerId === playerId) {
       this.swappedJokerCardId = null
       this.swappedJokerPlayerId = null
@@ -331,6 +334,7 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before adding to a meld' }
     if (!this.melds.some(m => m.ownerId === playerId)) return { ok: false, error: 'You must play your melds before adding to melds' }
     const meld = this.melds.find(m => m.id === meldId)
     if (!meld) return { ok: false, error: 'Meld not found' }
@@ -345,6 +349,10 @@ export class Room {
       this.swappedJokerCardId = null
       this.swappedJokerPlayerId = null
     }
+    if (cp.hand.length === 0) {
+      this.roundEnderId = playerId
+      this.endRound(playerId, this.playedMeldThisTurn)
+    }
     return { ok: true }
   }
 
@@ -353,9 +361,10 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
-    if (!this.melds.some(m => m.ownerId === playerId)) return { ok: false, error: 'You must play your melds before swapping a joker' }
+    if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before swapping a joker' }
     const meld = this.melds.find(m => m.id === meldId)
     if (!meld) return { ok: false, error: 'Meld not found' }
+    if (meld.type !== 'straight') return { ok: false, error: 'Joker swap is only allowed in straights' }
     const jokerIdx = meld.cards.findIndex(c => c.isWild || c.suit === 'joker')
     if (jokerIdx < 0) return { ok: false, error: 'Meld has no joker' }
     const cardIdx = cp.hand.findIndex(c => c.id === cardIdFromHand)
@@ -363,6 +372,10 @@ export class Room {
     const card = cp.hand[cardIdx]!
     if (!canReplaceJokerInMeld(meld, card)) return { ok: false, error: 'Card cannot replace that joker' }
     const joker = meld.cards[jokerIdx]!
+    const handAfterSwap = cp.hand.filter(c => c.id !== card.id).concat([joker])
+    if (!canSatisfyContractWithHand(handAfterSwap, this.contract)) {
+      return { ok: false, error: 'You can only swap if you can play your full meld with the joker' }
+    }
     meld.cards[jokerIdx] = card
     cp.hand.splice(cardIdx, 1)
     cp.hand.push(joker)
@@ -376,6 +389,7 @@ export class Room {
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
+    if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before discarding' }
     if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null) {
       const stillHasJoker = cp.hand.some(c => c.id === this.swappedJokerCardId)
       if (stillHasJoker) return { ok: false, error: 'Play the joker you took in a meld before discarding' }
@@ -383,16 +397,19 @@ export class Room {
     const idx = cp.hand.findIndex(c => c.id === cardId)
     if (idx < 0) return { ok: false, error: 'Card not in hand' }
     const [card] = cp.hand.splice(idx, 1)
+    const sameTurnWin = this.playedMeldThisTurn
     if (card) {
       this.discardPile.push(card)
       this.topDiscard = card
     }
     if (cp.hand.length === 0) {
       this.roundEnderId = playerId
-      this.endRound(playerId)
+      this.endRound(playerId, sameTurnWin)
       return { ok: true }
     }
     const n = this.players.length
+    this.currentPlayerHasDrawn = false
+    this.playedMeldThisTurn = false
     if (n >= 2) {
       this.discarderIndex = this.currentPlayerIndex
       this.discardOptionPlayerIndex = (this.currentPlayerIndex + 1) % n
@@ -408,7 +425,7 @@ export class Room {
     return { ok: true }
   }
 
-  endRound(winnerId: string | null): void {
+  endRound(winnerId: string | null, sameTurnWin: boolean): void {
     this.phase = 'round_end'
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
@@ -416,7 +433,9 @@ export class Room {
       const penalty = handPenalty(p.hand)
       const roundPen = this.roundPenalties[p.id] ?? 0
       if (p.id === winnerId) {
-        this.roundScores[p.id] = WIN_BONUS
+        this.roundScores[p.id] = sameTurnWin
+          ? -this.round * WIN_BONUS_SAME_TURN_MULTIPLIER
+          : WIN_BONUS_OTHER
       } else {
         this.roundScores[p.id] = penalty + roundPen
       }
@@ -427,7 +446,7 @@ export class Room {
   debugSkipRound(): boolean {
     if (this.phase !== 'playing') return false
     this.roundEnderId = null
-    this.endRound(null)
+    this.endRound(null, false)
     return true
   }
 
@@ -438,7 +457,6 @@ export class Room {
       this.phase = 'game_end'
       return false
     }
-    this.dealerIndex = (this.dealerIndex + 1) % this.players.length
     this.phase = 'playing'
     return this.startRound()
   }
@@ -470,6 +488,10 @@ export class Room {
       secondsPerTurn: this.secondsPerTurn,
       swappedJokerCardId: this.swappedJokerCardId,
       swappedJokerPlayerId: this.swappedJokerPlayerId,
+      firstTurnIndex: this.dealerIndex,
+      hasHadTurn: this.hasHadTurn,
+      currentPlayerHasDrawn: this.currentPlayerHasDrawn,
+      playedMeldThisTurn: this.playedMeldThisTurn,
     }
   }
 }

@@ -57,4 +57,12 @@ export interface GameState {
   secondsPerTurn?: number
   swappedJokerCardId?: string | null
   swappedJokerPlayerId?: string | null
+  /** Index of player who has first turn this round. */
+  firstTurnIndex?: number
+  /** For each player index: has had a turn this round. No melds until all true. */
+  hasHadTurn?: boolean[]
+  /** Current player has drawn this turn. Must be true before meld/discard. */
+  currentPlayerHasDrawn?: boolean
+  /** Current player played their contract meld this turn. */
+  playedMeldThisTurn?: boolean
 }

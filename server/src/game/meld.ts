@@ -23,7 +23,38 @@ function missingRanks(ranks: number[], min: number, max: number): number[] {
   return out
 }
 
-/** Check if cards form a valid straight: 4+ cards, same suit, consecutive, no two jokers adjacent, more natural than jokers. */
+/** Check if ranks form a consecutive run (no wrap). Ace can be low (1) or high (14), not both. */
+function isConsecutiveRanks(ranks: number[]): boolean {
+  if (ranks.length === 0) return false
+  const sorted = [...ranks].sort((a, b) => a - b)
+  const min = sorted[0]!
+  const max = sorted[sorted.length - 1]!
+  if (max - min + 1 !== sorted.length) return false
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i + 1]! - sorted[i]! !== 1) return false
+  }
+  return true
+}
+
+/** Try ace-low: replace 14 with 1, then check consecutive. */
+function ranksConsecutiveNoWrap(ranks: number[]): boolean {
+  if (ranks.length === 0) return false
+  const hasAce = ranks.includes(14)
+  const hasTwo = ranks.includes(2)
+  if (hasAce && hasTwo) {
+    const low = ranks.map(r => (r === 14 ? 1 : r)).sort((a, b) => a - b)
+    if (isConsecutiveRanks(low)) return true
+  }
+  if (hasAce && !hasTwo) {
+    const asHigh = ranks.filter(r => r !== 14).concat([14]).sort((a, b) => a - b)
+    if (isConsecutiveRanks(asHigh)) return true
+    const asLow = ranks.map(r => (r === 14 ? 1 : r)).sort((a, b) => a - b)
+    if (isConsecutiveRanks(asLow)) return true
+  }
+  return isConsecutiveRanks(ranks)
+}
+
+/** Check if cards form a valid straight: 4+ cards, one suit, consecutive (A-2-3-4 or A-K-Q-J ok; no wrap), more cards than jokers, no two jokers adjacent. */
 export function isValidStraight(cards: Card[]): boolean {
   if (cards.length < 4) return false
   const nonWild = cards.filter(c => !c.isWild && c.suit !== 'joker').sort((a, b) => a.rank - b.rank)
@@ -33,14 +64,20 @@ export function isValidStraight(cards: Card[]): boolean {
   const suit = nonWild[0]!.suit
   if (nonWild.some(c => c.suit !== suit)) return false
   const ranks = nonWild.map(c => c.rank)
-  const min = Math.min(...ranks)
-  const max = Math.max(...ranks)
-  if (max - min > 12) return false
+  if (!ranksConsecutiveNoWrap(ranks)) return false
+  let min = Math.min(...ranks)
+  let max = Math.max(...ranks)
+  if (ranks.includes(2) && ranks.includes(14)) {
+    const low = ranks.map(r => (r === 14 ? 1 : r))
+    min = Math.min(...low)
+    max = Math.max(...low)
+  }
   const span = max - min + 1
   if (span > cards.length) return false
   const holes = span - nonWild.length
   if (holes > wildCount) return false
-  const missing = missingRanks(ranks, min, max)
+  const ranksInRun = ranks.includes(2) && ranks.includes(14) ? ranks.map(r => (r === 14 ? 1 : r)) : ranks
+  const missing = missingRanks(ranksInRun, min, max)
   for (let i = 0; i < missing.length - 1; i++) {
     if (missing[i + 1]! - missing[i]! === 1) return false
   }
@@ -92,4 +129,37 @@ export function canReplaceJokerInMeld(meld: { type: MeldType; cards: Card[] }, c
     return missing.includes(card.rank)
   }
   return false
+}
+
+function* subsetsOfSize<T>(arr: T[], size: number, start = 0): Generator<T[]> {
+  if (size === 0) {
+    yield []
+    return
+  }
+  for (let i = start; i <= arr.length - size; i++) {
+    const first = arr[i]!
+    for (const rest of subsetsOfSize(arr, size - 1, i + 1)) {
+      yield [first, ...rest]
+    }
+  }
+}
+
+function trySatisfyContract(hand: Card[], requirements: RoundContract['requirements']): boolean {
+  if (requirements.length === 0) return true
+  const req = requirements[0]!
+  const minLen = req.minLength
+  for (let size = minLen; size <= hand.length; size++) {
+    for (const subset of subsetsOfSize(hand, size)) {
+      if (!isValidMeld(req.type, subset)) continue
+      const rest = hand.filter(c => !subset.includes(c))
+      if (trySatisfyContract(rest, requirements.slice(1))) return true
+    }
+  }
+  return false
+}
+
+/** Whether the given hand can form melds that satisfy the contract (for joker-swap guarantee). */
+export function canSatisfyContractWithHand(hand: Card[], contract: RoundContract): boolean {
+  if (hand.length < contract.minCards) return false
+  return trySatisfyContract(hand, contract.requirements)
 }

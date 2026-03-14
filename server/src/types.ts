@@ -23,6 +23,7 @@ export interface RoundContract {
   requirements: { type: MeldType; minLength: number }[]
 }
 
+/** Round 1: 7 cards, 2 trios. Round 2: 8 cards, 1 trio 1 straight. ... Round 7: 13 cards, 3 straights. minCards = minimum cards in melds for contract. */
 export const CONTINENTAL_ROUNDS: RoundContract[] = [
   { round: 1, minCards: 6, requirements: [{ type: 'trio', minLength: 3 }, { type: 'trio', minLength: 3 }] },
   { round: 2, minCards: 7, requirements: [{ type: 'trio', minLength: 3 }, { type: 'straight', minLength: 4 }] },
@@ -82,4 +83,12 @@ export interface GameState {
   /** If set, this player must play this joker in a meld before discarding. */
   swappedJokerCardId?: string | null
   swappedJokerPlayerId?: string | null
+  /** Index of player who has first turn this round (deal starts with this player). */
+  firstTurnIndex: number
+  /** For each player index: has they had a turn this round (drawn at least once). No melds until all true. */
+  hasHadTurn: boolean[]
+  /** Current player has drawn this turn (take discard or draw from stock). Must be true before meld/discard. */
+  currentPlayerHasDrawn: boolean
+  /** Current player played their contract meld this turn (for scoring: same-turn win = -10*round). */
+  playedMeldThisTurn?: boolean
 }
