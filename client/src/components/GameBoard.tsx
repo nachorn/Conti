@@ -6,6 +6,7 @@ import { Card } from './Card'
 import { ReportBugButton } from './ReportBugButton'
 import { CardBack } from './cards/CardBack'
 import { rankLabel, SUIT_SYMBOL } from './cards'
+import { findMeldsForContract } from '../lib/meld'
 import { GameShell } from './GameShell'
 import './GameBoard.css'
 
@@ -127,6 +128,7 @@ export function GameBoard({
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
   const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
   const [reportCopied, setReportCopied] = useState(false)
+  const [roomLinkCopied, setRoomLinkCopied] = useState(false)
   const [animationsOn, setAnimationsOn] = useState(true)
   const [jokerToast, setJokerToast] = useState<string | null>(null)
   const jokerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -296,29 +298,9 @@ export function GameBoard({
   const handlePlayMelds = () => {
     if (!canPlayMeld || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
-    if (cards.length < 3) return
-    const wilds = cards.filter((c) => c.rank === 0 || c.isWild || c.suit === 'joker')
-    const byRank = new Map<number, CardType[]>()
-    for (const c of cards) {
-      if (c.rank === 0 || c.isWild || c.suit === 'joker') continue
-      const list = byRank.get(c.rank) ?? []
-      list.push(c)
-      byRank.set(c.rank, list)
-    }
-    const melds: { type: 'trio' | 'straight'; cards: CardType[] }[] = []
-    let wildsUsed = 0
-    for (const [, list] of byRank) {
-      const availableWilds = wilds.length - wildsUsed
-      if (list.length >= 3) {
-        melds.push({ type: 'trio', cards: list.slice(0, 3) })
-      } else if (list.length + availableWilds >= 3) {
-        const fillCount = 3 - list.length
-        const trio = [...list.slice(0, 3), ...wilds.slice(wildsUsed, wildsUsed + fillCount)]
-        wildsUsed += fillCount
-        melds.push({ type: 'trio', cards: trio })
-      }
-    }
-    if (melds.length > 0) {
+    if (cards.length < state.contract.minCards) return
+    const melds = findMeldsForContract(cards, state.contract)
+    if (melds && melds.length > 0) {
       onPlayMelds(melds)
       setSelectedCards(new Set())
     }
@@ -355,6 +337,19 @@ export function GameBoard({
         <div className="game-lobby-header">
           <h2>{t(lang, 'room')} {state.roomId}</h2>
           <p className="game-lobby-sub">{t(lang, 'chooseSeat')} · {state.players.length}/10 {t(lang, 'players')}</p>
+          <button
+            type="button"
+            className="game-copy-room-link-btn"
+            onClick={() => {
+              const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/room/${state.roomId}`
+              navigator.clipboard?.writeText(url).then(() => {
+                setRoomLinkCopied(true)
+                setTimeout(() => setRoomLinkCopied(false), 2000)
+              })
+            }}
+          >
+            {roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
+          </button>
         </div>
         <div className="poker-table-wrap poker-table-lobby">
           <div className="poker-table-oval" />

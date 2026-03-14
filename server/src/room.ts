@@ -399,7 +399,16 @@ export class Room {
     }
     const idx = cp.hand.findIndex(c => c.id === cardId)
     if (idx < 0) return { ok: false, error: 'Card not in hand' }
-    const [card] = cp.hand.splice(idx, 1)
+    const card = cp.hand[idx]!
+    const hasPlayedMeld = this.melds.some(m => m.ownerId === playerId)
+    if (!hasPlayedMeld) {
+      for (const m of this.melds) {
+        if (isValidMeld(m.type, [...m.cards, card])) {
+          return { ok: false, error: "You can't discard that card—it can be added to a meld and you haven't played yours yet" }
+        }
+      }
+    }
+    cp.hand.splice(idx, 1)
     const sameTurnWin = this.playedMeldThisTurn
     if (card) {
       this.discardPile.push(card)

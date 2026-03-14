@@ -687,6 +687,21 @@
   font-size: 1.25rem;
 }
 
+.game-lobby-header .game-copy-room-link-btn {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  background: var(--dark-green);
+  color: var(--cream);
+  border: 1px solid var(--gold);
+  cursor: pointer;
+}
+
+.game-lobby-header .game-copy-room-link-btn:hover {
+  background: rgba(255, 215, 0, 0.15);
+}
+
 .game-lobby-sub {
   margin: 0.25rem 0 0;
   font-size: 0.9rem;
