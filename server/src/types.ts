@@ -34,7 +34,7 @@ export const CONTINENTAL_ROUNDS: RoundContract[] = [
   { round: 7, minCards: 12, requirements: [{ type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }] },
 ]
 
-/** A=20, Joker=50, K/Q/J=10, rest = face value */
+/** Penalty points in hand when round ends (A=20, J/K/Q/10=10, 2–9=face value, Joker=50). */
 export const CARD_PENALTIES: Record<number, number> = {
   0: 50, 14: 20, 13: 10, 12: 10, 11: 10,
   10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2,

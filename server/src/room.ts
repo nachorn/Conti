@@ -140,7 +140,8 @@ export class Room {
     return CARDS_ROUND_1 + this.round - 1
   }
 
-  startRound(): boolean {
+  /** @param overrideFirstTurnIndex When set (e.g. from nextRound), first turn is this index; otherwise random. */
+  startRound(overrideFirstTurnIndex?: number): boolean {
     this.contract = getContract(this.round)
     this.melds = []
     this.roundEnderId = null
@@ -152,9 +153,11 @@ export class Room {
     this.swappedJokerPlayerId = null
     const n = this.players.length
     const cardsPer = this.cardsPerPlayerThisRound()
-    // Random first turn; deal starts with that player (one card per player in order).
-    this.dealerIndex = Math.floor(Math.random() * n)
-    const firstTurnIndex = this.dealerIndex
+    const firstTurnIndex =
+      typeof overrideFirstTurnIndex === 'number' && overrideFirstTurnIndex >= 0 && overrideFirstTurnIndex < n
+        ? overrideFirstTurnIndex
+        : Math.floor(Math.random() * n)
+    this.dealerIndex = firstTurnIndex
     this.hasHadTurn = this.players.map(() => false)
     this.currentPlayerHasDrawn = false
     this.playedMeldThisTurn = false
@@ -452,13 +455,16 @@ export class Room {
 
   nextRound(): boolean {
     if (this.phase !== 'round_end') return false
+    const n = this.players.length
+    const enderIdx = this.roundEnderId != null ? this.players.findIndex((p) => p.id === this.roundEnderId) : -1
+    const firstTurnNext = enderIdx >= 0 ? (enderIdx + 1) % n : undefined
     this.round++
     if (this.round > 7) {
       this.phase = 'game_end'
       return false
     }
     this.phase = 'playing'
-    return this.startRound()
+    return this.startRound(firstTurnNext)
   }
 
   getState(forPlayerId?: string): GameState {
