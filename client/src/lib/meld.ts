@@ -15,72 +15,38 @@ export function isValidTrio(cards: Card[]): boolean {
   return true
 }
 
-function missingRanks(ranks: number[], min: number, max: number): number[] {
-  const set = new Set(ranks)
-  const out: number[] = []
-  for (let r = min; r <= max; r++) {
-    if (!set.has(r)) out.push(r)
-  }
-  return out
-}
-
-function isConsecutiveRanks(ranks: number[]): boolean {
-  if (ranks.length === 0) return false
-  const sorted = [...ranks].sort((a, b) => a - b)
-  const min = sorted[0]!
-  const max = sorted[sorted.length - 1]!
-  if (max - min + 1 !== sorted.length) return false
-  for (let i = 0; i < sorted.length - 1; i++) {
-    if (sorted[i + 1]! - sorted[i]! !== 1) return false
-  }
-  return true
-}
-
-function ranksConsecutiveNoWrap(ranks: number[]): boolean {
-  if (ranks.length === 0) return false
-  const hasAce = ranks.includes(14)
-  const hasTwo = ranks.includes(2)
-  if (hasAce && hasTwo) {
-    const low = ranks.map((r) => (r === 14 ? 1 : r)).sort((a, b) => a - b)
-    if (isConsecutiveRanks(low)) return true
-  }
-  if (hasAce && !hasTwo) {
-    const asHigh = ranks.filter((r) => r !== 14).concat([14]).sort((a, b) => a - b)
-    if (isConsecutiveRanks(asHigh)) return true
-    const asLow = ranks.map((r) => (r === 14 ? 1 : r)).sort((a, b) => a - b)
-    if (isConsecutiveRanks(asLow)) return true
-  }
-  return isConsecutiveRanks(ranks)
-}
-
 export function isValidStraight(cards: Card[]): boolean {
   if (cards.length < 4) return false
-  const nonWild = cards.filter((c) => !isWild(c)).sort((a, b) => a.rank - b.rank)
+  const nonWild = cards.filter((c) => !isWild(c))
   const wildCount = cards.length - nonWild.length
   if (nonWild.length <= wildCount) return false
   if (nonWild.length === 0) return false
   const suit = nonWild[0]!.suit
   if (nonWild.some((c) => c.suit !== suit)) return false
   const ranks = nonWild.map((c) => c.rank)
-  if (!ranksConsecutiveNoWrap(ranks)) return false
-  let min = Math.min(...ranks)
-  let max = Math.max(...ranks)
-  if (ranks.includes(2) && ranks.includes(14)) {
-    const low = ranks.map((r) => (r === 14 ? 1 : r))
-    min = Math.min(...low)
-    max = Math.max(...low)
-  }
-  const span = max - min + 1
-  if (span > cards.length) return false
-  const holes = span - nonWild.length
-  if (holes > wildCount) return false
-  const ranksInRun =
-    ranks.includes(2) && ranks.includes(14) ? ranks.map((r) => (r === 14 ? 1 : r)) : ranks
-  const missing = missingRanks(ranksInRun, Math.min(...ranksInRun), Math.max(...ranksInRun))
-  for (let i = 0; i < missing.length - 1; i++) {
-    if (missing[i + 1]! - missing[i]! === 1) return false
-  }
-  return true
+  if (new Set(ranks).size !== ranks.length) return false
+
+  const rankVariants = ranks.includes(14)
+    ? [ranks, ranks.map((rank) => rank === 14 ? 1 : rank)]
+    : [ranks]
+
+  return rankVariants.some((variant) => {
+    for (let start = 1; start + cards.length - 1 <= 14; start++) {
+      const end = start + cards.length - 1
+      if (!variant.every((rank) => rank >= start && rank <= end)) continue
+      const naturalRanks = new Set(variant)
+      const wildPositions: number[] = []
+      for (let rank = start; rank <= end; rank++) {
+        if (!naturalRanks.has(rank)) wildPositions.push(rank)
+      }
+      if (wildPositions.length !== wildCount) continue
+      const hasAdjacentWilds = wildPositions.some(
+        (rank, index) => index > 0 && rank - wildPositions[index - 1]! === 1
+      )
+      if (!hasAdjacentWilds) return true
+    }
+    return false
+  })
 }
 
 export function isValidMeld(type: MeldType, cards: Card[]): boolean {

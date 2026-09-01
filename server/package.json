@@ -5,6 +5,7 @@
     "dev": "tsx watch src/index.ts",
     "postinstall": "node scripts/fix-pocha-imports.cjs",
     "build": "node scripts/fix-pocha-imports.cjs && tsc",
+    "test": "tsx --test test/*.test.ts",
     "start": "node dist/index.js",
     "deploy": "npm run build && npm start"
   },

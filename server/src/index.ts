@@ -5,17 +5,24 @@ import cors from 'cors'
 import { Room } from './room.js'
 
 const app = express()
-app.use(cors({ origin: true }))
+const configuredOrigins = (process.env.CLIENT_ORIGINS ?? '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean)
+const corsOrigin = configuredOrigins.length > 0 ? configuredOrigins : true
+
+app.use(cors({ origin: corsOrigin }))
 app.use(express.json())
+app.get('/health', (_req, res) => res.json({ ok: true }))
 
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
-  cors: { origin: true },
+  cors: { origin: corsOrigin },
   transports: ['websocket', 'polling'],
 })
 
 const rooms = new Map<string, Room>()
-const playerToRoom = new Map<string, string>()
+const roomTimers = new Map<string, NodeJS.Timeout>()
 
 function generateRoomId(): string {
   let id: string
@@ -32,6 +39,29 @@ async function broadcastState(roomId: string): Promise<void> {
   for (const sock of sockets) {
     sock.emit('state', room.getState(sock.id))
   }
+  scheduleRoomTimer(roomId)
+}
+
+function clearRoomTimer(roomId: string): void {
+  const timer = roomTimers.get(roomId)
+  if (timer) clearTimeout(timer)
+  roomTimers.delete(roomId)
+}
+
+function scheduleRoomTimer(roomId: string): void {
+  clearRoomTimer(roomId)
+  const room = rooms.get(roomId)
+  if (!room || room.turnDeadline === null || room.phase !== 'playing') return
+
+  const delay = Math.max(1, room.turnDeadline - Date.now())
+  const timer = setTimeout(() => {
+    roomTimers.delete(roomId)
+    const activeRoom = rooms.get(roomId)
+    if (!activeRoom) return
+    if (!activeRoom.handleTurnTimeout()) activeRoom.resetTurnDeadline()
+    void broadcastState(roomId)
+  }, delay)
+  roomTimers.set(roomId, timer)
 }
 
 io.on('connection', (socket) => {
@@ -39,6 +69,10 @@ io.on('connection', (socket) => {
   let roomId: string | null = null
 
   socket.on('create', (payload: { name: string; gameType?: 'continental' | 'pocha'; deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
+    if (roomId) {
+      socket.emit('error', { message: 'Leave the current room before creating another' })
+      return
+    }
     if (payload?.gameType === 'pocha') {
       socket.emit('error', { message: 'Pocha multiplayer not available yet' })
       return
@@ -56,7 +90,6 @@ io.on('connection', (socket) => {
     })
     room.addPlayer(playerId, payload?.name ?? 'Player')
     rooms.set(room.roomId, room)
-    playerToRoom.set(playerId, room.roomId)
     roomId = room.roomId
     socket.join(room.roomId)
     socket.emit('joined', { roomId: room.roomId, state: room.getState(playerId) })
@@ -76,6 +109,10 @@ io.on('connection', (socket) => {
   })
 
   socket.on('join', (payload: { roomId: string; name: string }) => {
+    if (roomId) {
+      socket.emit('error', { message: 'Leave the current room before joining another' })
+      return
+    }
     const id = (payload?.roomId ?? '').trim()
     if (!id) {
       socket.emit('error', { message: 'Room code required' })
@@ -90,7 +127,6 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Room full or game started' })
       return
     }
-    playerToRoom.set(playerId, room.roomId)
     roomId = room.roomId
     socket.join(room.roomId)
     room.setConnected(playerId, true)
@@ -128,10 +164,14 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('play_melds', (payload: { melds: { type: string; cards: { id: string; suit: string; rank: number }[] }[] }) => {
+  socket.on('play_melds', (payload?: { melds?: { type: string; cards: { id: string; suit: string; rank: number }[] }[] }) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room) return
+    if (!Array.isArray(payload?.melds)) {
+      socket.emit('error', { message: 'Invalid meld payload' })
+      return
+    }
     const result = room.playMelds(playerId, payload.melds as { type: 'trio' | 'straight'; cards: import('./types.js').Card[] }[])
     if (result.ok) {
       broadcastState(roomId)
@@ -140,10 +180,14 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('add_to_meld', (payload: { meldId: string; cards: { id: string; suit: string; rank: number }[] }) => {
+  socket.on('add_to_meld', (payload?: { meldId?: string; cards?: { id: string; suit: string; rank: number }[] }) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room) return
+    if (typeof payload?.meldId !== 'string' || !Array.isArray(payload.cards)) {
+      socket.emit('error', { message: 'Invalid add-to-meld payload' })
+      return
+    }
     const result = room.addToMeld(playerId, payload.meldId, payload.cards as import('./types.js').Card[])
     if (result.ok) {
       broadcastState(roomId)
@@ -198,6 +242,10 @@ io.on('connection', (socket) => {
     if (!roomId) return
     const room = rooms.get(roomId)
     if (!room) return
+    if (process.env.ENABLE_DEBUG_ACTIONS !== 'true' || room.players[0]?.id !== playerId) {
+      socket.emit('error', { message: 'Debug actions are disabled' })
+      return
+    }
     if (room.debugSkipRound()) {
       broadcastState(roomId)
       io.to(roomId).emit('round_end', { roundScores: room.roundScores, roundEnderId: room.roundEnderId })
@@ -228,10 +276,12 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId)
     if (room) {
       room.removePlayer(playerId)
-      playerToRoom.delete(playerId)
       socket.leave(roomId)
       broadcastState(roomId)
-      if (room.players.length === 0) rooms.delete(roomId)
+      if (room.players.length === 0) {
+        rooms.delete(roomId)
+        clearRoomTimer(roomId)
+      }
     }
     roomId = null
     socket.emit('left')
@@ -243,9 +293,11 @@ io.on('connection', (socket) => {
     if (room) {
       room.setConnected(playerId, false)
       room.removePlayer(playerId)
-      playerToRoom.delete(playerId)
       broadcastState(roomId)
-      if (room.players.length === 0) rooms.delete(roomId)
+      if (room.players.length === 0) {
+        rooms.delete(roomId)
+        clearRoomTimer(roomId)
+      }
     }
   })
 })

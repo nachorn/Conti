@@ -13,7 +13,8 @@ function makeDeck(decks: number, jokersPerDeck: number): Card[] {
           id: uuidv4(),
           suit,
           rank,
-          isWild: false,
+          // Continental uses deuces and jokers as wild cards.
+          isWild: rank === 2,
         })
       }
     }

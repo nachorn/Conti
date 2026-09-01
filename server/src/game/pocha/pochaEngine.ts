@@ -47,10 +47,10 @@ function compareInTrick(
 
   if (aTrump && !bTrump) return 1
   if (!aTrump && bTrump) return -1
-  if (aTrump && bTrump) return (POCHA_TRICK_ORDER[b.rank] ?? 0) - (POCHA_TRICK_ORDER[a.rank] ?? 0)
+  if (aTrump && bTrump) return (POCHA_TRICK_ORDER[a.rank] ?? 0) - (POCHA_TRICK_ORDER[b.rank] ?? 0)
   if (aFollows && !bFollows) return 1
   if (!aFollows && bFollows) return -1
-  if (aFollows && bFollows) return (POCHA_TRICK_ORDER[b.rank] ?? 0) - (POCHA_TRICK_ORDER[a.rank] ?? 0)
+  if (aFollows && bFollows) return (POCHA_TRICK_ORDER[a.rank] ?? 0) - (POCHA_TRICK_ORDER[b.rank] ?? 0)
   return 0
 }
 

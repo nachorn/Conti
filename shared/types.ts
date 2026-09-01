@@ -53,12 +53,16 @@ export interface Player {
   score: number
   hand: Card[]
   connected: boolean
+  /** Seat at table (0..9). */
+  seatIndex: number
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'
+export type GameType = 'continental' | 'pocha'
 
 export interface GameState {
   roomId: string
+  gameType?: GameType
   phase: GamePhase
   round: number
   contract: RoundContract
@@ -66,8 +70,21 @@ export interface GameState {
   currentPlayerIndex: number
   melds: Meld[]
   stockCount: number
-  discardPile: Card[]
+  discardPile: unknown[]
   topDiscard: Card | null
   dealerIndex: number
   roundScores: Record<string, number>
+  discardOptionPlayerIndex?: number | null
+  discarderIndex?: number | null
+  discardOptionAvailableAt?: number | null
+  deckCount?: 2 | 3
+  discardOptionDelaySeconds?: number
+  secondsPerTurn?: number
+  turnDeadline?: number | null
+  swappedJokerCardId?: string | null
+  swappedJokerPlayerId?: string | null
+  firstTurnIndex?: number
+  hasHadTurn?: boolean[]
+  currentPlayerHasDrawn?: boolean
+  playedMeldThisTurn?: boolean
 }

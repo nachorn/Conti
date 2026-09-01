@@ -1,68 +1,11 @@
-export type Suit = 'hearts' | 'diamonds' | 'clubs' | 'spades' | 'joker'
-
-export interface Card {
-  id: string
-  suit: Suit
-  rank: number
-  isWild?: boolean
-}
-
-export type MeldType = 'trio' | 'straight'
-
-export interface Meld {
-  id: string
-  type: MeldType
-  cards: Card[]
-  ownerId: string
-}
-
-export interface RoundContract {
-  round: number
-  minCards: number
-  requirements: { type: MeldType; minLength: number }[]
-}
-
-export interface Player {
-  id: string
-  name: string
-  score: number
-  hand: Card[]
-  connected: boolean
-  seatIndex: number
-}
-
-export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'
-
-export type GameType = 'continental' | 'pocha'
-
-export interface GameState {
-  roomId: string
-  gameType?: GameType
-  phase: GamePhase
-  round: number
-  contract: RoundContract
-  players: Player[]
-  currentPlayerIndex: number
-  melds: Meld[]
-  stockCount: number
-  discardPile: unknown[]
-  topDiscard: Card | null
-  dealerIndex: number
-  roundScores: Record<string, number>
-  discardOptionPlayerIndex?: number | null
-  discarderIndex?: number | null
-  discardOptionAvailableAt?: number | null
-  deckCount?: 2 | 3
-  discardOptionDelaySeconds?: number
-  secondsPerTurn?: number
-  swappedJokerCardId?: string | null
-  swappedJokerPlayerId?: string | null
-  /** Index of player who has first turn this round. */
-  firstTurnIndex?: number
-  /** For each player index: has had a turn this round. No melds until all true. */
-  hasHadTurn?: boolean[]
-  /** Current player has drawn this turn. Must be true before meld/discard. */
-  currentPlayerHasDrawn?: boolean
-  /** Current player played their contract meld this turn. */
-  playedMeldThisTurn?: boolean
-}
+export type {
+  Card,
+  GamePhase,
+  GameState,
+  GameType,
+  Meld,
+  MeldType,
+  Player,
+  RoundContract,
+  Suit,
+} from '@shared/types'

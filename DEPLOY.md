@@ -21,27 +21,20 @@ Railway will run your Node server and give you a public URL.
 3. Select **nachorn/Conti** (or your repo). If it’s not listed, click **Configure GitHub App** and allow access to the repo, then try again.
 4. Click the repo name to add it.
 
-### Step 1.3 – Configure the server (root + start command)
+### Step 1.3 – Configure the server
 
-Railway will add a “service” for your repo. You need to tell it to run the **server** folder, not the root.
+The repository includes `railway.toml`, which builds and starts the server from the repository root.
 
 1. Click the new service (your repo name).
 2. Open the **Settings** tab.
-3. Find **Root Directory** (or **Source**):
-   - Set it to **`server`**  
-   So Railway only uses the `server` folder.
-
-4. Find **Build Command** (or **Build**):
-   - Set it to: **`npm run build`**
-
-5. Find **Start Command** (or **Start**):
-   - Set it to: **`npm start`**  
-   (This runs `node dist/index.js` after the build.)
-
-6. Find **Watch Paths** (optional):
+3. Leave **Root Directory** at the repository root. Do not set it to `server`, because the config and shared types live at the root.
+4. Clear dashboard Build or Start Command overrides so Railway uses `railway.toml`:
+   - Build: `npm run build:server`
+   - Start: `cd server && npm start`
+5. Find **Watch Paths** (optional):
    - You can leave default so it redeploys when you push.
 
-7. Click **Deploy** (or wait for the first deploy to start).
+6. Click **Deploy** (or wait for the first deploy to start).
 
 ### Step 1.4 – Get the server URL
 
@@ -52,8 +45,9 @@ Railway will add a “service” for your repo. You need to tell it to run the *
 4. **Copy this URL** (no slash at the end). You’ll use it in Part 2.
 
 If the deploy fails, check the **Deployments** tab logs. Common fixes:
-- Root Directory is exactly **server**.
-- Build command is **npm run build**, Start command is **npm start**.
+- Root Directory is the repository root.
+- Dashboard commands do not override `railway.toml`.
+- The `/health` endpoint returns `{ "ok": true }`.
 
 ---
 
@@ -108,12 +102,14 @@ That’s the link you and your friend use to play (New York and Spain).
 
 ---
 
-## Part 3: CORS (if the client can’t connect)
+## Part 3: Restrict CORS to the deployed client
 
-If the browser shows a CORS error when connecting to the server:
+The server accepts all origins when `CLIENT_ORIGINS` is unset, which makes the first deployment easy. After Vercel gives you the final client URL:
 
-1. In Railway, your server already uses `cors({ origin: true })`, so any origin is allowed. If you later restrict origins, add your Vercel URL (e.g. `https://conti-xxxx.vercel.app`).
-2. Redeploy the server after any change.
+1. Add a Railway environment variable named `CLIENT_ORIGINS`.
+2. Set it to the Vercel origin, for example `https://conti-xxxx.vercel.app` (no trailing slash).
+3. For multiple allowed clients, use a comma-separated list.
+4. Redeploy the server.
 
 ---
 
@@ -140,5 +136,5 @@ If the browser shows a CORS error when connecting to the server:
 ## Updating the app later
 
 - **Code:** Push to GitHub. Railway and Vercel will redeploy automatically if connected to the repo.
-- **Server:** Change Root Directory = `server`, Build = `npm run build`, Start = `npm start`.
+- **Server:** Keep the repository root and let `railway.toml` provide the build, start, and health-check settings.
 - **Client:** Change Root Directory = `client`, keep `VITE_SOCKET_URL` set to the same Railway URL.

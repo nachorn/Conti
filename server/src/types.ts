@@ -34,10 +34,10 @@ export const CONTINENTAL_ROUNDS: RoundContract[] = [
   { round: 7, minCards: 12, requirements: [{ type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }] },
 ]
 
-/** Penalty points in hand when round ends (A=20, J/K/Q/10=10, 2–9=face value, Joker=50). */
+/** Penalty points in hand when round ends (A=20, J/K/Q/10=10, 2–9=5, Joker=50). */
 export const CARD_PENALTIES: Record<number, number> = {
   0: 50, 14: 20, 13: 10, 12: 10, 11: 10,
-  10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2,
+  10: 10, 9: 5, 8: 5, 7: 5, 6: 5, 5: 5, 4: 5, 3: 5, 2: 5,
 }
 
 export interface Player {
@@ -80,6 +80,8 @@ export interface GameState {
   discardOptionDelaySeconds: number
   /** Max seconds per turn (0 = no limit). */
   secondsPerTurn: number
+  /** Authoritative server deadline for the active turn/decision (epoch ms). */
+  turnDeadline: number | null
   /** If set, this player must play this joker in a meld before discarding. */
   swappedJokerCardId?: string | null
   swappedJokerPlayerId?: string | null

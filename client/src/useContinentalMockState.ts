@@ -6,7 +6,8 @@ function makeId(): string {
 }
 
 function makeCard(suit: Card['suit'], rank: number, isWild = false): Card {
-  return { id: makeId(), suit, rank, ...(isWild ? { isWild: true } : {}) }
+  const wild = isWild || suit === 'joker' || rank === 2
+  return { id: makeId(), suit, rank, ...(wild ? { isWild: true } : {}) }
 }
 
 const SUITS: Card['suit'][] = ['hearts', 'diamonds', 'clubs', 'spades']
@@ -28,7 +29,7 @@ export function useContinentalMockState() {
         next.discardPile = next.discardPile.slice(0, -1)
         next.topDiscard = (next.discardPile as Card[]).slice(-1)[0] ?? null
       } else {
-        const stockCard = makeCard('hearts', (prev.stockCount % 13) || 1)
+        const stockCard = makeCard('hearts', (prev.stockCount % 13) + 2)
         next.players[0] = { ...me, hand: [...me.hand, stockCard] }
         next.stockCount = Math.max(0, next.stockCount - 1)
       }

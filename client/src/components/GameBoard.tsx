@@ -178,7 +178,15 @@ export function GameBoard({
   const hasPlayedMelds = state.melds.some((m) => m.ownerId === socketId)
 
   const discardOptionAvailableAt = state.discardOptionAvailableAt ?? null
-  const now = Date.now()
+  const turnDeadline = state.turnDeadline ?? null
+  const [clockNow, setClockNow] = useState(Date.now())
+  useEffect(() => {
+    if (discardOptionAvailableAt === null && turnDeadline === null) return
+    setClockNow(Date.now())
+    const timer = setInterval(() => setClockNow(Date.now()), 250)
+    return () => clearInterval(timer)
+  }, [discardOptionAvailableAt, turnDeadline])
+  const now = clockNow
   const discardDelayRemaining = discardOptionAvailableAt != null && now < discardOptionAvailableAt
     ? Math.ceil((discardOptionAvailableAt - now) / 1000)
     : 0
@@ -186,34 +194,23 @@ export function GameBoard({
 
   const secondsPerTurn = state.secondsPerTurn ?? 0
   const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null)
-  const autoActedRef = useRef(false)
-  const onPassDiscardRef = useRef(onPassDiscard)
-  const onDrawRef = useRef(() => onDraw(false))
-  onPassDiscardRef.current = onPassDiscard
-  onDrawRef.current = () => onDraw(false)
   useEffect(() => {
     if (!isMyTurn) {
       setTurnSecondsLeft(null)
-      autoActedRef.current = false
       return
     }
-    if (state.phase !== 'playing' || secondsPerTurn <= 0) {
+    if (state.phase !== 'playing' || secondsPerTurn <= 0 || turnDeadline === null) {
       setTurnSecondsLeft(null)
       return
     }
-    const endAt = Date.now() + secondsPerTurn * 1000
-    setTurnSecondsLeft(secondsPerTurn)
-    const t = setInterval(() => {
-      const left = Math.ceil((endAt - Date.now()) / 1000)
+    const updateCountdown = () => {
+      const left = Math.ceil((turnDeadline - Date.now()) / 1000)
       setTurnSecondsLeft(left <= 0 ? 0 : left)
-      if (left <= 0 && !autoActedRef.current) {
-        autoActedRef.current = true
-        if (discardOptionIndex !== null) onPassDiscardRef.current()
-        else onDrawRef.current()
-      }
-    }, 500)
+    }
+    updateCountdown()
+    const t = setInterval(updateCountdown, 500)
     return () => clearInterval(t)
-  }, [state.phase, state.currentPlayerIndex, discardOptionIndex, isMyTurn, secondsPerTurn])
+  }, [state.phase, isMyTurn, secondsPerTurn, turnDeadline])
 
 
   // Shuffle then circular deal when round starts or game enters playing

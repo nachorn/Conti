@@ -36,7 +36,6 @@ export default function App() {
     passDiscard,
     leave,
     nextRound,
-    debugSkipRound,
     socketId,
   } = useSocket()
 
@@ -135,7 +134,6 @@ export default function App() {
               takeDiscard={takeDiscard}
               passDiscard={passDiscard}
               nextRound={nextRound}
-              debugSkipRound={debugSkipRound}
               setSeat={setSeat}
             />
           }
@@ -177,7 +175,6 @@ function GamePage({
   takeDiscard,
   passDiscard,
   nextRound,
-  debugSkipRound,
   setSeat,
 }: {
   state: import('./types').GameState | null
@@ -202,7 +199,6 @@ function GamePage({
   takeDiscard: () => void
   passDiscard: () => void
   nextRound: () => void
-  debugSkipRound?: () => void
   setSeat: (seatIndex: number) => void
 }) {
   const navigate = useNavigate()
@@ -272,7 +268,6 @@ function GamePage({
         onPassDiscard={passDiscard}
         onLeave={onLeave}
         onNextRound={nextRound}
-        onDebugSkipRound={debugSkipRound}
         onSetSeat={setSeat}
       />
     )
