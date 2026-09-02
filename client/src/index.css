@@ -2,12 +2,19 @@
   --felt: #0d5c2e;
   --felt-dark: #083d1f;
   --gold: #c9a227;
+  --gold-bright: #e7c968;
   --gold-dim: #8b7312;
   --cream: #f5f0e1;
+  --cream-muted: rgba(245, 240, 225, 0.7);
+  --surface: rgba(5, 28, 18, 0.82);
+  --surface-strong: rgba(3, 20, 13, 0.94);
+  --line: rgba(231, 201, 104, 0.24);
   --red: #b22222;
   --black: #1a1a1a;
   --card-shadow: 2px 2px 8px rgba(0,0,0,0.4);
   --card-radius: 8px;
+  --page-padding: clamp(0.75rem, 2.5vw, 2rem);
+  --control-height: 44px;
 }
 
 * {
@@ -18,20 +25,25 @@ html {
   overflow: auto;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: rgba(201, 162, 39, 0.25);
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: 'Outfit', sans-serif;
   background: var(--felt-dark);
   color: var(--cream);
   overflow-x: hidden;
   overflow-y: auto;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 h1, h2 {
@@ -61,13 +73,17 @@ button:disabled {
 
 button:focus-visible,
 a:focus-visible,
-[role="button"]:focus-visible {
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible {
   outline: 2px solid var(--gold);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
-input {
+input,
+select {
   font-family: inherit;
+  font-size: 1rem;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
   border: 2px solid rgba(255,255,255,0.2);
@@ -79,7 +95,31 @@ input::placeholder {
   color: rgba(255,255,255,0.4);
 }
 
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--gold);
+}
+
+::selection {
+  background: rgba(231, 201, 104, 0.3);
+}
+
+@media (pointer: coarse) {
+  button:not(.card):not(.pocha-card),
+  input,
+  select {
+    min-height: var(--control-height);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

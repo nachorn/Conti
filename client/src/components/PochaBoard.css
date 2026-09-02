@@ -1,226 +1,380 @@
 .pocha-board {
+  --pocha-gold: #d8b43b;
+  --pocha-cream: #f8f2e6;
   position: relative;
   min-height: 100vh;
-  padding-top: 2.5rem;
+  min-height: 100dvh;
+  padding-top: 0;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(
-    ellipse at 50% 50%,
-    #0d5c2e 0%,
-    #0a4724 50%,
-    #073d1e 100%
-  );
-  overflow: visible;
-}
-
-.pocha-top-row {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.pocha-back-btn {
-  background: rgba(0, 0, 0, 0.4);
-  color: #f5e6c8;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.pocha-back-btn:hover {
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.pocha-lang {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.pocha-lang button {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.8rem;
-  background: rgba(255, 255, 255, 0.15);
-  color: #f5e6c8;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.pocha-lang button.active {
-  background: #c9a227;
-  color: #1a1a1a;
-  border-color: #c9a227;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(35, 132, 73, 0.3), transparent 42%),
+    radial-gradient(ellipse at 50% 50%, #0d5c2e 0%, #0a4724 50%, #073d1e 100%);
+  color: var(--pocha-cream);
+  overflow-x: clip;
 }
 
 .pocha-info {
-  padding: 0.5rem 1rem;
+  min-height: 2.75rem;
+  padding: 0.55rem clamp(0.75rem, 3vw, 1.5rem);
   display: flex;
-  gap: 1rem;
+  gap: 0.65rem 1rem;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.28);
+  border-block: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 0.9rem;
-  color: #f5e6c8;
 }
 
 .pocha-hand-info {
   opacity: 0.95;
 }
 
+.pocha-trump-badge,
+.pocha-turn-badge {
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .pocha-trump-badge {
-  background: rgba(201, 162, 39, 0.35);
-  color: #f5e6c8;
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
-  font-weight: 600;
+  background: rgba(216, 180, 59, 0.22);
+  border: 1px solid rgba(216, 180, 59, 0.5);
+  color: var(--pocha-cream);
 }
 
 .pocha-turn-badge {
-  background: #c9a227;
-  color: #1a1a1a;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  font-weight: 600;
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--pocha-cream);
 }
 
+.pocha-turn-badge-me {
+  background: var(--pocha-gold);
+  border-color: var(--pocha-gold);
+  color: #17130a;
+  box-shadow: 0 0 0 3px rgba(216, 180, 59, 0.15);
+}
+
+/* Score is a compact, in-flow strip rather than an absolute header overlay. */
+.pocha-scoreboard {
+  width: min(calc(100% - 2rem), 900px);
+  margin: 0.55rem auto 0;
+  padding: 0.45rem 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(3, 22, 11, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 10px;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
+}
+
+.pocha-scoreboard-title {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--pocha-gold);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.pocha-scoreboard-list {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 0.35rem;
+}
+
+.pocha-scoreboard-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.45rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.pocha-scoreboard-rank {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.pocha-scoreboard-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pocha-scoreboard-score {
+  flex: 0 0 auto;
+  font-weight: 800;
+  color: var(--pocha-gold);
+}
+
+/* A bounded stage prevents the table from growing with the page or collapsing. */
 .pocha-table-wrap {
   position: relative;
-  flex: 1;
-  width: 100%;
-  max-width: 900px;
-  min-height: 360px;
-  margin: 0 auto;
+  flex: 0 0 clamp(360px, 48dvh, 520px);
+  width: min(100%, 960px);
+  height: clamp(360px, 48dvh, 520px);
+  margin: auto;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .pocha-table-oval {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%);
-  width: 85%;
-  max-width: 620px;
+  width: min(76%, 660px);
   aspect-ratio: 1.85 / 1;
-  background: linear-gradient(165deg, #0d5c2e 0%, #0a4724 50%, #073d1e 100%);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 60px rgba(0, 0, 0, 0.4),
-    0 8px 24px rgba(0, 0, 0, 0.5);
-  border: 12px solid #1a3d1a;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06), transparent 48%),
+    linear-gradient(165deg, #126b38 0%, #0a4724 52%, #073d1e 100%);
+  border: clamp(8px, 1vw, 12px) solid #173b1e;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 60px rgba(0, 0, 0, 0.42),
+    0 10px 28px rgba(0, 0, 0, 0.48),
+    0 0 0 2px rgba(216, 180, 59, 0.12);
 }
 
 .pocha-table-center {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
   z-index: 1;
+  width: 60%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  gap: 0.35rem;
 }
 
 .pocha-trump-card {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  line-height: 0;
+  transform: rotate(-5deg);
 }
 
 .pocha-current-trick {
+  min-width: 0;
+  min-height: 68px;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
-  min-height: 80px;
   align-items: center;
+  justify-content: center;
+  gap: 0.2rem 0.3rem;
+}
+
+.pocha-current-trick:only-child {
+  grid-column: 1 / -1;
+}
+
+.pocha-trick-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  line-height: 0;
+}
+
+.pocha-trick-card > span {
+  max-width: 54px;
+  overflow: hidden;
+  color: rgba(248, 242, 230, 0.84);
+  font-size: 0.58rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pocha-table-center .pocha-card-wrap svg {
+  width: clamp(40px, 5vw, 58px);
+  height: auto;
 }
 
 .pocha-seat {
   position: absolute;
+  z-index: 2;
+  width: clamp(68px, 10vw, 96px);
+  min-height: 44px;
+  padding: 0.35rem 0.42rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  min-width: 72px;
-  padding: 0.5rem 0.6rem;
-  background: rgba(0, 0, 0, 0.35);
+  gap: 0.16rem;
+  background: rgba(0, 0, 0, 0.56);
+  border: 2px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  z-index: 2;
-}
-
-.pocha-seat-empty {
-  background: rgba(0, 0, 0, 0.2);
-  border-style: dashed;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
 }
 
 .pocha-seat-me {
-  border-color: #c9a227;
-  background: rgba(201, 162, 39, 0.2);
+  border-color: var(--pocha-gold);
+  background: rgba(115, 88, 13, 0.72);
+}
+
+.pocha-seat-current {
+  border-color: #fff0a3;
+  box-shadow:
+    0 0 0 3px rgba(216, 180, 59, 0.25),
+    0 5px 16px rgba(0, 0, 0, 0.36);
+}
+
+.pocha-seat-disconnected {
+  opacity: 0.55;
+  filter: grayscale(0.65);
 }
 
 .pocha-seat-name {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #f5e6c8;
-  white-space: nowrap;
+  width: 100%;
   overflow: hidden;
+  color: var(--pocha-cream);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
   text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap;
+}
+
+.pocha-seat-you,
+.pocha-seat-bid {
+  color: var(--pocha-cream);
+  font-size: 0.66rem;
+  line-height: 1.15;
 }
 
 .pocha-seat-you {
-  font-size: 0.7rem;
-  color: #f5e6c8;
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .pocha-seat-bid {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.85);
+  padding: 0.1rem 0.3rem;
+  background: rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
 
-.pocha-seat-empty-label {
+.pocha-seat-dealer {
+  position: absolute;
+  top: -0.55rem;
+  right: -0.55rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  display: grid;
+  place-items: center;
+  background: var(--pocha-gold);
+  border: 2px solid #fff1ad;
+  border-radius: 50%;
+  color: #17130a;
+  font-size: 0.65rem;
+  font-weight: 900;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.38);
+}
+
+.pocha-seat .pocha-card-back {
   display: block;
-  width: 100%;
-  height: 1rem;
+  max-width: 40px;
+  height: auto;
+  border-radius: 5px;
 }
 
 .pocha-hand-area {
-  padding: 0.75rem 1rem;
+  margin-top: 0;
+  z-index: 20;
+  flex: 0 0 auto;
+  padding: 0.65rem clamp(0.75rem, 2vw, 1.25rem) max(0.65rem, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  background: rgba(0, 0, 0, 0.2);
+  align-items: stretch;
+  gap: 0.55rem;
+  background: rgba(3, 23, 12, 0.94);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .pocha-hand {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.42rem 0.3rem 0.62rem;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.38rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgba(216, 180, 59, 0.48) transparent;
+  scrollbar-width: thin;
 }
 
 .pocha-hand-card-wrap {
-  transition: transform 0.15s;
+  flex: 0 0 auto;
+  scroll-snap-align: center;
+  transition: transform 0.15s ease;
 }
 
 .pocha-hand-card-wrap[data-selected="true"] {
-  transform: translateY(-8px);
+  transform: translateY(-7px);
 }
 
-.pocha-hand-card-wrap .pocha-card-wrap {
+.pocha-card-wrap {
+  display: block;
+  line-height: 0;
+}
+
+.pocha-card-button {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
   cursor: pointer;
 }
 
+.pocha-card-button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 7px 15px rgba(0, 0, 0, 0.4);
+}
+
+.pocha-card-wrap[data-selected="true"] {
+  outline: 3px solid var(--pocha-gold);
+  outline-offset: 2px;
+  border-radius: 7px;
+}
+
+.pocha-card-button:focus-visible,
+.pocha-bid-btn:focus-visible,
+.pocha-play-btn:focus-visible {
+  outline: 3px solid #fff0a3;
+  outline-offset: 3px;
+}
+
+.pocha-card-face,
+.pocha-card-back {
+  display: block;
+  border-radius: 6px;
+}
+
 .pocha-actions {
+  min-height: 44px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -229,118 +383,269 @@
 }
 
 .pocha-actions-label {
-  font-size: 0.9rem;
-  color: #f5e6c8;
-  margin-right: 0.25rem;
+  color: var(--pocha-cream);
+  font-size: 0.87rem;
+  font-weight: 650;
 }
 
 .pocha-bid-buttons {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
+  gap: 0.38rem;
+}
+
+.pocha-bid-btn,
+.pocha-play-btn {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 750;
+  cursor: pointer;
 }
 
 .pocha-bid-btn {
-  min-width: 2.25rem;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  background: rgba(255, 255, 255, 0.2);
-  color: #f5e6c8;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-radius: 6px;
-  cursor: pointer;
+  min-width: 44px;
+  padding: 0.45rem 0.62rem;
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--pocha-cream);
+  border: 2px solid rgba(255, 255, 255, 0.35);
 }
 
 .pocha-bid-btn:hover:not(:disabled) {
-  background: rgba(201, 162, 39, 0.4);
-  border-color: #c9a227;
-}
-
-.pocha-bid-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: rgba(216, 180, 59, 0.3);
+  border-color: var(--pocha-gold);
 }
 
 .pocha-play-btn {
-  padding: 0.4rem 1rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  background: #c9a227;
-  color: #1a1a1a;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+  min-width: 132px;
+  padding: 0.5rem 1.25rem;
+  background: var(--pocha-gold);
+  color: #17130a;
+  border: 2px solid #f1d36a;
 }
 
 .pocha-play-btn:hover:not(:disabled) {
-  background: #d4af37;
+  background: #e4c24e;
 }
 
+.pocha-bid-btn:disabled,
 .pocha-play-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.pocha-scoreboard {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.45);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  min-width: 120px;
+@media (max-width: 900px) {
+  .pocha-table-oval {
+    width: min(84%, 650px);
+  }
+
+  .pocha-hand {
+    justify-content: flex-start;
+    scroll-snap-type: x proximity;
+  }
+
+  .pocha-scoreboard-list {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .pocha-scoreboard-row {
+    flex: 0 0 min(132px, 32vw);
+  }
 }
 
-.pocha-scoreboard-title {
-  margin: 0 0 0.35rem;
-  font-size: 0.75rem;
-  color: #c9a227;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+@media (max-width: 720px) {
+  .pocha-board .game-shell-top-row {
+    gap: 0.3rem;
+  }
+
+  .pocha-info {
+    min-height: 0;
+    padding: 0.4rem 0.55rem;
+    gap: 0.35rem 0.5rem;
+    font-size: 0.78rem;
+  }
+
+  .pocha-trump-badge,
+  .pocha-turn-badge {
+    padding: 0.22rem 0.5rem;
+  }
+
+  .pocha-scoreboard {
+    width: calc(100% - 0.8rem);
+    margin-top: 0.4rem;
+    padding: 0.36rem 0.45rem;
+    gap: 0.45rem;
+  }
+
+  .pocha-scoreboard-title {
+    font-size: 0.62rem;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+
+  .pocha-scoreboard-row {
+    flex-basis: 108px;
+    padding: 0.22rem 0.35rem;
+    font-size: 0.73rem;
+  }
+
+  .pocha-table-wrap {
+    flex-basis: clamp(286px, 36dvh, 320px);
+    height: clamp(286px, 36dvh, 320px);
+    min-height: 286px;
+  }
+
+  .pocha-table-oval {
+    width: calc(100% - 1.1rem);
+    max-width: 470px;
+    border-width: 8px;
+  }
+
+  .pocha-table-center {
+    width: 57%;
+    gap: 0.2rem;
+  }
+
+  .pocha-table-center .pocha-card-wrap svg {
+    width: clamp(36px, 10.5vw, 44px);
+  }
+
+  .pocha-current-trick {
+    min-height: 54px;
+    gap: 0.14rem 0.22rem;
+  }
+
+  .pocha-trick-card > span {
+    max-width: 42px;
+    font-size: 0.52rem;
+  }
+
+  .pocha-seat {
+    width: clamp(64px, 19vw, 76px);
+    padding: 0.28rem 0.32rem;
+    gap: 0.12rem;
+  }
+
+  .pocha-seat-name {
+    font-size: 0.68rem;
+  }
+
+  .pocha-seat-you,
+  .pocha-seat-bid {
+    font-size: 0.59rem;
+  }
+
+  .pocha-seat .pocha-card-back {
+    width: 34px;
+  }
+
+  .pocha-seat-dealer {
+    top: -0.45rem;
+    right: -0.4rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    font-size: 0.58rem;
+  }
+
+  .pocha-hand-area {
+    position: sticky;
+    bottom: 0;
+    padding: 0.45rem 0.45rem max(0.5rem, env(safe-area-inset-bottom));
+    gap: 0.38rem;
+  }
+
+  .pocha-hand {
+    padding: 0.42rem 0.2rem 0.55rem;
+    gap: 0.32rem;
+  }
+
+  .pocha-hand-card-wrap[data-selected="true"] {
+    transform: translateY(-5px);
+  }
+
+  .pocha-actions {
+    min-height: 44px;
+    gap: 0.35rem;
+  }
+
+  .pocha-bid-buttons {
+    width: 100%;
+    padding: 0.12rem 0.08rem 0.28rem;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .pocha-bid-buttons .pocha-actions-label {
+    flex: 0 0 auto;
+  }
+
+  .pocha-play-btn {
+    flex: 1 1 150px;
+    max-width: 280px;
+  }
 }
 
-.pocha-scoreboard-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+@media (max-width: 420px) {
+  .pocha-board .game-shell-back {
+    max-width: none;
+    white-space: nowrap;
+  }
+
+  .pocha-board .game-shell-lang {
+    gap: 0.12rem;
+  }
+
+  .pocha-board .game-shell-lang button,
+  .pocha-board .report-bug-btn {
+    min-width: 42px;
+    padding-inline: 0.48rem;
+  }
+
+  .pocha-scoreboard-row {
+    flex-basis: 98px;
+  }
+
+  .pocha-table-wrap {
+    flex-basis: clamp(280px, 35dvh, 305px);
+    height: clamp(280px, 35dvh, 305px);
+    min-height: 280px;
+  }
 }
 
-.pocha-scoreboard-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  color: #f5e6c8;
+@media (max-height: 560px) and (orientation: landscape) {
+  .pocha-board {
+    min-height: 100dvh;
+  }
+
+  .pocha-info {
+    font-size: 0.72rem;
+  }
+
+  .pocha-scoreboard {
+    margin-top: 0.25rem;
+  }
+
+  .pocha-table-wrap {
+    flex-basis: 250px;
+    height: 250px;
+    min-height: 250px;
+  }
 }
 
-.pocha-scoreboard-rank {
-  opacity: 0.7;
-  min-width: 1.2rem;
-}
-
-.pocha-scoreboard-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pocha-scoreboard-score {
-  font-weight: 600;
-  color: #c9a227;
-}
-
-.pocha-card-wrap[data-selected="true"] {
-  outline: 3px solid #c9a227;
-  outline-offset: 2px;
-  border-radius: 8px;
-}
-
-.pocha-card-face,
-.pocha-card-back {
-  border-radius: 6px;
-  display: block;
+@media (prefers-reduced-motion: reduce) {
+  .pocha-hand-card-wrap,
+  .pocha-card-button,
+  .pocha-bid-btn,
+  .pocha-play-btn {
+    scroll-behavior: auto;
+    transition: none !important;
+  }
 }

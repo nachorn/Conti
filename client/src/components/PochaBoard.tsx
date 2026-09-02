@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PochaGameState, PochaPlayer } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
@@ -7,44 +7,31 @@ import { ReportBugButton } from './ReportBugButton'
 import { SpanishCard, SpanishCardBack, POCHA_SUIT_LABEL } from './pocha'
 import './PochaBoard.css'
 
-const SEAT_COUNT = 6
-
-function seatPosition(displayIndex: number, radius = 48): { x: number; y: number } {
-  const angleDeg = displayIndex * (360 / SEAT_COUNT) - 90
+/**
+ * Place the local player at six o'clock and distribute only active players
+ * around the whole table. CSS screen coordinates increase downwards, so
+ * +90deg is the bottom of the ellipse.
+ */
+function seatPosition(displayIndex: number, playerCount: number): { x: number; y: number } {
+  if (playerCount <= 1) return { x: 50, y: 88 }
+  const angleDeg = 90 + displayIndex * (360 / playerCount)
   const rad = (angleDeg * Math.PI) / 180
   return {
-    x: 50 + radius * Math.cos(rad),
-    y: 50 + radius * Math.sin(rad),
+    x: 50 + 42 * Math.cos(rad),
+    y: 50 + 42 * Math.sin(rad),
   }
 }
 
-function getSeatsAroundTable(
+function getPlayersAroundTable(
   players: PochaPlayer[],
   myId: string | null
-): (PochaPlayer | null)[] {
-  const seatByPlayerId = new Map<string, number>()
-  players.forEach((p) => {
-    const si = p.seatIndex ?? -1
-    if (si >= 0 && si < SEAT_COUNT) seatByPlayerId.set(p.id, si)
-  })
-  const used = new Set(seatByPlayerId.values())
-  let next = 0
-  players.forEach((p) => {
-    if (!seatByPlayerId.has(p.id)) {
-      while (used.has(next)) next++
-      seatByPlayerId.set(p.id, next)
-      used.add(next)
-    }
-  })
-  const mySeat = myId ? seatByPlayerId.get(myId) ?? 0 : 0
-  const seats: (PochaPlayer | null)[] = []
-  for (let d = 0; d < SEAT_COUNT; d++) {
-    const seatIndex = (mySeat + d) % SEAT_COUNT
-    seats.push(
-      players.find((p) => seatByPlayerId.get(p.id) === seatIndex) ?? null
-    )
-  }
-  return seats
+): PochaPlayer[] {
+  const bySeat = [...players].sort(
+    (a, b) => (a.seatIndex ?? 0) - (b.seatIndex ?? 0)
+  )
+  const myIndex = myId ? bySeat.findIndex((player) => player.id === myId) : -1
+  if (myIndex <= 0) return bySeat
+  return [...bySeat.slice(myIndex), ...bySeat.slice(0, myIndex)]
 }
 
 export interface PochaBoardProps {
@@ -76,11 +63,23 @@ export function PochaBoard({
     isPlaying && state.players[state.currentPlayerIndex]?.id === socketId
   const isMyBid =
     isBidding && state.players[state.currentPlayerIndex]?.id === socketId
+  const currentPlayer = state.players[state.currentPlayerIndex]
+  const dealer = state.players[state.dealerIndex]
+  const tablePlayers = useMemo(
+    () => getPlayersAroundTable(state.players, socketId),
+    [state.players, socketId]
+  )
   const totalTricks = state.cardsPerHand
   const blockedBid =
     me && isBidding
       ? null
       : null /* could compute dealerBidsBlocked if we had it on client */
+
+  useEffect(() => {
+    if (!isMyTurn || (selectedCardId && !myHand.some((card) => card.id === selectedCardId))) {
+      setSelectedCardId(null)
+    }
+  }, [isMyTurn, myHand, selectedCardId])
 
   const handlePlay = () => {
     if (selectedCardId && onPlayCard && isMyTurn) {
@@ -106,6 +105,7 @@ export function PochaBoard({
         }
       />
       <div className="pocha-info">
+        <span className="pocha-hand-info">Pocha · {t(lang, 'localPreview')}</span>
         <span className="pocha-hand-info">
           {t(lang, 'pochaHand')} {state.handNumber} · {state.cardsPerHand} {t(lang, 'cards')}
         </span>
@@ -114,12 +114,22 @@ export function PochaBoard({
             {t(lang, 'pochaTrump')}: {POCHA_SUIT_LABEL[state.trump]}
           </span>
         )}
-        {(isMyBid || isMyTurn) && (
-          <span className="pocha-turn-badge">
-            {isMyBid ? t(lang, 'pochaYourBid') : t(lang, 'yourTurn')}
+        {(isBidding || isPlaying) && currentPlayer && (
+          <span
+            className={`pocha-turn-badge ${isMyBid || isMyTurn ? 'pocha-turn-badge-me' : ''}`}
+            role="status"
+            aria-live="polite"
+          >
+            {isMyBid
+              ? t(lang, 'pochaYourBid')
+              : isMyTurn
+                ? t(lang, 'yourTurn')
+                : `${currentPlayer.name} · ${isBidding ? (lang === 'es' ? 'apuesta' : 'bidding') : (lang === 'es' ? 'turno' : 'turn')}`}
           </span>
         )}
       </div>
+
+      <PochaScoreboard state={state} lang={lang} />
 
       <div className="pocha-table-wrap">
         <div className="pocha-table-oval">
@@ -130,40 +140,53 @@ export function PochaBoard({
               </div>
             )}
             <div className="pocha-current-trick">
-              {state.currentTrick.map((tc) => (
-                <SpanishCard key={tc.card.id} card={tc.card} />
-              ))}
+              {state.currentTrick.map((tc) => {
+                const trickPlayer = state.players.find((player) => player.id === tc.playerId)
+                return (
+                  <div key={tc.card.id} className="pocha-trick-card">
+                    <SpanishCard card={tc.card} />
+                    {trickPlayer && <span>{trickPlayer.name}</span>}
+                  </div>
+                )
+              })}
             </div>
           </div>
-          {getSeatsAroundTable([...state.players], socketId).map((player, d) => {
-            const pos = seatPosition(d)
-            const isMe = player?.id === socketId
+          {tablePlayers.map((player, d) => {
+            const pos = seatPosition(d, tablePlayers.length)
+            const isMe = player.id === socketId
+            const isDealer = dealer?.id === player.id
+            const isCurrent = currentPlayer?.id === player.id && (isBidding || isPlaying)
+            const dealerLabel = lang === 'es' ? 'Repartidor' : 'Dealer'
+            const trickStatus = lang === 'es'
+              ? `${player.tricksWon} bazas ganadas de ${player.bid ?? 0} apostadas`
+              : `${player.tricksWon} tricks won of ${player.bid ?? 0} bid`
             return (
               <div
-                key={d}
-                className={`pocha-seat ${!player ? 'pocha-seat-empty' : ''} ${isMe ? 'pocha-seat-me' : ''}`}
+                key={player.id}
+                className={`pocha-seat ${isMe ? 'pocha-seat-me' : ''} ${isCurrent ? 'pocha-seat-current' : ''} ${!player.connected ? 'pocha-seat-disconnected' : ''}`}
                 style={{
                   left: `${pos.x}%`,
                   top: `${pos.y}%`,
                   transform: 'translate(-50%, -50%)',
                 }}
               >
-                {player ? (
-                  <>
-                    <span className="pocha-seat-name">{player.name}</span>
-                    {isMe ? (
-                      <span className="pocha-seat-you">{t(lang, 'you')}</span>
-                    ) : (
-                      <SpanishCardBack width={44} height={62} count={player.hand.length} />
-                    )}
-                    {player.bid != null && (
-                      <span className="pocha-seat-bid">
-                        {player.bid} {player.bid === 1 ? t(lang, 'pochaTrick') : t(lang, 'pochaTricks')}
-                      </span>
-                    )}
-                  </>
+                {isDealer && (
+                  <span className="pocha-seat-dealer" title={dealerLabel} aria-label={dealerLabel}>
+                    {lang === 'es' ? 'R' : 'D'}
+                  </span>
+                )}
+                <span className="pocha-seat-name" title={player.name}>{player.name}</span>
+                {isMe ? (
+                  <span className="pocha-seat-you">{t(lang, 'you')}</span>
                 ) : (
-                  <span className="pocha-seat-empty-label" />
+                  <SpanishCardBack width={40} height={56} count={player.hand.length} />
+                )}
+                {player.bid != null && (
+                  <span className="pocha-seat-bid" aria-label={isPlaying ? trickStatus : undefined}>
+                    {isPlaying
+                      ? `${player.tricksWon}/${player.bid}`
+                      : `${player.bid} ${player.bid === 1 ? t(lang, 'pochaTrick') : t(lang, 'pochaTricks')}`}
+                  </span>
                 )}
               </div>
             )
@@ -189,11 +212,9 @@ export function PochaBoard({
                   card={c}
                   isTrump={state.trump === c.suit}
                   selected={selectedCardId === c.id}
-                  onClick={() =>
-                    isPlaying
-                      ? setSelectedCardId((id) => (id === c.id ? null : c.id))
-                      : undefined
-                  }
+                  onClick={isMyTurn && onPlayCard
+                    ? () => setSelectedCardId((id) => (id === c.id ? null : c.id))
+                    : undefined}
                 />
               </div>
             ))}
@@ -236,21 +257,26 @@ export function PochaBoard({
         </div>
       </div>
 
-      <div className="pocha-scoreboard">
-        <h3 className="pocha-scoreboard-title">{t(lang, 'scoreboard')}</h3>
-        <div className="pocha-scoreboard-list">
-          {state.players
-            .slice()
-            .sort((a, b) => b.score - a.score)
-            .map((p, i) => (
-              <div key={p.id} className="pocha-scoreboard-row">
-                <span className="pocha-scoreboard-rank">{i + 1}.</span>
-                <span className="pocha-scoreboard-name">{p.name}</span>
-                <span className="pocha-scoreboard-score">{p.score}</span>
-              </div>
-            ))}
-        </div>
-      </div>
     </div>
+  )
+}
+
+function PochaScoreboard({ state, lang }: { state: PochaGameState; lang: Lang }) {
+  return (
+    <section className="pocha-scoreboard" aria-label={t(lang, 'scoreboard')}>
+      <h3 className="pocha-scoreboard-title">{t(lang, 'scoreboard')}</h3>
+      <div className="pocha-scoreboard-list">
+        {state.players
+          .slice()
+          .sort((a, b) => b.score - a.score)
+          .map((player, index) => (
+            <div key={player.id} className="pocha-scoreboard-row">
+              <span className="pocha-scoreboard-rank">{index + 1}.</span>
+              <span className="pocha-scoreboard-name" title={player.name}>{player.name}</span>
+              <span className="pocha-scoreboard-score">{player.score}</span>
+            </div>
+          ))}
+      </div>
+    </section>
   )
 }

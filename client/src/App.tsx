@@ -12,7 +12,15 @@ import type { Lang } from './i18n'
 
 /** Root: routes and game/socket state. Syncs URL with in-game state. */
 export default function App() {
-  const [lang, setLang] = useState<Lang>('en')
+  const [lang, setLang] = useState<Lang>(() => {
+    try {
+      const saved = window.localStorage.getItem('conti-language')
+      if (saved === 'en' || saved === 'es') return saved
+    } catch {
+      // Storage may be unavailable in privacy-restricted browser contexts.
+    }
+    return window.navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
+  })
   const [showPochaDev, setShowPochaDev] = useState(false)
   const [showContinentalDev, setShowContinentalDev] = useState(false)
   const navigate = useNavigate()
@@ -38,6 +46,15 @@ export default function App() {
     nextRound,
     socketId,
   } = useSocket()
+
+  useEffect(() => {
+    document.documentElement.lang = lang
+    try {
+      window.localStorage.setItem('conti-language', lang)
+    } catch {
+      // Keep the selected language for this session even without persistence.
+    }
+  }, [lang])
 
   // When we have a real room (joined), go to /game
   useEffect(() => {

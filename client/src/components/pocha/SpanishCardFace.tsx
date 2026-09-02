@@ -31,8 +31,6 @@ export function SpanishCardFace({
   isTrump = false,
 }: SpanishCardFaceProps) {
   const uid = React.useId().replace(/:/g, '')
-  const scaleX = width / CARD_W
-  const scaleY = height / CARD_H
   const color = POCHA_SUIT_COLOR[suit]
   const cornerLabel = String(rank)
   const isFaceCard = rank === 10 || rank === 11 || rank === 12
@@ -57,7 +55,7 @@ export function SpanishCardFace({
           <stop offset="1" stopColor="#f8f8f8" />
         </linearGradient>
       </defs>
-      <g transform={`scale(${scaleX}, ${scaleY})`}>
+      <g>
         {/* Traditional white face and black border */}
         <rect
           x="0"

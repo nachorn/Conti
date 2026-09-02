@@ -13,9 +13,6 @@ export interface CardBackProps {
 }
 
 export function CardBack({ width = CARD_W, height = CARD_H }: CardBackProps) {
-  const scaleX = width / CARD_W
-  const scaleY = height / CARD_H
-
   return (
     <svg
       width={width}
@@ -25,7 +22,7 @@ export function CardBack({ width = CARD_W, height = CARD_H }: CardBackProps) {
       role="img"
       aria-label="Card back"
     >
-      <g transform={`scale(${scaleX}, ${scaleY})`}>
+      <g>
         <rect
           x="0"
           y="0"

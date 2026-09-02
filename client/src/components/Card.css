@@ -16,6 +16,22 @@
   user-select: none;
 }
 
+.card-button {
+  appearance: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.card.card-button:hover:not(:disabled) {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.45);
+}
+
+.card.card-button[data-selected="true"]:hover:not(:disabled) {
+  transform: translateY(-12px);
+}
+
 .card[data-selected="true"] {
   transform: translateY(-12px);
   box-shadow: 0 8px 20px rgba(0,0,0,0.5);
@@ -80,6 +96,10 @@
   border: none;
   box-shadow: none;
   overflow: visible;
+}
+
+button.card-back {
+  min-height: 0;
 }
 
 .card-back-pattern {

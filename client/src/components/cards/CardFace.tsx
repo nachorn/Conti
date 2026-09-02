@@ -17,8 +17,6 @@ export interface CardFaceProps {
 }
 
 export function CardFace({ suit, rank, width = CARD_W, height = CARD_H, isWild }: CardFaceProps) {
-  const scaleX = width / CARD_W
-  const scaleY = height / CARD_H
   const color = SUIT_COLOR[suit]
   const label = rankLabel(rank)
 
@@ -40,7 +38,7 @@ export function CardFace({ suit, rank, width = CARD_W, height = CARD_H, isWild }
           <stop offset="1" stopColor="#f5f5f5" />
         </linearGradient>
       </defs>
-      <g transform={`scale(${scaleX}, ${scaleY})`}>
+      <g>
         <rect
           x="0"
           y="0"

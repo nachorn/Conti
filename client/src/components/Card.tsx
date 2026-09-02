@@ -23,6 +23,7 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
   const rank = RANK_SYMBOLS[card.rank] ?? '?'
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds'
   const suitChar = card.suit === 'joker' ? '★' : { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' }[card.suit] ?? ''
+  const label = card.suit === 'joker' ? 'Joker' : `${rank} of ${card.suit}`
 
   if (faceDown) {
     const dims =
@@ -31,21 +32,27 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
         : size === 'large'
           ? { width: 90, height: 125 }
           : { width: 72, height: 100 }
-    return (
-      <div className={`card card-${size} card-back`} data-selected={selected} onClick={onClick}>
-        <CardBack width={dims.width} height={dims.height} />
+    const content = <CardBack width={dims.width} height={dims.height} />
+    return onClick ? (
+      <button
+        type="button"
+        className={`card card-button card-${size} card-back`}
+        data-selected={selected}
+        aria-label="Face-down card"
+        aria-pressed={Boolean(selected)}
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    ) : (
+      <div className={`card card-${size} card-back`} data-selected={selected}>
+        {content}
       </div>
     )
   }
 
-  return (
-    <div
-      className={`card card-${size} ${isRed ? 'card-red' : 'card-black'}`}
-      data-selected={selected}
-      onClick={onClick}
-      draggable={draggable}
-      onDragStart={onDragStart}
-    >
+  const content = (
+    <>
       <div className="card-corner card-top">
         <span className="card-rank">{rank}</span>
         <span className="card-suit">{suitChar}</span>
@@ -63,6 +70,26 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
           <span className="card-suit">{suitChar}</span>
         </div>
       )}
+    </>
+  )
+
+  const className = `card ${onClick ? 'card-button ' : ''}card-${size} ${isRed ? 'card-red' : 'card-black'}`
+  return onClick ? (
+    <button
+      type="button"
+      className={className}
+      data-selected={selected}
+      aria-label={label}
+      aria-pressed={Boolean(selected)}
+      onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className={className} data-selected={selected} draggable={draggable} onDragStart={onDragStart}>
+      {content}
     </div>
   )
 }
