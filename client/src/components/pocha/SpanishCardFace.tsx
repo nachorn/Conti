@@ -1,14 +1,14 @@
 import React from 'react'
 import type { SpanishSuit } from '@shared/pochaTypes'
-import { pochaRankLabel, POCHA_SUIT_COLOR } from './pochaCardUtils'
-import { getPipLayout, isCrossedOrFanned } from './spanishPipLayouts'
-import { SpanishPip } from './SpanishPip'
-import { SpanishCourtFigure } from './SpanishCourtFigure'
+import { pochaRankLabel, pochaRankLong, POCHA_SUIT_COLOR, POCHA_SUIT_LABEL } from './pochaCardUtils'
+import { SpanishSuitIcon } from './SpanishSuitIcon'
 
 const CARD_W = 70
 const CARD_H = 98
 const RADIUS = 6
-const CORNER_FONT_SIZE = 10
+const RANK_FONT_SIZE = 22
+const SUIT_ICON_SIZE = 1.7
+const SUIT_ICON_DIMENSION = 24 * SUIT_ICON_SIZE
 
 export interface SpanishCardFaceProps {
   suit: SpanishSuit
@@ -19,10 +19,7 @@ export interface SpanishCardFaceProps {
   isTrump?: boolean
 }
 
-/**
- * Traditional Baraja Española face: white card, black border, corner indices,
- * pip layouts (1–9) or court figures (Sota, Caballo, Rey).
- */
+/** Compact Baraja Española face with one rank and one suit symbol. */
 export function SpanishCardFace({
   suit,
   rank,
@@ -32,10 +29,7 @@ export function SpanishCardFace({
 }: SpanishCardFaceProps) {
   const uid = React.useId().replace(/:/g, '')
   const color = POCHA_SUIT_COLOR[suit]
-  const cornerLabel = String(rank)
-  const isFaceCard = rank === 10 || rank === 11 || rank === 12
-  const layout = !isFaceCard ? getPipLayout(rank, suit) : null
-  const crossedOrFanned = !isFaceCard && isCrossedOrFanned(rank, suit)
+  const rankLabel = pochaRankLabel(rank)
 
   return (
     <svg
@@ -44,7 +38,7 @@ export function SpanishCardFace({
       viewBox={`0 0 ${CARD_W} ${CARD_H}`}
       className="card-face pocha-card-face"
       role="img"
-      aria-label={`${pochaRankLabel(rank)} de ${suit}`}
+      aria-label={`${pochaRankLong(rank)} de ${POCHA_SUIT_LABEL[suit]}`}
     >
       <defs>
         <filter id={`pocha-shadow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
@@ -83,48 +77,24 @@ export function SpanishCardFace({
           strokeDasharray="3 2"
           opacity="0.6"
         />
-        {/* Corner indices: top-left */}
+        {/* Large rank stays legible when the card is scaled down on phones. */}
         <text
-          x="8"
-          y="14"
-          textAnchor="start"
+          x={CARD_W / 2}
+          y="11"
+          textAnchor="middle"
           dominantBaseline="hanging"
           fill={color}
-          fontSize={CORNER_FONT_SIZE}
-          fontWeight="700"
-          fontFamily="system-ui, sans-serif"
+          fontSize={RANK_FONT_SIZE}
+          fontWeight="800"
+          fontFamily="'Cormorant Garamond', Georgia, serif"
         >
-          {cornerLabel}
+          {rankLabel}
         </text>
-        {/* Corner indices: bottom-right (upside down) */}
-        <g transform={`translate(${CARD_W - 8}, ${CARD_H - 14}) rotate(180)`}>
-          <text
-            x="0"
-            y="0"
-            textAnchor="start"
-            dominantBaseline="hanging"
-            fill={color}
-            fontSize={CORNER_FONT_SIZE}
-            fontWeight="700"
-            fontFamily="system-ui, sans-serif"
-          >
-            {cornerLabel}
-          </text>
-        </g>
 
-        {/* Center: pips (1–9) or court figure (10–12) */}
-        {isFaceCard ? (
-          <SpanishCourtFigure suit={suit} rank={rank as 10 | 11 | 12} />
-        ) : layout ? (
-          layout.map(([px, py], i) => {
-            const isAce = rank === 1
-            const size = isAce ? 1.5 : rank === 2 || rank === 3 ? 0.85 : 0.65
-            let rotate = 0
-            if (crossedOrFanned && rank === 2) rotate = i === 0 ? -45 : 45
-            if (crossedOrFanned && rank === 3) rotate = i === 0 ? 0 : i === 1 ? -30 : 30
-            return <SpanishPip key={i} suit={suit} x={px} y={py} size={size} rotate={rotate} />
-          })
-        ) : null}
+        {/* Exactly one suit mark keeps every card easy to scan in a narrow hand. */}
+        <g transform={`translate(${(CARD_W - SUIT_ICON_DIMENSION) / 2}, 47)`}>
+          <SpanishSuitIcon suit={suit} color={color} size={SUIT_ICON_SIZE} />
+        </g>
       </g>
     </svg>
   )

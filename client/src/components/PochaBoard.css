@@ -564,6 +564,11 @@
     gap: 0.32rem;
   }
 
+  .pocha-hand .pocha-card-wrap svg {
+    width: clamp(56px, 15vw, 62px);
+    height: auto;
+  }
+
   .pocha-hand-card-wrap[data-selected="true"] {
     transform: translateY(-5px);
   }
@@ -637,6 +642,11 @@
     flex-basis: 250px;
     height: 250px;
     min-height: 250px;
+  }
+
+  .pocha-hand .pocha-card-wrap svg {
+    width: 56px;
+    height: auto;
   }
 }
 

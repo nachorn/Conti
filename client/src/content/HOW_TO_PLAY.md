@@ -25,8 +25,8 @@
 - **Penalties** (counted at end of each round for cards left in hand):
   - Joker: **50**
   - Ace: **20**
-  - K, Q, J, 10: **10** each
-  - 9 down to 2: **5** each
+  - K, Q, J: **10** each
+  - Numbered cards (2–10): **face value**
 
 ---
 

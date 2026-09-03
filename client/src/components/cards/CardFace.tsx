@@ -5,7 +5,6 @@ import type { Suit } from '@shared/types'
 const CARD_W = 70
 const CARD_H = 98
 const RADIUS = 6
-const PAD = 6
 
 export interface CardFaceProps {
   suit: Suit
@@ -19,6 +18,7 @@ export interface CardFaceProps {
 export function CardFace({ suit, rank, width = CARD_W, height = CARD_H, isWild }: CardFaceProps) {
   const color = SUIT_COLOR[suit]
   const label = rankLabel(rank)
+  const isJoker = suit === 'joker'
 
   return (
     <svg
@@ -51,60 +51,21 @@ export function CardFace({ suit, rank, width = CARD_W, height = CARD_H, isWild }
           strokeWidth={isWild ? 2.5 : 1}
           filter="url(#card-shadow)"
         />
-        {/* Top-left rank + suit */}
-        <g transform={`translate(${PAD}, ${PAD})`}>
-          <text
-            x="0"
-            y="0"
-            textAnchor="start"
-            dominantBaseline="hanging"
-            fill={color}
-            fontSize="14"
-            fontWeight="700"
-            fontFamily="system-ui, sans-serif"
-          >
-            {label}
-          </text>
-          <g transform="translate(0, 16)">
-            <SuitIcon suit={suit} color={color} size={0.9} />
-          </g>
-        </g>
-        {/* Center suit (larger) for number cards; joker text */}
-        <g transform={`translate(${CARD_W / 2}, ${CARD_H / 2})`}>
-          {suit === 'joker' ? (
-            <text
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill={color}
-              fontSize="11"
-              fontWeight="700"
-              fontFamily="system-ui, sans-serif"
-            >
-              JOKER
-            </text>
-          ) : (
-            <g transform="translate(-12, -12)">
-              <SuitIcon suit={suit} color={color} size={1.4} />
-            </g>
-          )}
-        </g>
-        {/* Bottom-right rank + suit (inverted) */}
-        <g transform={`translate(${CARD_W - PAD}, ${CARD_H - PAD}) rotate(180)`}>
-          <text
-            x="0"
-            y="0"
-            textAnchor="start"
-            dominantBaseline="hanging"
-            fill={color}
-            fontSize="14"
-            fontWeight="700"
-            fontFamily="system-ui, sans-serif"
-          >
-            {label}
-          </text>
-          <g transform="translate(0, 16)">
-            <SuitIcon suit={suit} color={color} size={0.9} />
-          </g>
+        <text
+          x={CARD_W / 2}
+          y="13"
+          textAnchor="middle"
+          dominantBaseline="hanging"
+          fill={color}
+          fontSize={isJoker ? 10 : 24}
+          fontWeight="800"
+          fontFamily={isJoker ? "system-ui, sans-serif" : "'Cormorant Garamond', Georgia, serif"}
+          letterSpacing={isJoker ? 0.8 : -0.4}
+        >
+          {isJoker ? 'JOKER' : label}
+        </text>
+        <g transform="translate(18.2, 49)">
+          <SuitIcon suit={suit} color={color} size={1.4} />
         </g>
       </g>
     </svg>

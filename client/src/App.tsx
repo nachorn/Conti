@@ -9,6 +9,7 @@ import { ConnectionNotice } from './components/ConnectionNotice'
 import { PochaBoard } from './components/PochaBoard'
 import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
+import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
 
 /** Root: routes and game/socket state. Syncs URL with in-game state. */
@@ -81,7 +82,8 @@ export default function App() {
     create(name, 'continental', deckCount)
   }
 
-  const handleCreatePocha = () => {
+  const handleCreatePocha = (deckSize: PochaDeckSize) => {
+    pochaMock.reset(deckSize)
     setShowPochaDev(true)
     navigate('/game')
   }
@@ -111,10 +113,7 @@ export default function App() {
               lang={lang}
               setLang={setLang}
               initialJoinRoomId={null}
-              onOpenPochaDev={() => {
-                setShowPochaDev(true)
-                navigate('/game')
-              }}
+              onOpenPochaDev={handleCreatePocha}
               onOpenContinentalDev={() => {
                 setShowContinentalDev(true)
                 navigate('/game')
@@ -133,7 +132,7 @@ export default function App() {
               isConnected={isConnected}
               lang={lang}
               setLang={setLang}
-              onOpenPochaDev={() => { setShowPochaDev(true); navigate('/game') }}
+              onOpenPochaDev={handleCreatePocha}
               onOpenContinentalDev={() => { setShowContinentalDev(true); navigate('/game') }}
             />
           }

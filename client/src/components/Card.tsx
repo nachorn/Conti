@@ -7,6 +7,14 @@ const RANK_SYMBOLS: Record<number, string> = {
   10: '10', 11: 'J', 12: 'Q', 13: 'K', 14: 'A',
 }
 
+const SUIT_SYMBOLS: Record<CardType['suit'], string> = {
+  hearts: '♥',
+  diamonds: '♦',
+  clubs: '♣',
+  spades: '♠',
+  joker: '★',
+}
+
 interface CardProps {
   card: CardType
   faceDown?: boolean
@@ -15,15 +23,14 @@ interface CardProps {
   size?: 'small' | 'normal' | 'large'
   draggable?: boolean
   onDragStart?: (e: React.DragEvent) => void
-  /** When true, hide the bottom corner (upside-down rank/suit) to reduce clutter in hand. */
-  hideBottomCorner?: boolean
 }
 
-export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart, hideBottomCorner }: CardProps) {
+export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart }: CardProps) {
   const rank = RANK_SYMBOLS[card.rank] ?? '?'
+  const isJoker = card.suit === 'joker'
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds'
-  const suitChar = card.suit === 'joker' ? '★' : { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' }[card.suit] ?? ''
-  const label = card.suit === 'joker' ? 'Joker' : `${rank} of ${card.suit}`
+  const suitChar = SUIT_SYMBOLS[card.suit]
+  const label = isJoker ? 'Joker' : `${rank} of ${card.suit}`
 
   if (faceDown) {
     const dims =
@@ -52,28 +59,16 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
   }
 
   const content = (
-    <>
-      <div className="card-corner card-top">
-        <span className="card-rank">{rank}</span>
-        <span className="card-suit">{suitChar}</span>
-      </div>
-      <div className="card-center">
-        {card.suit === 'joker' ? (
-          <span className="card-joker">JOKER</span>
-        ) : (
-          <span className="card-suit-large">{suitChar}</span>
-        )}
-      </div>
-      {!hideBottomCorner && (
-        <div className="card-corner card-bottom">
-          <span className="card-rank">{rank}</span>
-          <span className="card-suit">{suitChar}</span>
-        </div>
-      )}
-    </>
+    <div className="card-face-content">
+      <span className={`card-rank ${isJoker ? 'card-rank-joker' : ''}`}>
+        {isJoker ? 'JOKER' : rank}
+      </span>
+      <span className="card-suit-mark" aria-hidden="true">{suitChar}</span>
+    </div>
   )
 
-  const className = `card ${onClick ? 'card-button ' : ''}card-${size} ${isRed ? 'card-red' : 'card-black'}`
+  const colorClass = isJoker ? 'card-joker-card' : isRed ? 'card-red' : 'card-black'
+  const className = `card ${onClick ? 'card-button ' : ''}card-${size} ${colorClass}`
   return onClick ? (
     <button
       type="button"

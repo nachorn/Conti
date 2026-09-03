@@ -36,7 +36,7 @@ export const CONTINENTAL_ROUNDS: RoundContract[] = [
   { round: 7, minCards: 12, requirements: [{ type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }, { type: 'straight', minLength: 4 }] },
 ]
 
-/** Penalty values (for round-end scoring; lowest total wins the round). */
+/** Penalty values (2–10=face value, J/Q/K=10, A=20, Joker=50). Lowest total wins the game. */
 export const CARD_PENALTIES: Record<number, number> = {
   0: 50,   // Joker
   14: 20,  // Ace
@@ -44,7 +44,7 @@ export const CARD_PENALTIES: Record<number, number> = {
   12: 10,  // Q
   11: 10,  // J
   10: 10,  // 10
-  9: 5, 8: 5, 7: 5, 6: 5, 5: 5, 4: 5, 3: 5, 2: 5,
+  9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2,
 }
 
 export interface Player {

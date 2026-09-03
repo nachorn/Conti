@@ -1588,12 +1588,16 @@
     padding: 3px 4px;
   }
 
-  .game-hand .card-suit-large {
-    font-size: 1.4rem;
+  .game-hand .card-rank {
+    font-size: 1.7rem;
   }
 
-  .game-hand .card-joker {
-    font-size: 0.55rem;
+  .game-hand .card-rank-joker {
+    font-size: 0.54rem;
+  }
+
+  .game-hand .card-suit-mark {
+    font-size: 1.5rem;
   }
 
   .game-hand .card[data-selected="true"],

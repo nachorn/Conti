@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { PochaGameState, PochaCard, PochaPlayer, SpanishSuit } from '@shared/pochaTypes'
+import { SPANISH_RANKS_40, SPANISH_RANKS_48 } from '@shared/pochaTypes'
+import type { PochaGameState, PochaCard, PochaDeckSize, PochaPlayer, SpanishSuit } from '@shared/pochaTypes'
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 11)
@@ -11,11 +12,11 @@ function makeCard(suit: SpanishSuit, rank: number): PochaCard {
 
 /** Build a mock Pocha game state for development (bidding or playing phase). */
 export function usePochaMockState(
-  options: { phase?: 'bidding' | 'playing'; playerCount?: number } = {}
+  options: { phase?: 'bidding' | 'playing'; playerCount?: number; deckSize?: PochaDeckSize } = {}
 ) {
-  const { phase = 'playing', playerCount = 4 } = options
+  const { phase = 'playing', playerCount = 4, deckSize = 40 } = options
   const [state, setState] = useState<PochaGameState>(() =>
-    buildMockState(phase, playerCount)
+    buildMockState(phase, playerCount, deckSize)
   )
 
   const socketId = state.players[0]?.id ?? null
@@ -65,17 +66,22 @@ export function usePochaMockState(
     })
   }
 
-  return { state, socketId, onBid, onPlayCard }
+  const reset = (nextDeckSize: PochaDeckSize) => {
+    setState(buildMockState(phase, playerCount, nextDeckSize))
+  }
+
+  return { state, socketId, onBid, onPlayCard, reset }
 }
 
 function buildMockState(
   phase: 'bidding' | 'playing',
-  playerCount: number
+  playerCount: number,
+  deckSize: PochaDeckSize
 ): PochaGameState {
   const names = ['You', 'Maria', 'Luis', 'Ana', 'Pablo'].slice(0, playerCount)
   const suits: SpanishSuit[] = ['oros', 'copas', 'espadas', 'bastos']
-  const ranks = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12]
-  const cardsPerHand = playerCount === 3 ? 12 : 40 / playerCount
+  const ranks = deckSize === 48 ? SPANISH_RANKS_48 : SPANISH_RANKS_40
+  const cardsPerHand = Math.floor(deckSize / playerCount)
 
   const players: PochaPlayer[] = names.map((name, i) => {
     const hand: PochaCard[] = []
@@ -111,6 +117,7 @@ function buildMockState(
     phase,
     handNumber: 3,
     cardsPerHand,
+    deckSize,
     trump,
     trumpCard,
     players,

@@ -8,7 +8,7 @@ A real-time multiplayer web app for **Continental Rummy** (2–10 players). One 
 - **Trios**: 3+ cards of the same rank (2s and Jokers are wild).
 - **Straights**: 4+ cards of the same suit in sequence (Ace high or low, no wrap).
 - Each round you **draw** (stock or top discard), optionally **play melds** or add to existing melds, then **discard**.
-- The round ends when a player gets rid of their last card. **Penalty scoring**: cards left in hand count against you (Joker 50, Ace 20, face 10, 9–2 → 5). Lowest total score after 7 rounds wins.
+- The round ends when a player gets rid of their last card. **Penalty scoring**: cards left in hand count against you (Joker 50, Ace 20, J/Q/K 10, numbered cards at face value). Lowest total score after 7 rounds wins.
 
 ## Run locally
 

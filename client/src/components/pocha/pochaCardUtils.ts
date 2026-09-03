@@ -14,11 +14,9 @@ export const POCHA_SUIT_LABEL: Record<SpanishSuit, string> = {
   bastos: 'Bastos',
 }
 
-/** Short rank label: 1=As, 2-9, 10=Sota, 11=Caballo, 12=Rey (full 48-card set). */
+/** Compact visual label. Pocha cards show their numeric rank from 1 through 12. */
 export function pochaRankLabel(rank: number): string {
-  if (rank >= 1 && rank <= 9) return String(rank)
-  const face: Record<number, string> = { 10: 'S', 11: 'C', 12: 'R' }
-  return face[rank] ?? '?'
+  return Number.isInteger(rank) && rank >= 1 && rank <= 12 ? String(rank) : '?'
 }
 
 /** Long rank label for accessibility */

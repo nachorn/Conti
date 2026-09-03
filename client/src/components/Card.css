@@ -2,13 +2,16 @@
   width: 72px;
   height: 100px;
   border-radius: var(--card-radius);
-  background: var(--cream);
-  box-shadow: var(--card-shadow);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.95), transparent 52%),
+    linear-gradient(145deg, #fffdf7 0%, var(--cream) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(38, 31, 20, 0.2),
+    var(--card-shadow);
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 6px;
+  justify-content: center;
+  padding: 6px;
   position: relative;
   transition: transform 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
@@ -48,46 +51,50 @@
 }
 
 .card-red .card-rank,
-.card-red .card-suit,
-.card-red .card-suit-large {
+.card-red .card-suit-mark {
   color: var(--red);
 }
 
 .card-black .card-rank,
-.card-black .card-suit,
-.card-black .card-suit-large {
+.card-black .card-suit-mark {
   color: var(--black);
 }
 
-.card-corner {
+.card-joker-card .card-rank,
+.card-joker-card .card-suit-mark {
+  color: var(--gold-dim);
+}
+
+.card-face-content {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  line-height: 1.1;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.card-bottom {
-  transform: rotate(180deg);
-}
-
-.card-center {
-  flex: 1;
-  display: flex;
-  align-items: center;
   justify-content: center;
+  gap: 0.08em;
+  line-height: 0.9;
 }
 
-.card-suit-large {
-  font-size: 1.75rem;
+.card-rank {
+  color: inherit;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: -0.04em;
 }
 
-.card-joker {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: var(--gold-dim);
-  letter-spacing: 0.05em;
+.card-rank-joker {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+}
+
+.card-suit-mark {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.8rem;
+  line-height: 0.9;
 }
 
 .card-back {
@@ -110,21 +117,35 @@ button.card-back {
 .card-small {
   width: 48px;
   height: 67px;
-  padding: 2px 4px;
-  font-size: 0.65rem;
+  padding: 4px;
 }
 
-.card-small .card-suit-large {
-  font-size: 1.1rem;
+.card-small .card-rank {
+  font-size: 1.35rem;
+}
+
+.card-small .card-rank-joker {
+  font-size: 0.48rem;
+}
+
+.card-small .card-suit-mark {
+  font-size: 1.2rem;
 }
 
 .card-large {
   width: 90px;
   height: 125px;
-  padding: 6px 8px;
-  font-size: 0.9rem;
+  padding: 8px;
 }
 
-.card-large .card-suit-large {
-  font-size: 2.2rem;
+.card-large .card-rank {
+  font-size: 2.5rem;
+}
+
+.card-large .card-rank-joker {
+  font-size: 0.82rem;
+}
+
+.card-large .card-suit-mark {
+  font-size: 2.25rem;
 }

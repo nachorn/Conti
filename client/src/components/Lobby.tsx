@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
+import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
@@ -6,7 +7,7 @@ import './Lobby.css'
 
 interface LobbyProps {
   onCreateContinental: (name: string, deckCount?: 2 | 3) => void
-  onCreatePocha: () => void
+  onCreatePocha: (deckSize: PochaDeckSize) => void
   onJoin: (roomId: string, name: string) => void
   error: string | null
   isConnected?: boolean
@@ -15,7 +16,7 @@ interface LobbyProps {
   /** Pre-fill join room code (e.g. from /room/:roomId) */
   initialJoinRoomId?: string | null
   /** Dev: open Pocha game with mock state */
-  onOpenPochaDev?: () => void
+  onOpenPochaDev?: (deckSize: PochaDeckSize) => void
   /** Dev: open Continental game with mock state */
   onOpenContinentalDev?: () => void
 }
@@ -34,6 +35,7 @@ export function Lobby({
 }: LobbyProps) {
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
+  const [pochaDeckSize, setPochaDeckSize] = useState<PochaDeckSize>(40)
   const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState('')
   const [reportCopied, setReportCopied] = useState(false)
@@ -137,7 +139,19 @@ export function Lobby({
           <section className="lobby-card lobby-card-pocha" aria-labelledby="create-pocha-title">
             <h2 id="create-pocha-title">{t(lang, 'createPocha')}</h2>
             <p>{t(lang, 'createPochaDesc')}</p>
-            <button type="button" className="lobby-create-pocha-btn" onClick={onCreatePocha}>
+            <label className="lobby-field" htmlFor="pocha-deck-size">
+              <span>{t(lang, 'pochaDeck')}</span>
+              <select
+                id="pocha-deck-size"
+                name="pochaDeckSize"
+                value={pochaDeckSize}
+                onChange={(e) => setPochaDeckSize(Number(e.target.value) as PochaDeckSize)}
+              >
+                <option value={40}>{t(lang, 'pochaDeck40')}</option>
+                <option value={48}>{t(lang, 'pochaDeck48')}</option>
+              </select>
+            </label>
+            <button type="button" className="lobby-create-pocha-btn" onClick={() => onCreatePocha(pochaDeckSize)}>
               {t(lang, 'createPocha')}
             </button>
           </section>
@@ -204,7 +218,7 @@ export function Lobby({
               </button>
             )}
             {onOpenPochaDev && (
-              <button type="button" className="lobby-dev-btn" onClick={onOpenPochaDev}>
+              <button type="button" className="lobby-dev-btn" onClick={() => onOpenPochaDev(pochaDeckSize)}>
                 {t(lang, 'playPochaDev')}
               </button>
             )}

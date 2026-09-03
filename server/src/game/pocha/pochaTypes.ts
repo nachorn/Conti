@@ -1,23 +1,27 @@
 /**
- * Pocha game types. Spanish 40-card deck; separate from Continental.
+ * Pocha game types. Spanish 40- or 48-card deck; separate from Continental.
  * Suits: oros (coins), copas (cups), espadas (swords), bastos (clubs).
- * Ranks: 1=As, 2-7, 10=Sota, 11=Caballo, 12=Rey (no 8 or 9).
+ * Ranks: 1=As, 2-9, 10=Sota, 11=Caballo, 12=Rey.
  */
 
 export type SpanishSuit = 'oros' | 'copas' | 'espadas' | 'bastos'
+export type PochaDeckSize = 40 | 48
 
 export interface PochaCard {
   id: string
   suit: SpanishSuit
-  /** 1-7, 10, 11, 12 (no 8 or 9) */
+  /** 1-12; ranks 8 and 9 are present only in the 48-card deck. */
   rank: number
 }
 
-/** All valid ranks in a 40-card Spanish deck. */
-export const SPANISH_RANKS = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const
-/** Trick order in Pocha: 1 (As) high, then 3, 12, 11, 10, 7, 6, 5, 4, 2 low. */
+export const SPANISH_RANKS_40 = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const
+export const SPANISH_RANKS_48 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
+/** Standard 40-card ranks, retained as the default/backwards-compatible list. */
+export const SPANISH_RANKS = SPANISH_RANKS_40
+/** Trick order: As high, then 3, Rey, Caballo, Sota, 9 down to 2. */
 export const POCHA_TRICK_ORDER: Record<number, number> = {
-  1: 10, 3: 9, 12: 8, 11: 7, 10: 6, 7: 5, 6: 4, 5: 3, 4: 2, 2: 1,
+  1: 12, 3: 11, 12: 10, 11: 9, 10: 8, 9: 7, 8: 6,
+  7: 5, 6: 4, 5: 3, 4: 2, 2: 1,
 }
 
 export interface PochaPlayer {
@@ -44,6 +48,8 @@ export interface TrickCard {
 export interface PochaGameState {
   roomId: string
   phase: PochaPhase
+  /** Whether this game uses the 40-card deck or the full 48-card deck. */
+  deckSize: PochaDeckSize
   /** Current hand number (1-based). */
   handNumber: number
   /** Number of cards dealt this hand (1, 2, ... up then down). */

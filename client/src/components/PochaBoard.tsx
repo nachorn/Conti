@@ -100,7 +100,7 @@ export function PochaBoard({
             lang={lang}
             reportCopied={reportCopied}
             setReportCopied={setReportCopied}
-            context={{ game: 'pocha', phase: state.phase, handNumber: state.handNumber, players: state.players.length }}
+            context={{ game: 'pocha', phase: state.phase, handNumber: state.handNumber, deckSize: state.deckSize, players: state.players.length }}
           />
         }
       />
@@ -109,6 +109,7 @@ export function PochaBoard({
         <span className="pocha-hand-info">
           {t(lang, 'pochaHand')} {state.handNumber} · {state.cardsPerHand} {t(lang, 'cards')}
         </span>
+        <span className="pocha-hand-info">{t(lang, 'pochaDeck')}: {state.deckSize}</span>
         {state.trump && (
           <span className="pocha-trump-badge">
             {t(lang, 'pochaTrump')}: {POCHA_SUIT_LABEL[state.trump]}

@@ -11,9 +11,19 @@ export function SuitIcon({ suit, color, size = 1 }: { suit: Suit; color: string;
 
   if (suit === 'joker') {
     return (
-      <span style={{ ...style, color, fontSize: `${W * s * 0.9}px`, lineHeight: 1, display: 'inline-block' }} aria-hidden>
-        🃏
-      </span>
+      <svg viewBox={viewBox} width={W * s} height={H * s} style={style} aria-hidden>
+        <text
+          x={W / 2}
+          y={H / 2}
+          fill={color}
+          fontSize="22"
+          fontWeight="800"
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
+          ★
+        </text>
+      </svg>
     )
   }
 

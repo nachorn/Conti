@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createContinentalDeck } from '../src/game/deck.js'
 import { isValidStraight, satisfiesContract } from '../src/game/meld.js'
-import { trickWinner } from '../src/game/pocha/pochaEngine.js'
+import { createPochaDeck, createSpanishDeck40, createSpanishDeck48 } from '../src/game/pocha/spanishDeck.js'
+import { getCardsPerHand, trickWinner } from '../src/game/pocha/pochaEngine.js'
 import { handPenalty } from '../src/game/scoring.js'
 import { CONTINENTAL_ROUNDS, type Card } from '../src/types.js'
 
@@ -54,9 +55,19 @@ test('each repeated contract requirement needs a distinct meld', () => {
   assert.equal(satisfiesContract([trio, secondTrio], CONTINENTAL_ROUNDS[0]!), true)
 })
 
-test('cards 2 through 9 use the documented five-point penalty', () => {
-  const hand = Array.from({ length: 8 }, (_, index) => card(String(index), 'clubs', index + 2))
-  assert.equal(handPenalty(hand), 40)
+test('Continental penalties use face value for 2 through 10 and fixed picture-card values', () => {
+  const numberedCards = Array.from({ length: 9 }, (_, index) => card(String(index + 2), 'clubs', index + 2))
+  const hand = [
+    ...numberedCards,
+    card('jack-hand', 'clubs', 11),
+    card('queen-hand', 'clubs', 12),
+    card('king-hand', 'clubs', 13),
+    card('ace-hand', 'clubs', 14),
+    card('joker-hand', 'joker', 0, true),
+  ]
+
+  assert.deepEqual(hand.map(card => handPenalty([card])), [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 20, 50])
+  assert.equal(handPenalty(hand), 154)
 })
 
 test('Pocha trick comparison selects the stronger card', () => {
@@ -66,4 +77,40 @@ test('Pocha trick comparison selects the stronger card', () => {
   ], 0, 'oros', ['low', 'high'])
 
   assert.equal(winner, 'high')
+})
+
+test('Pocha deck variants contain exactly the requested Spanish ranks', () => {
+  const deck40 = createSpanishDeck40()
+  const deck48 = createSpanishDeck48()
+
+  assert.equal(deck40.length, 40)
+  assert.equal(deck48.length, 48)
+  assert.equal(deck40.filter(card => card.rank === 8 || card.rank === 9).length, 0)
+  assert.equal(deck48.filter(card => card.rank === 8).length, 4)
+  assert.equal(deck48.filter(card => card.rank === 9).length, 4)
+  assert.equal(new Set(deck40.map(card => card.id)).size, 40)
+  assert.equal(new Set(deck48.map(card => card.id)).size, 48)
+})
+
+test('Pocha uses the 40-card deck by default and can select the full deck', () => {
+  assert.equal(createPochaDeck().length, 40)
+  assert.equal(createPochaDeck(48).length, 48)
+})
+
+test('Pocha full-deck trick order places 9 and 8 between 10 and 7', () => {
+  const winner = (firstRank: number, secondRank: number) => trickWinner([
+    { playerId: 'first', card: { id: `first-${firstRank}`, suit: 'oros', rank: firstRank } },
+    { playerId: 'second', card: { id: `second-${secondRank}`, suit: 'oros', rank: secondRank } },
+  ], 0, 'copas', ['first', 'second'])
+
+  assert.equal(winner(7, 8), 'second')
+  assert.equal(winner(8, 9), 'second')
+  assert.equal(winner(9, 10), 'second')
+})
+
+test('Pocha hand size uses the largest complete deal for the selected deck', () => {
+  assert.equal(getCardsPerHand(10, 4), 10)
+  assert.equal(getCardsPerHand(12, 4, 48), 12)
+  assert.equal(getCardsPerHand(9, 5, 48), 9)
+  assert.equal(getCardsPerHand(10, 5, 48), 8)
 })

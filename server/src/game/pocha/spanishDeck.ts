@@ -1,18 +1,27 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { PochaCard, SpanishSuit } from './pochaTypes.js'
+import { SPANISH_RANKS_40, SPANISH_RANKS_48 } from './pochaTypes.js'
+import type { PochaCard, PochaDeckSize, SpanishSuit } from './pochaTypes.js'
 
 const SUITS: SpanishSuit[] = ['oros', 'copas', 'espadas', 'bastos']
-const RANKS_40 = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const
 
-/** Build a single 40-card Spanish deck. */
-export function createSpanishDeck40(): PochaCard[] {
+function createSpanishDeck(ranks: readonly number[]): PochaCard[] {
   const cards: PochaCard[] = []
   for (const suit of SUITS) {
-    for (const rank of RANKS_40) {
+    for (const rank of ranks) {
       cards.push({ id: uuidv4(), suit, rank })
     }
   }
   return cards
+}
+
+/** Build a Spanish deck without 8s or 9s. */
+export function createSpanishDeck40(): PochaCard[] {
+  return createSpanishDeck(SPANISH_RANKS_40)
+}
+
+/** Build the full Spanish deck, including 8s and 9s. */
+export function createSpanishDeck48(): PochaCard[] {
+  return createSpanishDeck(SPANISH_RANKS_48)
 }
 
 /** For 3 players, remove all 2s to get 36 cards (12 each). */
@@ -20,11 +29,9 @@ export function createSpanishDeck36(): PochaCard[] {
   return createSpanishDeck40().filter((c) => c.rank !== 2)
 }
 
-/**
- * Create deck for Pocha. 40 cards for 4-5 players, 36 (no 2s) for 3 players.
- */
-export function createPochaDeck(playerCount: number): PochaCard[] {
-  const deck = playerCount === 3 ? createSpanishDeck36() : createSpanishDeck40()
+/** Create a shuffled Pocha deck; the 40-card variant remains the default. */
+export function createPochaDeck(deckSize: PochaDeckSize = 40): PochaCard[] {
+  const deck = deckSize === 48 ? createSpanishDeck48() : createSpanishDeck40()
   return shuffle(deck)
 }
 

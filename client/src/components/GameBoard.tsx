@@ -997,7 +997,6 @@ export function GameBoard({
                   e.dataTransfer.setData('cardId', c.id)
                   e.dataTransfer.effectAllowed = 'move'
                 }}
-                hideBottomCorner
               />
             </div>
           ))}

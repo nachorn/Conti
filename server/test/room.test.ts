@@ -153,7 +153,7 @@ test('the priority player who takes the discard starts their turn with a complet
   assert.equal(room.roundPenalties.p2, undefined)
 })
 
-test('a remaining deuce scores five despite legacy out-of-turn purchase penalties', () => {
+test('a remaining deuce scores two despite legacy out-of-turn purchase penalties', () => {
   const room = playableRoom()
   room.players[0]!.hand = []
   room.players[1]!.hand = [card('two', 'clubs', 2, true)]
@@ -163,8 +163,8 @@ test('a remaining deuce scores five despite legacy out-of-turn purchase penaltie
   room.endRound('p1', false)
 
   assert.equal(room.roundScores.p1, -10)
-  assert.equal(room.roundScores.p2, 5)
-  assert.equal(room.players[1]!.score, 5)
+  assert.equal(room.roundScores.p2, 2)
+  assert.equal(room.players[1]!.score, 2)
 })
 
 test('discarding a final wild deuce awards the normal winner score', () => {

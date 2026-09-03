@@ -1,5 +1,6 @@
 import type {
   PochaCard,
+  PochaDeckSize,
   PochaGameState,
   PochaPlayer,
   SpanishSuit,
@@ -8,10 +9,13 @@ import type {
 import { POCHA_TRICK_ORDER } from './pochaTypes.js'
 import { createPochaDeck, draw } from './spanishDeck.js'
 
-/** Cards per hand: 1, 2, ... up to max then down. Max = 10 for 4 players (40/4), 8 for 5 (40/5), 12 for 3 (36/3). */
-export function getCardsPerHand(handNumber: number, playerCount: number): number {
-  const maxCards = playerCount === 3 ? 12 : 40 / playerCount
-  const up = Math.ceil(maxCards)
+/** Cards per hand: 1, 2, ... up to the largest complete deal, then down. */
+export function getCardsPerHand(
+  handNumber: number,
+  playerCount: number,
+  deckSize: PochaDeckSize = 40
+): number {
+  const up = Math.floor(deckSize / playerCount)
   if (handNumber <= up) return handNumber
   const down = handNumber - up
   const n = up - down
@@ -83,11 +87,12 @@ export function createPochaHandState(
   roomId: string,
   players: Omit<PochaPlayer, 'hand' | 'bid' | 'tricksWon'>[],
   handNumber: number,
-  dealerIndex: number
+  dealerIndex: number,
+  deckSize: PochaDeckSize = 40
 ): PochaGameState {
   const playerCount = players.length
-  const cardsPerHand = getCardsPerHand(handNumber, playerCount)
-  const deck = createPochaDeck(playerCount)
+  const cardsPerHand = getCardsPerHand(handNumber, playerCount, deckSize)
+  const deck = createPochaDeck(deckSize)
   const { drawn, remaining } = draw(deck, playerCount * cardsPerHand)
 
   const hands: PochaCard[][] = []
@@ -110,6 +115,7 @@ export function createPochaHandState(
   return {
     roomId,
     phase: 'bidding',
+    deckSize,
     handNumber,
     cardsPerHand,
     trump,
