@@ -732,6 +732,18 @@
   background: rgba(212, 175, 55, 0.15);
 }
 
+.meld-row-wrap.meld-row-updated {
+  border-color: var(--gold);
+  background: rgba(212, 175, 55, 0.18);
+  animation: meld-row-confirmed 0.75s ease-out 2;
+}
+
+@keyframes meld-row-confirmed {
+  50% {
+    box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.24);
+  }
+}
+
 .meld-show-btn {
   display: block;
   width: 100%;
@@ -916,6 +928,35 @@
 .game-lobby-options .lobby-deck-label {
   justify-content: space-between;
   gap: 1rem;
+}
+
+.game-deck-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border: 2px solid #e7bb48;
+  border-radius: 10px;
+  background: rgba(108, 65, 0, 0.72);
+  color: #fff4cd;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: left;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.game-deck-warning-icon {
+  display: inline-grid;
+  flex: 0 0 1.4rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffd76a;
+  color: #4b2a00;
+  font-weight: 900;
 }
 
 .game-lobby-options select {
@@ -1197,6 +1238,46 @@
   transform: translateY(0);
 }
 
+.game-contract-error {
+  width: 100%;
+  margin: 0.2rem 0 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(255, 180, 180, 0.55);
+  border-radius: 0.55rem;
+  background: rgba(108, 20, 28, 0.7);
+  color: #fff2f2;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.game-actions .game-add-to-meld-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.game-meld-fit-count {
+  padding: 0.16rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(4, 42, 26, 0.16);
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.game-meld-fit-count.no-fit {
+  background: rgba(111, 29, 27, 0.14);
+  color: #6f1d1b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meld-row-wrap.meld-row-updated {
+    animation: none;
+  }
+}
+
 .game-actions .game-discard-action {
   background: #f3ded8;
   color: #6f1d1b;
@@ -1302,6 +1383,82 @@
 .game-over-msg {
   margin: 1rem 0 0;
   opacity: 0.9;
+}
+
+.game-round-end-box.game-final-scoreboard {
+  width: min(calc(100% - 1.5rem), 560px);
+  max-width: 560px;
+}
+
+.game-actions:focus-visible,
+.game-round-end-box:focus-visible {
+  outline: 3px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+
+.game-final-scoreboard h3 {
+  margin: 1.35rem 0 0.6rem;
+  color: var(--cream);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.game-final-winner {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  border-radius: 10px;
+  background: rgba(212, 175, 55, 0.15);
+  color: #fff4c3;
+  text-align: center;
+}
+
+.game-final-standings {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+
+.game-final-standings li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.game-final-standings li.is-winner {
+  border-color: rgba(212, 175, 55, 0.65);
+  background: rgba(212, 175, 55, 0.14);
+}
+
+.game-final-rank {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 800;
+}
+
+.game-final-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-final-score {
+  color: var(--gold);
+  white-space: nowrap;
 }
 
 /* Accessibility: focus-visible for game controls */

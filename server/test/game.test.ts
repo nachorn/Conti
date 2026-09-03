@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createContinentalDeck } from '../src/game/deck.js'
-import { isValidStraight, isValidTrio, satisfiesContract } from '../src/game/meld.js'
+import {
+  canSatisfyContractWithHand,
+  isValidStraight,
+  isValidTrio,
+  replaceAndMoveJokerToStraightEnd,
+  replaceJokerInStraight,
+  satisfiesContract,
+} from '../src/game/meld.js'
 import { createPochaDeck, createSpanishDeck40, createSpanishDeck48 } from '../src/game/pocha/spanishDeck.js'
 import { getCardsPerHand, trickWinner } from '../src/game/pocha/pochaEngine.js'
 import { handPenalty } from '../src/game/scoring.js'
@@ -11,15 +18,19 @@ function card(id: string, suit: Card['suit'], rank: number, isWild = false): Car
   return { id, suit, rank, isWild }
 }
 
-test('only jokers are marked wild in a Continental deck', () => {
-  const deck = createContinentalDeck(2, 2)
-  const deuces = deck.filter(c => c.rank === 2)
-  const jokers = deck.filter(c => c.suit === 'joker')
-  const nonJokers = deck.filter(c => c.suit !== 'joker')
+test('each Continental deck has three Jokers and only Jokers are wild', () => {
+  const twoDeckShoe = createContinentalDeck(2, 2)
+  const threeDeckShoe = createContinentalDeck(6, 3)
+  const deuces = twoDeckShoe.filter(c => c.rank === 2)
+  const jokers = twoDeckShoe.filter(c => c.suit === 'joker')
+  const nonJokers = twoDeckShoe.filter(c => c.suit !== 'joker')
 
   assert.equal(deuces.length, 8)
   assert.ok(deuces.every(c => c.isWild !== true))
-  assert.equal(jokers.length, 4)
+  assert.equal(twoDeckShoe.length, 110)
+  assert.equal(jokers.length, 6)
+  assert.equal(threeDeckShoe.length, 165)
+  assert.equal(threeDeckShoe.filter(c => c.suit === 'joker').length, 9)
   assert.ok(jokers.every(c => c.isWild === true))
   assert.ok(nonJokers.every(c => c.isWild !== true))
 })
@@ -66,6 +77,46 @@ test('each repeated contract requirement needs a distinct meld', () => {
   assert.equal(satisfiesContract([trio, secondTrio], CONTINENTAL_ROUNDS[0]!), true)
 })
 
+test('contract feasibility can require one specific card to appear in the solution', () => {
+  const hand = [
+    card('7h', 'hearts', 7), card('7d', 'diamonds', 7), card('7c', 'clubs', 7),
+    card('8h', 'hearts', 8), card('8d', 'diamonds', 8), card('8c', 'clubs', 8),
+    card('unusable', 'spades', 9),
+  ]
+
+  assert.equal(canSatisfyContractWithHand(hand, CONTINENTAL_ROUNDS[0]!), true)
+  assert.equal(canSatisfyContractWithHand(hand, CONTINENTAL_ROUNDS[0]!, 'unusable'), false)
+})
+
+test('contract feasibility preserves a suited card needed after an overlapping trio', () => {
+  const hand = [
+    card('7h', 'hearts', 7),
+    card('7d', 'diamonds', 7),
+    card('7s', 'spades', 7),
+    card('7c', 'clubs', 7),
+    card('4h', 'hearts', 4),
+    card('5h', 'hearts', 5),
+    card('6h', 'hearts', 6),
+    card('8h', 'hearts', 8),
+  ]
+
+  assert.equal(canSatisfyContractWithHand(hand, CONTINENTAL_ROUNDS[1]!), true)
+})
+
+test('contract feasibility stays bounded for a duplicate-heavy large hand', () => {
+  const duplicateHeavy = [
+    ...(['hearts', 'diamonds', 'clubs', 'spades'] as const).flatMap(suit =>
+      Array.from({ length: 3 }, (_, index) => card(`7-${suit}-${index}`, suit, 7))
+    ),
+    ...Array.from({ length: 9 }, (_, index) => card(`joker-${index}`, 'joker', 0, true)),
+    card('9h', 'hearts', 9),
+  ]
+  const startedAt = performance.now()
+
+  assert.equal(canSatisfyContractWithHand(duplicateHeavy, CONTINENTAL_ROUNDS[6]!), false)
+  assert.ok(performance.now() - startedAt < 1_000, 'duplicate-heavy search exceeded 1 second')
+})
+
 test('Continental penalties use face value for 2 through 10 and fixed picture-card values', () => {
   const numberedCards = Array.from({ length: 9 }, (_, index) => card(String(index + 2), 'clubs', index + 2))
   const hand = [
@@ -97,6 +148,39 @@ test('deuces form a natural trio while a joker remains wild', () => {
     card('2c', 'clubs', 2, true),
     card('joker', 'joker', 0, true),
   ]), true)
+})
+
+test('joker swaps preserve the selected Joker gap and identity', () => {
+  const multiJokerRun = [
+    card('3h', 'hearts', 3),
+    card('joker-four', 'joker', 0, true),
+    card('5h', 'hearts', 5),
+    card('joker-six', 'joker', 0, true),
+    card('7h', 'hearts', 7),
+  ]
+
+  assert.ok(replaceJokerInStraight(
+    multiJokerRun,
+    'joker-four',
+    card('4h', 'hearts', 4),
+  ))
+  assert.equal(replaceJokerInStraight(
+    multiJokerRun,
+    'joker-six',
+    card('4h-other', 'hearts', 4),
+  ), null)
+
+  const endpointRun = [
+    card('ace-joker', 'joker', 0, true),
+    card('2h', 'hearts', 2),
+    card('3h', 'hearts', 3),
+    card('4h', 'hearts', 4),
+  ]
+  assert.equal(replaceAndMoveJokerToStraightEnd(
+    endpointRun,
+    'ace-joker',
+    card('5h', 'hearts', 5),
+  ), null)
 })
 
 test('Pocha trick comparison selects the stronger card', () => {

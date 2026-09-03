@@ -9,3 +9,9 @@ export type {
   RoundContract,
   Suit,
 } from '@shared/types'
+
+/** Result returned by server-acknowledged gameplay mutations. */
+export interface ActionResult {
+  ok: boolean
+  error?: string
+}

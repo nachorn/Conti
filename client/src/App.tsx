@@ -11,6 +11,7 @@ import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
 import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
+import type { ActionResult } from './types'
 
 /** Root: routes and game/socket state. Syncs URL with in-game state. */
 export default function App() {
@@ -234,8 +235,8 @@ function GamePage({
   start: (opts?: object) => void
   draw: (fromDiscard: boolean) => void
   playMelds: (melds: { type: 'trio' | 'straight'; cards: import('./types').Card[] }[]) => void
-  addToMeld: (meldId: string, cards: import('./types').Card[]) => void
-  swapJoker: (meldId: string, cardId: string) => void
+  addToMeld: (meldId: string, cards: import('./types').Card[]) => Promise<ActionResult>
+  swapJoker: (meldId: string, cardId: string, jokerCardId: string) => Promise<ActionResult>
   discard: (cardId: string) => void
   takeDiscard: () => void
   passDiscard: () => void

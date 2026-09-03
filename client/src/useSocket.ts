@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
-import type { GameState, Card } from './types'
+import type { GameState, Card, ActionResult } from './types'
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
@@ -142,6 +142,42 @@ export function useSocket() {
     return sent
   }
 
+  const sendWithAck = (event: string, payload: unknown): Promise<ActionResult> => {
+    const socket = socketRef.current
+    if (!socket || statusRef.current !== 'connected' || !socket.connected) {
+      const message = 'Reconnect before sending this move.'
+      setError(message)
+      return Promise.resolve({ ok: false, error: message })
+    }
+
+    setError(null)
+    return new Promise((resolve) => {
+      socket.timeout(10_000).emit(
+        event,
+        payload,
+        (timeoutError: Error | null, response?: ActionResult) => {
+          if (timeoutError) {
+            const message = 'The server did not confirm this move. Its outcome is unknown; reconnect to verify the table.'
+            setError(message)
+            pushLog('warn', 'Socket action acknowledgement timed out', event)
+            resolve({ ok: false, error: message })
+            return
+          }
+
+          const result: ActionResult = response?.ok
+            ? { ok: true }
+            : { ok: false, error: response?.error || 'The action could not be completed.' }
+          if (!result.ok) {
+            const message = result.error ?? 'The action could not be completed.'
+            setError(message)
+            pushLog('error', 'Socket action rejected', message)
+          }
+          resolve(result)
+        }
+      )
+    })
+  }
+
   const reconnect = () => {
     const socket = socketRef.current
     if (!socket) return
@@ -177,13 +213,11 @@ export function useSocket() {
     send('play_melds', { melds })
   }
 
-  const addToMeld = (meldId: string, cards: Card[]) => {
-    send('add_to_meld', { meldId, cards })
-  }
+  const addToMeld = (meldId: string, cards: Card[]) =>
+    sendWithAck('add_to_meld', { meldId, cards })
 
-  const swapJoker = (meldId: string, cardId: string) => {
-    send('swap_joker', { meldId, cardId })
-  }
+  const swapJoker = (meldId: string, cardId: string, jokerCardId: string) =>
+    sendWithAck('swap_joker', { meldId, cardId, jokerCardId })
 
   const discard = (cardId: string) => {
     send('discard', { cardId })

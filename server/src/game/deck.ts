@@ -38,22 +38,13 @@ export function shuffle<T>(arr: T[]): T[] {
   return out
 }
 
-const JOKERS_PER_DECK = 2
+const JOKERS_PER_DECK = 3
 
-/**
- * Create deck. If deckCount is 2 or 3, use it; else 2 for <5 players, 3 for 6-8, 4 for 9+.
- */
+/** Create a chosen 2- or 3-deck shoe; default to 3 only above five players. */
 export function createContinentalDeck(playerCount: number, deckCount?: 2 | 3): Card[] {
-  let decks: number
-  if (deckCount === 2 || deckCount === 3) {
-    decks = deckCount
-  } else if (playerCount < 5) {
-    decks = 2
-  } else if (playerCount <= 8) {
-    decks = 3
-  } else {
-    decks = 4
-  }
+  const decks = deckCount === 2 || deckCount === 3
+    ? deckCount
+    : playerCount > 5 ? 3 : 2
   return shuffle(makeDeck(decks, JOKERS_PER_DECK))
 }
 

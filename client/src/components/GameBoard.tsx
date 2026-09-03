@@ -1,22 +1,17 @@
-import { useState, useEffect, useRef, useId } from 'react'
+import { useState, useEffect, useRef, useId, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { Card as CardType, GameState, Meld, Player } from '../types'
+import type { ActionResult, Card as CardType, GameState, Meld, Player } from '../types'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { Card } from './Card'
 import { ReportBugButton } from './ReportBugButton'
 import { CardBack } from './cards/CardBack'
-import { rankLabel, SUIT_SYMBOL } from './cards'
-import { findMeldsForContract } from '../lib/meld'
+import { findMeldsForContract, replaceJokerInStraight } from '../lib/meld'
 import { cardDropSide, moveHandCard } from '../lib/handOrder'
 import { GameShell } from './GameShell'
+import { MeldTargetDialog } from './MeldTargetDialog'
+import { assessMeldTarget, orderMeldCardsForDisplay } from '../lib/meldTargeting'
 import './GameBoard.css'
-
-/** Short label for a card (e.g. "7♥") for toasts. */
-function cardLabel(c: CardType): string {
-  if (c.suit === 'joker' || c.rank === 0) return 'Joker'
-  return rankLabel(c.rank) + SUIT_SYMBOL[c.suit]
-}
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
@@ -104,8 +99,8 @@ interface GameBoardProps {
   onStart: (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => void
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
-  onAddToMeld: (meldId: string, cards: CardType[]) => void
-  onSwapJoker: (meldId: string, cardId: string) => void
+  onAddToMeld: (meldId: string, cards: CardType[]) => Promise<ActionResult>
+  onSwapJoker: (meldId: string, cardId: string, jokerCardId: string) => Promise<ActionResult>
   onDiscard: (cardId: string) => void
   onTakeDiscard: () => void
   onPassDiscard: () => void
@@ -137,7 +132,8 @@ export function GameBoard({
 }: GameBoardProps) {
   const arrangeHintId = useId()
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
-  const [selectedMeldId, setSelectedMeldId] = useState<string | null>(null)
+  const [meldPickerOpen, setMeldPickerOpen] = useState(false)
+  const [recentlyUpdatedMeldId, setRecentlyUpdatedMeldId] = useState<string | null>(null)
   const [handOrder, setHandOrder] = useState<string[]>([])
   const [arrangeMode, setArrangeMode] = useState(false)
   const [pointerDraggedCardId, setPointerDraggedCardId] = useState<string | null>(null)
@@ -155,13 +151,25 @@ export function GameBoard({
   const [roomLinkCopied, setRoomLinkCopied] = useState(false)
   const [animationsOn, setAnimationsOn] = useState(true)
   const [jokerToast, setJokerToast] = useState<string | null>(null)
+  const [contractError, setContractError] = useState<string | null>(null)
   const jokerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handRef = useRef<HTMLDivElement | null>(null)
+  const gameActionsRef = useRef<HTMLDivElement | null>(null)
+  const roundResultRef = useRef<HTMLDivElement | null>(null)
   const pointerDragRef = useRef<PointerDragState | null>(null)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
   const prevHandIdsRef = useRef<string[]>([])
+  const lastGuidedOwedJokerRef = useRef<string | null>(null)
+  const prevMeldDraftScopeRef = useRef(
+    `${state.phase}:${state.round}:${state.currentPlayerIndex}:${state.discardOptionPlayerIndex ?? ''}`
+  )
   useEffect(() => () => { if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current) }, [])
+  useEffect(() => {
+    if (state.phase !== 'round_end' && state.phase !== 'game_end') return
+    const frame = window.requestAnimationFrame(() => roundResultRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [state.phase, state.round])
   const me = state.players.find((p) => p.id === socketId)
   const myIndex = me ? state.players.findIndex((p) => p.id === socketId) : -1
   const discardOptionIndex = state.discardOptionPlayerIndex ?? null
@@ -172,7 +180,11 @@ export function GameBoard({
   const isMyDiscardOption = discardOptionIndex !== null && state.players[discardOptionIndex]?.id === socketId
 
   const rawHand = me?.hand ?? []
-  const myHand = sortHandByOrder(rawHand, handOrder)
+  const myHand = useMemo(() => sortHandByOrder(rawHand, handOrder), [handOrder, rawHand])
+  const selectedHandCards = useMemo(
+    () => myHand.filter((card) => selectedCards.has(card.id)),
+    [myHand, selectedCards]
+  )
   const n = state.players.length
   const discarderIndex = state.discarderIndex ?? null
   const hasPriority =
@@ -188,6 +200,14 @@ export function GameBoard({
       return [...kept, ...added]
     })
   }, [state.round, handIdsKey])
+  useEffect(() => {
+    const handIds = new Set(rawHand.map((card) => card.id))
+    setSelectedCards((previous) => {
+      const kept = [...previous].filter((id) => handIds.has(id))
+      return kept.length === previous.size ? previous : new Set(kept)
+    })
+  }, [handIdsKey])
+  useEffect(() => setContractError(null), [selectedCards])
   const cardsThisRound = cardsPerPlayerForRound(state.round)
   const currentPlayerHasDrawn = state.currentPlayerHasDrawn ?? (myHand.length !== cardsThisRound)
   const needToDraw = state.currentPlayerHasDrawn != null ? !state.currentPlayerHasDrawn : (myHand.length === cardsThisRound)
@@ -200,9 +220,101 @@ export function GameBoard({
     state.currentPlayerIndex === myIndex &&
     currentPlayerHasDrawn &&
     myHand.length >= 1
-  const canPlayMeld = canDiscard && everyoneHadTurn
-
   const hasPlayedMelds = state.melds.some((m) => m.ownerId === socketId)
+  const canPlayMeld = canDiscard && everyoneHadTurn && !hasPlayedMelds
+  const owedJokerId = state.swappedJokerPlayerId === socketId
+    ? state.swappedJokerCardId ?? null
+    : null
+  const mustPlaceOwedJoker = owedJokerId !== null && rawHand.some((card) => card.id === owedJokerId)
+  const canDiscardNow = canDiscard && !mustPlaceOwedJoker
+  const jokerSwapMode = hasPlayedMelds ? 'relocate' as const : 'reclaim' as const
+  const reclaimableJokerIds = useMemo(() => {
+    const result = new Set<string>()
+    const replacementCard = selectedHandCards.length === 1 ? selectedHandCards[0] : null
+    if (hasPlayedMelds || !replacementCard) return result
+    const handWithoutReplacement = rawHand.filter((card) => card.id !== replacementCard.id)
+    for (const meld of state.melds) {
+      if (meld.type !== 'straight') continue
+      for (const joker of meld.cards) {
+        if (joker.suit !== 'joker' && joker.rank !== 0) continue
+        const replacement = replaceJokerInStraight(meld.cards, joker.id, replacementCard)
+        if (
+          replacement &&
+          findMeldsForContract(
+            [...handWithoutReplacement, replacement.joker],
+            state.contract,
+            replacement.joker.id
+          )
+        ) {
+          result.add(replacement.joker.id)
+        }
+      }
+    }
+    return result
+  }, [hasPlayedMelds, rawHand, selectedHandCards, state.contract, state.melds])
+  const canReclaimJokerForContract = useCallback(
+    (joker: CardType) => reclaimableJokerIds.has(joker.id),
+    [reclaimableJokerIds]
+  )
+  const compatibleMeldCount = useMemo(() => selectedHandCards.length > 0
+    ? state.melds.filter((meld) => {
+      const assessment = assessMeldTarget(meld, selectedHandCards, {
+        allowAdd: hasPlayedMelds,
+        jokerSwapMode: owedJokerId === null ? jokerSwapMode : false,
+        canReclaimJoker: canReclaimJokerForContract,
+      })
+      return assessment.canAdd || assessment.replaceableJokerIds.length > 0
+    }).length
+    : 0, [
+      canReclaimJokerForContract,
+      hasPlayedMelds,
+      jokerSwapMode,
+      owedJokerId,
+      selectedHandCards,
+      state.melds,
+    ])
+  const hasExposedJokerStraight = state.melds.some((meld) =>
+    meld.type === 'straight' && meld.cards.some((card) => card.suit === 'joker' || card.rank === 0)
+  )
+  const canOpenMeldPicker = canDiscard &&
+    state.melds.length > 0 &&
+    selectedCards.size > 0 &&
+    (hasPlayedMelds || (
+      canPlayMeld &&
+      hasExposedJokerStraight &&
+      selectedCards.size === 1 &&
+      owedJokerId === null
+    ))
+
+  const meldDraftScope = `${state.phase}:${state.round}:${state.currentPlayerIndex}:${discardOptionIndex ?? ''}`
+  useEffect(() => {
+    if (prevMeldDraftScopeRef.current === meldDraftScope) return
+    prevMeldDraftScopeRef.current = meldDraftScope
+    setMeldPickerOpen(false)
+    setSelectedCards(new Set())
+  }, [meldDraftScope])
+
+  useEffect(() => {
+    if (!owedJokerId) {
+      lastGuidedOwedJokerRef.current = null
+      return
+    }
+    if (!rawHand.some((card) => card.id === owedJokerId)) return
+    if (lastGuidedOwedJokerRef.current === owedJokerId) return
+    lastGuidedOwedJokerRef.current = owedJokerId
+    setSelectedCards(new Set([owedJokerId]))
+    setMeldPickerOpen(false)
+    setJokerToast(
+      lang === 'es'
+        ? 'Comodín recuperado. Selecciona el resto del contrato y bájalo este turno.'
+        : 'Joker reclaimed. Select the rest of your contract and play it this turn.'
+    )
+    if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current)
+    jokerToastTimerRef.current = setTimeout(() => {
+      setJokerToast(null)
+      jokerToastTimerRef.current = null
+    }, 5000)
+  }, [handIdsKey, lang, owedJokerId, rawHand])
 
   const discardOptionAvailableAt = state.discardOptionAvailableAt ?? null
   const turnDeadline = state.turnDeadline ?? null
@@ -328,24 +440,58 @@ export function GameBoard({
     if (!canPlayMeld || selectedCards.size < 3) return
     const cards = myHand.filter((c) => selectedCards.has(c.id))
     if (cards.length < state.contract.minCards) return
-    const melds = findMeldsForContract(cards, state.contract)
-    if (melds && melds.length > 0) {
-      onPlayMelds(melds)
-      setSelectedCards(new Set())
+    const melds = findMeldsForContract(
+      cards,
+      state.contract,
+      owedJokerId ?? undefined,
+      true
+    )
+    if (!melds || melds.length === 0) {
+      setContractError(t(lang, 'invalidContractSelection'))
+      return
     }
+    setContractError(null)
+    onPlayMelds(melds)
+    setSelectedCards(new Set())
   }
 
-  const handleAddToMeld = () => {
-    if (!canDiscard || !selectedMeldId || selectedCards.size === 0) return
-    const cards = myHand.filter((c) => selectedCards.has(c.id))
-    if (cards.length === 0) return
-    onAddToMeld(selectedMeldId, cards)
-    setSelectedCards(new Set())
-    setSelectedMeldId(null)
+  const handleMeldSuccess = (kind: 'add' | 'swap', meld: Meld) => {
+    const ownerName = state.players.find((player) => player.id === meld.ownerId)?.name
+      ?? (lang === 'es' ? 'otro jugador' : 'another player')
+    setRecentlyUpdatedMeldId(meld.id)
+    // The server broadcasts the reclaimed Joker before acknowledging the swap.
+    // Keep the selection installed by the owed-Joker effect if that broadcast
+    // wins the race; if the ack wins, the following broadcast will replace the
+    // now-stale natural-card selection with the reclaimed Joker.
+    const reclaimedForContract = kind === 'swap' && !hasPlayedMelds
+    if (!reclaimedForContract) setSelectedCards(new Set())
+    if (kind === 'swap') {
+      setJokerToast(
+        hasPlayedMelds
+          ? lang === 'es'
+            ? 'Carta añadida. El comodín permanece en la misma escala, en un extremo.'
+            : 'Card added. The Joker stays in the same straight at an open end.'
+          : lang === 'es'
+            ? 'Comodín recuperado. Ahora baja tu contrato completo este turno.'
+            : 'Joker reclaimed. Now play your full contract this turn.'
+      )
+    } else {
+      setJokerToast(
+        lang === 'es'
+          ? `Cartas añadidas a la bajada de ${ownerName}.`
+          : `Cards added to ${ownerName}'s meld.`
+      )
+    }
+    if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current)
+    jokerToastTimerRef.current = setTimeout(() => {
+      setJokerToast(null)
+      setRecentlyUpdatedMeldId(null)
+      jokerToastTimerRef.current = null
+    }, 3500)
   }
 
   const handleDiscardSelected = () => {
-    if (!canDiscard || selectedCards.size !== 1) return
+    if (!canDiscardNow || selectedCards.size !== 1) return
     const [cardId] = selectedCards
     if (!cardId) return
     onDiscard(cardId)
@@ -487,6 +633,8 @@ export function GameBoard({
 
   if (state.phase === 'lobby') {
     const lobbySeats = getSeatsAroundTable([...state.players], socketId)
+    const visibleDeckCount = isHost ? lobbyDeckCount : (state.deckCount ?? 2)
+    const showDeckWarning = state.players.length > 5 && visibleDeckCount === 2
     return (
       <div className="game-board game-lobby">
         <GameShell
@@ -560,6 +708,12 @@ export function GameBoard({
           })}
         </div>
         <div className="game-lobby-box game-lobby-options">
+          {showDeckWarning && (
+            <div className="game-deck-warning" role="alert">
+              <span className="game-deck-warning-icon" aria-hidden="true">!</span>
+              <span>{t(lang, 'twoDeckPlayerWarning')}</span>
+            </div>
+          )}
           {isHost && (
             <>
               <label className="lobby-deck-label">
@@ -611,7 +765,7 @@ export function GameBoard({
     )
   }
 
-  if (state.phase === 'round_end') {
+  if (state.phase === 'round_end' && state.round < 7) {
     return (
       <div className="game-board game-round-end">
         <GameShell
@@ -632,7 +786,7 @@ export function GameBoard({
             </>
           }
         />
-        <div className="game-round-end-box">
+        <div ref={roundResultRef} className="game-round-end-box" tabIndex={-1}>
           <h2>{t(lang, 'round')} {state.round} {t(lang, 'roundOver')}</h2>
           <p>{t(lang, 'thisRound')}</p>
           <ul>
@@ -642,20 +796,20 @@ export function GameBoard({
               </li>
             ))}
           </ul>
-          {state.round < 7 && isHost && (
+          {isHost && (
             <button className="game-next-round-btn" onClick={onNextRound} disabled={!isConnected}>{t(lang, 'nextRound')}</button>
           )}
-          {state.round < 7 && !isHost && (
+          {!isHost && (
             <p className="game-wait-host-msg">{t(lang, 'waitingForHost')}</p>
           )}
-          {state.round >= 7 && <p className="game-over-msg">{t(lang, 'gameOverLowest')}</p>}
         </div>
       </div>
     )
   }
 
-  if (state.phase === 'game_end') {
-    const winner = state.players.reduce((a, b) => (a.score <= b.score ? a : b))
+  if (state.phase === 'game_end' || (state.phase === 'round_end' && state.round >= 7)) {
+    const standings = [...state.players].sort((a, b) => a.score - b.score)
+    const winner = standings[0]
     return (
       <div className="game-board game-round-end">
         <GameShell
@@ -676,14 +830,24 @@ export function GameBoard({
             </>
           }
         />
-        <div className="game-round-end-box">
+        <div ref={roundResultRef} className="game-round-end-box game-final-scoreboard" tabIndex={-1}>
           <h2>{t(lang, 'gameOver')}</h2>
-          <p>{t(lang, 'winner')}: {winner.name} {t(lang, 'with')} {winner.score} {t(lang, 'points')}</p>
-          <ul>
-            {state.players.map((p) => (
-              <li key={p.id}>{p.name}: {p.score} {t(lang, 'points')}</li>
+          {winner && (
+            <p className="game-final-winner">
+              <span aria-hidden="true">★</span>{' '}
+              {t(lang, 'winner')}: <strong>{winner.name}</strong> {t(lang, 'with')} {winner.score} {t(lang, 'points')}
+            </p>
+          )}
+          <h3>{t(lang, 'scoreboard')}</h3>
+          <ol className="game-final-standings">
+            {standings.map((player, index) => (
+              <li key={player.id} className={index === 0 ? 'is-winner' : undefined}>
+                <span className="game-final-rank">{index + 1}</span>
+                <span className="game-final-name">{player.name}</span>
+                <strong className="game-final-score">{player.score} {t(lang, 'points')}</strong>
+              </li>
             ))}
-          </ul>
+          </ol>
         </div>
       </div>
     )
@@ -786,10 +950,16 @@ export function GameBoard({
               <button
                 type="button"
                 className="game-discard-zone"
-                aria-label={t(lang, 'dropToDiscard')}
-                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                disabled={!canDiscardNow}
+                aria-label={mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'dropToDiscard')}
+                onDragOver={(e) => {
+                  if (!canDiscardNow) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                }}
                 onDrop={(e) => {
                   e.preventDefault()
+                  if (!canDiscardNow) return
                   const cardId = e.dataTransfer.getData('cardId')
                   if (cardId) {
                     onDiscard(cardId)
@@ -798,7 +968,9 @@ export function GameBoard({
                 }}
                 onClick={handleDiscardSelected}
               >
-                <span className="discard-zone-label">{t(lang, 'dropToDiscard')}</span>
+                <span className="discard-zone-label">
+                  {mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'dropToDiscard')}
+                </span>
               </button>
             )}
             <div className="game-piles">
@@ -850,62 +1022,15 @@ export function GameBoard({
                   ? `${t(lang, 'trioNum')} #${labelNum}`
                   : `${t(lang, 'straightNum')} #${labelNum}`
                 const expanded = expandedMeldIds.has(meld.id)
-                const meldHasJoker = meld.cards.some((c) => c.suit === 'joker')
-                const oneCardSelected = selectedCards.size === 1
-                const canAddOrSwap = canDiscard && hasPlayedMelds && selectedCards.size > 0
-                const canSwap = canAddOrSwap && oneCardSelected && meldHasJoker
                 return (
                   <div
                     key={meld.id}
-                    className={`meld-row-wrap ${canAddOrSwap ? 'meld-row-can-add' : ''} ${selectedMeldId === meld.id ? 'meld-row-selected' : ''} ${canSwap ? 'meld-row-can-swap' : ''} ${expanded ? 'meld-row-expanded' : 'meld-row-collapsed'}`}
-                    onClick={(e) => {
-                      if (!expanded && (e.target as HTMLElement).closest('.meld-show-btn')) {
-                        setExpandedMeldIds((prev) => new Set(prev).add(meld.id))
-                        return
-                      }
-                      if (expanded && (e.target as HTMLElement).closest('.meld-hide-btn')) {
-                        setExpandedMeldIds((prev) => {
-                          const next = new Set(prev)
-                          next.delete(meld.id)
-                          return next
-                        })
-                        return
-                      }
-                      if (!canAddOrSwap || selectedCards.size === 0) return
-                      if (oneCardSelected && meldHasJoker) {
-                        const [cardId] = Array.from(selectedCards)
-                        if (cardId) {
-                          const card = myHand.find((c) => c.id === cardId)
-                          onSwapJoker(meld.id, cardId)
-                          setSelectedCards(new Set())
-                          if (card) {
-                            setJokerToast(`${t(lang, 'jokerReplacedWith')} ${cardLabel(card)}`)
-                            if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current)
-                            jokerToastTimerRef.current = setTimeout(() => {
-                              setJokerToast(null)
-                              jokerToastTimerRef.current = null
-                            }, 3000)
-                          }
-                        }
-                      } else {
-                        setSelectedMeldId((id) => (id === meld.id ? null : meld.id))
-                      }
-                    }}
-                    title={canSwap ? t(lang, 'swapJokerWith') : undefined}
+                    className={`meld-row-wrap ${recentlyUpdatedMeldId === meld.id ? 'meld-row-updated' : ''} ${expanded ? 'meld-row-expanded' : 'meld-row-collapsed'}`}
                   >
                     {expanded ? (
                       <>
                         <div className="meld-row-header">
-                          {canAddOrSwap ? (
-                            <button
-                              type="button"
-                              className="meld-row-title meld-select-btn"
-                              aria-label={`${t(lang, canSwap ? 'swapJoker' : 'selectMeld')}: ${showLabel}`}
-                              aria-pressed={canSwap ? undefined : selectedMeldId === meld.id}
-                            >
-                              {showLabel}
-                            </button>
-                          ) : <span className="meld-row-title">{showLabel}</span>}
+                          <span className="meld-row-title">{showLabel}</span>
                           <button type="button" className="meld-hide-btn" onClick={(e) => { e.stopPropagation(); setExpandedMeldIds((prev) => { const n = new Set(prev); n.delete(meld.id); return n }); }} aria-label={t(lang, 'hide')}>
                             {t(lang, 'hide')}
                           </button>
@@ -913,7 +1038,11 @@ export function GameBoard({
                         <MeldRow meld={meld} />
                       </>
                     ) : (
-                      <button type="button" className="meld-show-btn">
+                      <button
+                        type="button"
+                        className="meld-show-btn"
+                        onClick={() => setExpandedMeldIds((prev) => new Set(prev).add(meld.id))}
+                      >
                         {showLabel}
                       </button>
                     )}
@@ -1043,7 +1172,13 @@ export function GameBoard({
           </button>
           {arrangeMode && <span id={arrangeHintId} className="hand-arrange-hint" role="status">{t(lang, 'dragToArrange')}</span>}
         </div>
-        <div className="game-actions">
+        <div
+          ref={gameActionsRef}
+          className="game-actions"
+          role="group"
+          aria-label={lang === 'es' ? 'Acciones del turno' : 'Turn actions'}
+          tabIndex={-1}
+        >
           {!isConnected && (
             <p className="game-meld-wait-msg" role="status">
               {lang === 'es' ? 'No se enviarán jugadas hasta recuperar la conexión.' : 'Moves are disabled until your connection is restored.'}
@@ -1080,35 +1215,75 @@ export function GameBoard({
             <>
               <button
                 onClick={handlePlayMelds}
-                disabled={selectedCards.size < 3}
+                disabled={
+                  selectedCards.size < state.contract.minCards ||
+                  (owedJokerId !== null && !selectedCards.has(owedJokerId))
+                }
                 title={t(lang, 'playFullContract')}
               >
                 {t(lang, 'playMelds')}
               </button>
-              {hasPlayedMelds && state.melds.length > 0 && selectedCards.size > 0 && (
-                <button
-                  onClick={handleAddToMeld}
-                  disabled={!selectedMeldId}
-                  title={t(lang, 'selectMeldThenAdd')}
-                >
-                  {t(lang, 'addToMeld')}
-                </button>
+              {contractError && (
+                <p className="game-contract-error" role="alert">{contractError}</p>
               )}
             </>
+          )}
+          {canOpenMeldPicker && (
+            <button
+              type="button"
+              className="game-add-to-meld-action"
+              onClick={() => setMeldPickerOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={meldPickerOpen}
+              title={
+                compatibleMeldCount > 0
+                  ? lang === 'es' ? 'Revisar bajadas compatibles' : 'Review compatible melds'
+                  : lang === 'es' ? 'Ver por qué no encajan' : 'See why these cards do not fit'
+              }
+            >
+              <span>
+                {hasPlayedMelds
+                  ? lang === 'es' ? 'Añadir a bajada…' : 'Add to meld…'
+                  : lang === 'es' ? 'Recuperar comodín…' : 'Reclaim Joker…'}
+              </span>
+              <span className={`game-meld-fit-count ${compatibleMeldCount === 0 ? 'no-fit' : ''}`}>
+                {compatibleMeldCount > 0
+                  ? lang === 'es'
+                    ? `${compatibleMeldCount} ${compatibleMeldCount === 1 ? 'encaja' : 'encajan'}`
+                    : `${compatibleMeldCount} ${compatibleMeldCount === 1 ? 'fits' : 'fit'}`
+                  : lang === 'es' ? 'ninguna encaja' : 'none fit'}
+              </span>
+            </button>
           )}
           {canDiscard && (
             <button
               type="button"
               className="game-discard-action"
               onClick={handleDiscardSelected}
-              disabled={selectedCards.size !== 1}
-              title={t(lang, 'discardSelected')}
+              disabled={!canDiscardNow || selectedCards.size !== 1}
+              title={mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'discardSelected')}
             >
-              {t(lang, 'discardSelected')}
+              {mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'discardSelected')}
             </button>
           )}
         </div>
       </div>
+      <MeldTargetDialog
+        open={meldPickerOpen}
+        lang={lang}
+        players={state.players}
+        melds={state.melds}
+        selectedCards={selectedHandCards}
+        playerHasContract={hasPlayedMelds}
+        outstandingJokerId={owedJokerId}
+        canReclaimJoker={canReclaimJokerForContract}
+        returnFocusRef={gameActionsRef}
+        isConnected={isConnected}
+        onClose={() => setMeldPickerOpen(false)}
+        onAdd={onAddToMeld}
+        onSwap={onSwapJoker}
+        onSuccess={handleMeldSuccess}
+      />
     </div>
   )
 }
@@ -1242,7 +1417,7 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
 function MeldRow({ meld }: { meld: Meld }) {
   return (
     <div className="meld-row" data-type={meld.type}>
-      {meld.cards.map((c) => (
+      {orderMeldCardsForDisplay(meld).map((c) => (
         <Card key={c.id} card={c} size="small" />
       ))}
     </div>

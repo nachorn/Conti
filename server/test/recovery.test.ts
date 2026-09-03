@@ -120,6 +120,16 @@ class Peer {
     this.socket.emit(event, payload)
     return this.wait<T>(response, predicate, after)
   }
+
+  acknowledge<T>(event: string, payload: unknown): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event} acknowledgement`)), 2_000)
+      this.socket.emit(event, payload, (result: T) => {
+        clearTimeout(timer)
+        resolve(result)
+      })
+    })
+  }
 }
 
 type GameServer = Awaited<ReturnType<typeof createGameServer>>
@@ -193,6 +203,18 @@ async function disconnect(h: Harness, client: Peer): Promise<void> {
   await disconnected
   await h.server.idle()
 }
+
+test('game actions acknowledge both accepted and rejected mutations', async t => {
+  const h = await harness(t)
+  const players = await twoPlayers(h)
+
+  const accepted = await players.host.acknowledge<{ ok: boolean; error?: string }>('set_seat', { seatIndex: 4 })
+  assert.deepEqual(accepted, { ok: true })
+
+  const rejected = await players.guest.acknowledge<{ ok: boolean; error?: string }>('start', {})
+  assert.deepEqual(rejected, { ok: false, error: 'Only the host can do that' })
+  await h.server.idle()
+})
 
 test('mid-turn server restart restores exact deck, hands, seats, turn and authenticated private views', async t => {
   const first = await harness(t)

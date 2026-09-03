@@ -8,6 +8,9 @@ import type { SnapshotStore } from './storage.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
 
 type Result = { ok: boolean; error?: string }
+type ActionAck = (result: Result) => void
+const ACTION_QUEUE_FULL = 'Too many pending actions. Please wait before trying again.'
+const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are paused; please reconnect after the server recovers.'
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
@@ -38,7 +41,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   function enqueue(task: () => Promise<void>, socket?: Socket) {
     // Cleanup and clock work cannot be dropped: that would leave ghost online players.
     if (socket && (pending >= 200 || (pendingBySocket.get(socket.id) ?? 0) >= 20)) {
-      socket?.emit('error', { message: 'Too many pending actions. Please wait before trying again.' })
+      socket?.emit('error', { message: ACTION_QUEUE_FULL })
       return false
     }
     pending++
@@ -49,7 +52,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (repository.failed) throw new Error('Storage unavailable')
       await task()
     }).catch(() => {
-      socket?.emit('error', { message: 'The server could not save your game. Actions are paused; please reconnect after the server recovers.' })
+      socket?.emit('error', { message: ACTION_SAVE_FAILED })
       if (repository.failed) {
         for (const timer of timers.values()) clearTimeout(timer)
         timers.clear()
@@ -140,21 +143,34 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (socket.connected) await attach(socket, credential, cloneRecord(record))
     }, socket)
 
-    const on = (event: string, task: (payload: any) => Promise<void>) => socket.on(event, payload => enqueue(async () => {
-      if (socket.connected) await task(payload)
-    }, socket))
-    const reject = (message: string) => socket.emit('error', { message })
-    const action = (event: string, apply: (room: Room, playerId: string, payload: any) => Result, hostOnly = false) => on(event, async payload => {
+    const on = (event: string, task: (payload: any, ack?: ActionAck) => Promise<void>) => socket.on(event, (payload, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck as ActionAck : undefined
+      const queued = enqueue(async () => {
+        if (socket.connected) await task(payload, ack)
+      }, socket)
+      if (!queued) ack?.({ ok: false, error: ACTION_QUEUE_FULL })
+    })
+    const reject = (message: string, ack?: ActionAck) => {
+      socket.emit('error', { message })
+      ack?.({ ok: false, error: message })
+    }
+    const action = (event: string, apply: (room: Room, playerId: string, payload: any) => Result, hostOnly = false) => on(event, async (payload, ack) => {
       const { roomId, playerId } = socket.data
-      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first'); return }
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
       const current = repository.get(roomId)
-      if (!current) { reject('Room not found'); return }
-      if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that'); return }
+      if (!current) { reject('Room not found', ack); return }
+      if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that', ack); return }
       const next = cloneRecord(current)
       const result = apply(next.room, playerId, payload)
-      if (!result.ok) { reject(result.error ?? 'Action unavailable'); return }
-      await repository.commit(roomId, next)
+      if (!result.ok) { reject(result.error ?? 'Action unavailable', ack); return }
+      try {
+        await repository.commit(roomId, next)
+      } catch (error) {
+        ack?.({ ok: false, error: ACTION_SAVE_FAILED })
+        throw error
+      }
       broadcast(roomId)
+      ack?.({ ok: true })
     })
 
     on('create', async payload => {
@@ -199,7 +215,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     action('discard', (room, id, p) => room.discard(id, text(p?.cardId)))
     action('take_discard', (room, id) => room.takeDiscard(id))
     action('pass_discard', (room, id) => room.passDiscard(id))
-    action('swap_joker', (room, id, p) => room.swapJoker(id, text(p?.meldId), text(p?.cardId)))
+    action('swap_joker', (room, id, p) => room.swapJoker(id, text(p?.meldId), text(p?.cardId), text(p?.jokerCardId)))
     action('next_round', room => {
       if (room.phase !== 'round_end') return { ok: false, error: 'The round has not ended' }
       room.nextRound()

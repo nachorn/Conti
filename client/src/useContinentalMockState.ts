@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import type { Card, GameState, Meld } from './types'
+import { CONTINENTAL_ROUNDS } from '@shared/types'
+import type { ActionResult, Card, GameState, Meld } from './types'
+import {
+  findMeldsForContract,
+  isValidMeld,
+  replaceAndMoveJokerToStraightEnd,
+  replaceJokerInStraight,
+} from './lib/meld'
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 11)
@@ -67,6 +74,7 @@ export function useContinentalMockState() {
       const next = { ...prev }
       const me = next.players[0]
       if (!me || next.phase !== 'playing' || next.currentPlayerIndex !== 0) return prev
+      if (next.melds.some((meld) => meld.ownerId === me.id)) return prev
       const newMelds: Meld[] = melds.map((m) => ({
         id: makeId(),
         type: m.type,
@@ -80,23 +88,129 @@ export function useContinentalMockState() {
     })
   }
 
-  const addToMeld = (meldId: string, cards: Card[]) => {
-    setState((prev) => {
-      const next = { ...prev }
-      const me = next.players[0]
-      const meld = next.melds.find((m) => m.id === meldId)
-      if (!me || !meld || next.phase !== 'playing' || next.currentPlayerIndex !== 0) return prev
-      const usedIds = new Set(cards.map((c) => c.id))
-      next.players[0] = { ...me, hand: me.hand.filter((c) => !usedIds.has(c.id)) }
-      next.melds = next.melds.map((m) =>
-        m.id === meldId ? { ...m, cards: [...m.cards, ...cards] } : m
-      )
-      return next
+  const addToMeld = async (meldId: string, cards: Card[]): Promise<ActionResult> => {
+    if (state.phase !== 'playing') return { ok: false, error: 'Not playing' }
+    if (state.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
+    const playerIndex = state.players.findIndex((player) => player.id === socketId)
+    const me = state.players[playerIndex]
+    if (!me || state.currentPlayerIndex !== playerIndex) return { ok: false, error: 'Not your turn' }
+    if (!state.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before adding to a meld' }
+    if (!state.melds.some((item) => item.ownerId === me.id)) {
+      return { ok: false, error: 'You must play your melds before adding to melds' }
+    }
+    const targetMeld = state.melds.find((item) => item.id === meldId)
+    if (!targetMeld) return { ok: false, error: 'Meld not found' }
+    if (!Array.isArray(cards) || cards.length === 0) return { ok: false, error: 'No cards submitted' }
+
+    const selectedIds = new Set<string>()
+    const selectedCards: Card[] = []
+    for (const submittedCard of cards) {
+      if (!submittedCard || typeof submittedCard.id !== 'string') {
+        return { ok: false, error: 'Invalid card payload' }
+      }
+      if (selectedIds.has(submittedCard.id)) return { ok: false, error: 'Card submitted more than once' }
+      const actualCard = me.hand.find((card) => card.id === submittedCard.id)
+      if (!actualCard) return { ok: false, error: 'Card not in hand' }
+      selectedIds.add(actualCard.id)
+      selectedCards.push(actualCard)
+    }
+
+    const combined = [...targetMeld.cards, ...selectedCards]
+    if (!isValidMeld(targetMeld.type, combined)) {
+      return { ok: false, error: 'Invalid meld with new cards' }
+    }
+
+    const players = [...state.players]
+    players[playerIndex] = { ...me, hand: me.hand.filter((card) => !selectedIds.has(card.id)) }
+    const melds = state.melds.map((item) =>
+      item.id === meldId ? { ...item, cards: combined } : item
+    )
+    const playedOutstandingJoker =
+      state.swappedJokerPlayerId === me.id &&
+      state.swappedJokerCardId != null &&
+      selectedIds.has(state.swappedJokerCardId)
+
+    setState({
+      ...state,
+      players,
+      melds,
+      ...(playedOutstandingJoker
+        ? { swappedJokerCardId: null, swappedJokerPlayerId: null }
+        : {}),
     })
+    return { ok: true }
   }
 
-  const swapJoker = (_meldId: string, _cardId: string) => {
-    setState((prev) => prev)
+  const swapJoker = async (
+    meldId: string,
+    cardId: string,
+    jokerCardId: string
+  ): Promise<ActionResult> => {
+    if (state.phase !== 'playing') return { ok: false, error: 'Not playing' }
+    if (state.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
+    const playerIndex = state.players.findIndex((player) => player.id === socketId)
+    const me = state.players[playerIndex]
+    if (!me || state.currentPlayerIndex !== playerIndex) return { ok: false, error: 'Not your turn' }
+    if (!state.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before swapping a joker' }
+    if (state.swappedJokerPlayerId === me.id && state.swappedJokerCardId != null) {
+      return { ok: false, error: 'Play the joker you already took before swapping another one' }
+    }
+    const hasPlayedMeld = state.melds.some((item) => item.ownerId === me.id)
+
+    const targetMeld = state.melds.find((item) => item.id === meldId)
+    if (!targetMeld) return { ok: false, error: 'Meld not found' }
+    if (targetMeld.type !== 'straight') return { ok: false, error: 'Jokers can only be swapped from straights' }
+    const jokerIndex = targetMeld.cards.findIndex((card) => card.id === jokerCardId)
+    const joker = targetMeld.cards[jokerIndex]
+    if (jokerIndex < 0 || !joker || joker.suit !== 'joker') {
+      return { ok: false, error: 'Joker not found in meld' }
+    }
+
+    const replacementCard = me.hand.find((card) => card.id === cardId)
+    if (!replacementCard) return { ok: false, error: 'Card not in hand' }
+    if (replacementCard.suit === 'joker' || replacementCard.rank === 0) {
+      return { ok: false, error: 'Select a natural card to replace the joker' }
+    }
+    const players = [...state.players]
+    if (hasPlayedMeld) {
+      const relocatedCards = replaceAndMoveJokerToStraightEnd(
+        targetMeld.cards,
+        jokerCardId,
+        replacementCard
+      )
+      if (!relocatedCards) {
+        return { ok: false, error: 'The Joker must remain at an open end of the same straight' }
+      }
+      players[playerIndex] = {
+        ...me,
+        hand: me.hand.filter((card) => card.id !== replacementCard.id),
+      }
+      setState({
+        ...state,
+        players,
+        melds: state.melds.map((item) =>
+          item.id === meldId ? { ...item, cards: relocatedCards } : item
+        ),
+      })
+    } else {
+      const replacement = replaceJokerInStraight(targetMeld.cards, jokerCardId, replacementCard)
+      if (!replacement) return { ok: false, error: 'Card cannot replace that joker' }
+      const handAfterSwap = [...me.hand.filter((card) => card.id !== replacementCard.id), replacement.joker]
+      if (!findMeldsForContract(handAfterSwap, state.contract, replacement.joker.id)) {
+        return { ok: false, error: 'You can only take the Joker if you can play your full contract this turn' }
+      }
+      players[playerIndex] = { ...me, hand: handAfterSwap }
+      setState({
+        ...state,
+        players,
+        melds: state.melds.map((item) =>
+          item.id === meldId ? { ...item, cards: replacement.cards } : item
+        ),
+        swappedJokerCardId: replacement.joker.id,
+        swappedJokerPlayerId: me.id,
+      })
+    }
+    return { ok: true }
   }
 
   const takeDiscard = () => {
@@ -144,7 +258,9 @@ export function useContinentalMockState() {
 
   const nextRound = () => {
     setState((prev) =>
-      prev.phase === 'round_end' ? buildMockState(prev.deckCount, prev.round + 1) : prev
+      prev.phase === 'round_end'
+        ? prev.round >= 7 ? { ...prev, phase: 'game_end' as const } : buildMockState(prev.deckCount, prev.round + 1)
+        : prev
     )
   }
 
@@ -184,46 +300,67 @@ function buildMockState(deckCount: 2 | 3 = 2, round = 1): GameState {
   const otherId = 'dev-player-2'
   const cardsThisRound = 7 + round - 1
   // Continental ranks: 2–10, J=11, Q=12, K=13, A=14. Joker=0.
-  const myHand: Card[] = []
-  for (let i = 0; i < cardsThisRound; i++) {
-    myHand.push(makeCard(SUITS[i % 4] ?? 'hearts', (i % 13) + 2))
-  }
-  myHand.push(makeCard('joker', 0, true))
+  // The local preview starts mid-turn with representative melds so responsive
+  // add/replace interactions can be exercised without playing through a room.
+  const myHand: Card[] = [
+    makeCard('hearts', 4),
+    makeCard('hearts', 6),
+    makeCard('hearts', 7),
+    makeCard('clubs', 8),
+    makeCard('diamonds', 10),
+    makeCard('spades', 12),
+    makeCard('clubs', 14),
+    makeCard('joker', 0, true),
+  ]
   const otherHand: Card[] = []
   for (let i = 0; i < cardsThisRound; i++) {
     otherHand.push(makeCard(SUITS[(i + 2) % 4] ?? 'hearts', ((i + 5) % 13) + 2))
   }
   const topDiscard = makeCard('spades', 7)
-  const totalCards = (deckCount === 2 ? 108 : 162) - cardsThisRound * 2 - 1
+  const melds: Meld[] = [
+    {
+      id: makeId(),
+      type: 'trio',
+      ownerId: myId,
+      cards: [makeCard('hearts', 13), makeCard('diamonds', 13), makeCard('spades', 13)],
+    },
+    {
+      id: makeId(),
+      type: 'straight',
+      ownerId: otherId,
+      cards: [makeCard('hearts', 2), makeCard('hearts', 3), makeCard('joker', 0, true), makeCard('hearts', 5)],
+    },
+    {
+      id: makeId(),
+      type: 'trio',
+      ownerId: otherId,
+      cards: [makeCard('hearts', 8), makeCard('diamonds', 8), makeCard('spades', 8)],
+    },
+  ]
+  const dealtCardCount = myHand.length + otherHand.length + melds.reduce((sum, meld) => sum + meld.cards.length, 0) + 1
+  const totalCards = (deckCount === 2 ? 110 : 165) - dealtCardCount
   return {
     roomId: 'dev-conti',
     phase: 'playing',
     round,
-    contract: {
-      round,
-      minCards: 5 + round,
-      requirements:
-        round === 1
-          ? [{ type: 'trio', minLength: 3 }, { type: 'trio', minLength: 3 }]
-          : [{ type: 'trio', minLength: 3 }, { type: 'straight', minLength: 4 }],
-    },
+    contract: CONTINENTAL_ROUNDS[round - 1] ?? CONTINENTAL_ROUNDS[0]!,
     players: [
       { id: myId, name: 'You', score: 0, hand: myHand, connected: true, seatIndex: 0 },
       { id: otherId, name: 'Opponent', score: 0, hand: otherHand, connected: true, seatIndex: 1 },
     ],
     currentPlayerIndex: 0,
-    melds: [],
+    melds,
     stockCount: Math.max(0, totalCards),
     discardPile: [topDiscard],
     topDiscard,
     dealerIndex: 0,
     roundScores: {},
     deckCount,
-    discardOptionPlayerIndex: 0,
+    discardOptionPlayerIndex: null,
     discarderIndex: null,
     discardOptionAvailableAt: null,
     firstTurnIndex: 0,
-    hasHadTurn: [false, false],
-    currentPlayerHasDrawn: false,
+    hasHadTurn: [true, true],
+    currentPlayerHasDrawn: true,
   }
 }

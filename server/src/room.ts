@@ -2,7 +2,15 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Card, GameState, Meld, Player } from './types.js'
 import { CONTINENTAL_ROUNDS, type GamePhase, type RoundContract } from './types.js'
 import { createContinentalDeck, draw } from './game/deck.js'
-import { canReplaceJokerInMeld, canSatisfyContractWithHand, getContract, isValidMeld, satisfiesContract } from './game/meld.js'
+import {
+  canSatisfyContractWithHand,
+  findContractMeldsInHand,
+  getContract,
+  isValidMeld,
+  replaceAndMoveJokerToStraightEnd,
+  replaceJokerInStraight,
+  satisfiesContract,
+} from './game/meld.js'
 import { handPenalty } from './game/scoring.js'
 
 const CARDS_ROUND_1 = 7
@@ -57,7 +65,8 @@ export interface RoomSnapshot {
   playedMeldThisTurn: boolean
 }
 
-const MAX_SNAPSHOT_CARDS = 3 * 54
+const CARDS_PER_DECK = 55
+const MAX_SNAPSHOT_CARDS = 3 * CARDS_PER_DECK
 
 function invalidSnapshot(field: string): never {
   throw new Error(`Invalid room snapshot: ${field}`)
@@ -216,7 +225,7 @@ function parseRoomSnapshot(value: unknown): RoomSnapshot {
   const expectedTopDiscard = discardPile.at(-1) ?? null
   if (JSON.stringify(topDiscard) !== JSON.stringify(expectedTopDiscard)) invalidSnapshot('topDiscard does not match discardPile')
   const physicalCards = [...players.flatMap(player => player.hand), ...stock, ...discardPile, ...melds.flatMap(meld => meld.cards)]
-  if (physicalCards.length > deckCount * 54) invalidSnapshot('too many cards')
+  if (physicalCards.length > deckCount * CARDS_PER_DECK) invalidSnapshot('too many cards')
   if (new Set(physicalCards.map(card => card.id)).size !== physicalCards.length) invalidSnapshot('duplicate card ids')
 
   const swappedJokerCardId = snapshotNullableId(source.swappedJokerCardId, 'swappedJokerCardId')
@@ -384,6 +393,7 @@ export class Room {
   removePlayer(id: string): void {
     const removedIndex = this.players.findIndex(p => p.id === id)
     if (removedIndex < 0) return
+    const removedCurrentPlayer = removedIndex === this.currentPlayerIndex
 
     this.players.splice(removedIndex, 1)
     this.hasHadTurn.splice(removedIndex, 1)
@@ -416,6 +426,13 @@ export class Room {
       this.discardOptionPlayerIndex = remapIndex(this.discardOptionPlayerIndex)
     }
     if (this.discarderIndex !== null) this.discarderIndex = remapIndex(this.discarderIndex)
+
+    // A replacement active player always starts a fresh turn. Otherwise they
+    // could inherit the departed player's draw permission or same-turn bonus.
+    if (removedCurrentPlayer) {
+      this.currentPlayerHasDrawn = false
+      this.playedMeldThisTurn = false
+    }
 
     // A multiplayer round cannot continue with only one participant.
     if (this.phase === 'playing' && this.players.length < MIN_PLAYERS) {
@@ -626,10 +643,16 @@ export class Room {
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
     if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before playing a meld' }
+    if (this.melds.some(meld => meld.ownerId === playerId)) {
+      return { ok: false, error: 'You already played your contract; add to existing melds or discard' }
+    }
     const n = this.players.length
     const everyoneHadTurn = this.hasHadTurn.length === n && this.hasHadTurn.every(Boolean)
     if (!everyoneHadTurn) return { ok: false, error: 'Everyone must have had a turn before any meld can be played' }
     if (!Array.isArray(melds) || melds.length === 0) return { ok: false, error: 'No melds submitted' }
+    if (melds.length !== this.contract.requirements.length) {
+      return { ok: false, error: 'Play exactly the melds required by this round contract' }
+    }
 
     // Resolve every submitted ID to the canonical server-owned card. Never trust
     // card ranks, suits, wild flags, or IDs supplied only by the client.
@@ -679,6 +702,10 @@ export class Room {
       this.swappedJokerCardId = null
       this.swappedJokerPlayerId = null
     }
+    if (cp.hand.length === 0) {
+      this.roundEnderId = playerId
+      this.endRound(playerId, true)
+    }
     return { ok: true }
   }
 
@@ -717,29 +744,55 @@ export class Room {
     return { ok: true }
   }
 
-  swapJoker(playerId: string, meldId: string, cardIdFromHand: string): { ok: boolean; error?: string } {
+  swapJoker(playerId: string, meldId: string, cardIdFromHand: string, jokerCardId: string): { ok: boolean; error?: string } {
     if (this.phase !== 'playing') return { ok: false, error: 'Not playing' }
     if (this.discardOptionPlayerIndex !== null) return { ok: false, error: 'Take or pass discard first' }
     const cp = this.players[this.currentPlayerIndex]
     if (!cp || cp.id !== playerId) return { ok: false, error: 'Not your turn' }
     if (!this.currentPlayerHasDrawn) return { ok: false, error: 'Draw first before swapping a joker' }
+    if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null) {
+      return { ok: false, error: 'Play the joker you already took before swapping another one' }
+    }
     const meld = this.melds.find(m => m.id === meldId)
     if (!meld) return { ok: false, error: 'Meld not found' }
-    const jokerIdx = meld.cards.findIndex(c => c.suit === 'joker')
-    if (jokerIdx < 0) return { ok: false, error: 'Meld has no joker' }
+    if (meld.type !== 'straight') return { ok: false, error: 'Jokers can only be swapped in a straight' }
+    const jokerIdx = meld.cards.findIndex(c => c.id === jokerCardId)
+    if (jokerIdx < 0 || meld.cards[jokerIdx]?.suit !== 'joker') return { ok: false, error: 'Joker not found in meld' }
     const cardIdx = cp.hand.findIndex(c => c.id === cardIdFromHand)
     if (cardIdx < 0) return { ok: false, error: 'Card not in hand' }
     const card = cp.hand[cardIdx]!
-    if (!canReplaceJokerInMeld(meld, card)) return { ok: false, error: 'Card cannot replace that joker' }
-    const joker = meld.cards[jokerIdx]!
-    const handAfterSwap = cp.hand.filter(c => c.id !== card.id).concat([joker])
-    if (!canSatisfyContractWithHand(handAfterSwap, this.contract)) {
-      return { ok: false, error: 'You can only swap if you can play your full meld with the joker' }
+    if (card.suit === 'joker' || card.rank === 0) {
+      return { ok: false, error: 'Select a natural card to replace the joker' }
     }
-    meld.cards[jokerIdx] = card
+
+    const hasPlayedMeld = this.melds.some(candidate => candidate.ownerId === playerId)
+    if (hasPlayedMeld) {
+      const relocated = replaceAndMoveJokerToStraightEnd(meld.cards, jokerCardId, card)
+      if (!relocated) {
+        return { ok: false, error: 'That card cannot replace this Joker and move it to an exposed end' }
+      }
+      cp.hand.splice(cardIdx, 1)
+      meld.cards = relocated
+      if (cp.hand.length === 0) {
+        this.roundEnderId = playerId
+        this.endRound(playerId, this.playedMeldThisTurn)
+      }
+      return { ok: true }
+    }
+
+    const everyoneHadTurn = this.hasHadTurn.length === this.players.length && this.hasHadTurn.every(Boolean)
+    if (!everyoneHadTurn) return { ok: false, error: 'Everyone must have had a turn before any meld can be played' }
+    const replacement = replaceJokerInStraight(meld.cards, jokerCardId, card)
+    if (!replacement) return { ok: false, error: 'Card cannot replace that joker' }
+    const handAfterSwap = cp.hand.filter(item => item.id !== card.id).concat(replacement.joker)
+    if (!canSatisfyContractWithHand(handAfterSwap, this.contract, replacement.joker.id)) {
+      return { ok: false, error: 'You can only swap if you can play your full contract with that Joker this turn' }
+    }
+
+    meld.cards = replacement.cards
     cp.hand.splice(cardIdx, 1)
-    cp.hand.push(joker)
-    this.swappedJokerCardId = joker.id
+    cp.hand.push(replacement.joker)
+    this.swappedJokerCardId = replacement.joker.id
     this.swappedJokerPlayerId = playerId
     return { ok: true }
   }
@@ -812,6 +865,27 @@ export class Room {
       if (!drawResult.ok || this.phase !== 'playing') return drawResult.ok
     }
 
+    if (
+      this.swappedJokerPlayerId === currentPlayer.id &&
+      this.swappedJokerCardId !== null
+    ) {
+      const owedJoker = currentPlayer.hand.find(card => card.id === this.swappedJokerCardId)
+      if (!owedJoker) return false
+      const hasPlayedMeld = this.melds.some(meld => meld.ownerId === currentPlayer.id)
+      if (hasPlayedMeld) {
+        // Compatibility for a saved turn from the previous swap implementation.
+        const target = this.melds.find(meld => isValidMeld(meld.type, [...meld.cards, owedJoker]))
+        if (!target) return false
+        const replay = this.addToMeld(currentPlayer.id, target.id, [owedJoker])
+        if (!replay.ok || this.phase !== 'playing') return replay.ok
+      } else {
+        const contractMelds = findContractMeldsInHand(currentPlayer.hand, this.contract, owedJoker.id)
+        if (!contractMelds) return false
+        const play = this.playMelds(currentPlayer.id, contractMelds)
+        if (!play.ok || this.phase !== 'playing') return play.ok
+      }
+    }
+
     const cardToDiscard = currentPlayer.hand.find(card => card.id !== this.swappedJokerCardId)
       ?? currentPlayer.hand[0]
     if (!cardToDiscard) return false
@@ -819,7 +893,7 @@ export class Room {
   }
 
   endRound(winnerId: string | null, sameTurnWin: boolean): void {
-    this.phase = 'round_end'
+    this.phase = this.round >= 7 ? 'game_end' : 'round_end'
     this.turnDeadline = null
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
