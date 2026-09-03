@@ -18,7 +18,14 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const isHealthy = () => !repository.failed && store.isHealthy?.() !== false
   const corsOrigin = options.origins?.length ? options.origins : true
   app.use(cors({ origin: corsOrigin }))
-  app.get('/health', (_req, res) => res.status(isHealthy() ? 200 : 503).json({ ok: isHealthy() }))
+  // Render uses liveness here. An idle database may close its connection; do not
+  // repeatedly wake it through health-check restarts before anyone needs to play.
+  // The first failed work item still fails closed and triggers the supervisor.
+  app.get('/health', (_req, res) => res.status(repository.failed ? 503 : 200).json({
+    ok: !repository.failed, storageReady: isHealthy(),
+  }))
+  // Passive readiness diagnostic only: do not use as Render's health-check path.
+  app.get('/ready', (_req, res) => res.status(isHealthy() ? 200 : 503).json({ ok: isHealthy() }))
   const httpServer = createServer(app)
   const io = new Server(httpServer, { cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024 })
   const activeSockets = new Map<string, string>()

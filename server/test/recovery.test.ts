@@ -13,6 +13,8 @@ class MemoryStore implements SnapshotStore {
   failSaves = false
   failAfterSave = false
   failLoad = false
+  healthy = true
+  loadAttempts = 0
   saveAttempts = 0
   closed = false
   saveGate: Promise<void> | null = null
@@ -23,6 +25,7 @@ class MemoryStore implements SnapshotStore {
   }
 
   async load(): Promise<unknown | null> {
+    this.loadAttempts++
     if (this.failLoad) throw new Error('Storage is offline')
     return structuredClone(this.value)
   }
@@ -38,6 +41,7 @@ class MemoryStore implements SnapshotStore {
   }
 
   async close(): Promise<void> { this.closed = true }
+  isHealthy(): boolean { return this.healthy && !this.closed }
 }
 
 interface SavedGamesFixture {
@@ -374,6 +378,58 @@ test('all-offline rooms pause both clocks and recovery grants a reconnect grace 
   assert.equal(joined.state.players.find(player => player.id === players.guestJoined.playerId)!.connected, false)
 })
 
+test('healthy startup reports storage readiness before accepting the first create', async t => {
+  const h = await harness(t)
+  assert.equal(h.store.loadAttempts, 1)
+  assert.equal(h.store.saveAttempts, 0)
+  const health = await fetch(`${h.url}/health`)
+  assert.equal(health.status, 200)
+  assert.deepEqual(await health.json(), { ok: true, storageReady: true })
+  const ready = await fetch(`${h.url}/ready`)
+  assert.equal(ready.status, 200)
+  assert.deepEqual(await ready.json(), { ok: true })
+  assert.equal(h.store.loadAttempts, 1, 'health routes must not query storage')
+  assert.equal(h.store.saveAttempts, 0)
+  const host = await peer(h)
+  const joined = await host.request<Joined>('create', { name: 'Healthy host' }, 'joined')
+  assert.equal(joined.state.players[0]!.name, 'Healthy host')
+  assert.equal(h.store.saveAttempts, 1)
+  assert.equal(h.server.repository.failed, false)
+})
+
+test('an idle unavailable store keeps liveness healthy until first work fails closed', async t => {
+  const h = await harness(t)
+  const host = await peer(h)
+  h.store.healthy = false // Model Neon's passive closure of an idle connection.
+  assert.equal(h.server.isHealthy(), false)
+  assert.equal(h.server.repository.failed, false)
+  const health = await fetch(`${h.url}/health`)
+  assert.equal(health.status, 200)
+  assert.deepEqual(await health.json(), { ok: true, storageReady: false })
+  const ready = await fetch(`${h.url}/ready`)
+  assert.equal(ready.status, 503)
+  assert.deepEqual(await ready.json(), { ok: false })
+  assert.equal(h.server.repository.failed, false, 'diagnostic probes must not trigger restart recovery')
+  assert.equal(h.store.loadAttempts, 1, 'health routes must not wake or query the database')
+  assert.equal(h.store.saveAttempts, 0)
+
+  const after = host.mark()
+  const paused = await host.request<{ message: string }>('create', { name: 'Must not commit' }, 'server_paused')
+  assert.match(paused.message, /saving|paused/i)
+  await h.server.idle()
+  assert.equal(h.server.repository.failed, true)
+  assert.equal(h.server.repository.records.size, 0)
+  assert.equal(h.store.saveAttempts, 0)
+  assert.equal(h.store.value, null)
+  assert.equal(host.received.slice(after).some(item => item.event === 'joined' || item.event === 'state'), false)
+  const failedHealth = await fetch(`${h.url}/health`)
+  assert.equal(failedHealth.status, 503)
+  assert.deepEqual(await failedHealth.json(), { ok: false, storageReady: false })
+  const failedReady = await fetch(`${h.url}/ready`)
+  assert.equal(failedReady.status, 503)
+  assert.deepEqual(await failedReady.json(), { ok: false })
+})
+
 test('failed saves do not publish or commit a move and the server stays fail-closed', async t => {
   const h = await harness(t)
   const players = await twoPlayers(h)
@@ -390,7 +446,7 @@ test('failed saves do not publish or commit a move and the server stays fail-clo
   assert.equal(players.host.received.slice(beforeStart).some(item => item.event === 'state' && (item.payload as GameState).phase === 'playing'), false)
   const health = await fetch(`${h.url}/health`)
   assert.equal(health.status, 503)
-  assert.deepEqual(await health.json(), { ok: false })
+  assert.deepEqual(await health.json(), { ok: false, storageReady: false })
 
   h.store.failSaves = false
   const writesAfterFailure = h.store.saveAttempts

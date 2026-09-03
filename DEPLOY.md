@@ -48,7 +48,7 @@ The repository includes `railway.toml`, which builds and starts the server from 
 If the deploy fails, check the **Deployments** tab logs. Common fixes:
 - Root Directory is the repository root.
 - Dashboard commands do not override `railway.toml`.
-- The `/health` endpoint returns `{ "ok": true }`.
+- The `/health` endpoint returns `{ "ok": true, "storageReady": true }` after a healthy startup.
 
 ---
 
@@ -142,7 +142,7 @@ The server now saves a versioned private snapshot before publishing every accept
 - Disconnected players stay in the room. **Back to menu / Leave** explicitly gives up your seat.
 - When all players disconnect, clocks pause. After restart, clocks resume relative to the last saved state with at least 10 seconds of turn grace. If some players remain online, normal configured turn timeouts still apply.
 - Abandoned rooms expire after **72 hours** without activity. This is recovery for ongoing games, not permanent game-history storage.
-- A storage failure pauses actions. The hosted process exits after the first failed action so the host supervisor can restart it and reload the last confirmed snapshot. Unconfirmed clicks are not automatically replayed. Health checks report an unhealthy store without querying it to keep a free database awake.
+- A storage failure pauses actions. The hosted process exits after the first failed action so the host supervisor can restart it and reload the last confirmed snapshot. Unconfirmed clicks are not automatically replayed. Configure Render's health check as **`/health`**: this liveness endpoint stays HTTP 200 after a passive idle-database disconnect and reports `storageReady: false`, avoiding repeated restarts that would keep a free database awake. The first failed work item makes `/health` return HTTP 503 and triggers recovery. **`/ready`** is a separate diagnostic endpoint that returns HTTP 503 whenever storage is unavailable; do not use it as Render's health-check path. Neither endpoint queries or wakes the database. Initial database loading still completes before the server starts listening.
 
 Choose **one** storage configuration:
 
@@ -170,7 +170,7 @@ If configuring manually:
 - `DATABASE_URL`: durable direct/session-mode PostgreSQL connection, server-only.
 - Compute: **Free**, one instance. Do not attach a paid disk or select a paid instance without approval.
 
-After `/health` returns `{ "ok": true }`, set Vercel's `VITE_SOCKET_URL` to the new **HTTPS** Render URL and redeploy the client. Test two-player gameplay and server restart before declaring the migration complete. Keep Railway unchanged until the replacement is verified.
+After `/health` reports `ok: true` and `storageReady: true` (and `/ready` returns HTTP 200), set Vercel's `VITE_SOCKET_URL` to the new **HTTPS** Render URL and redeploy the client. Test two-player gameplay, server restart, and recovery after more than five minutes of database inactivity before declaring the migration complete. Keep Railway unchanged until the replacement is verified.
 
 Render Free sleeps after 15 minutes of no inbound HTTP/WebSocket traffic and can take about a minute to wake. Local files are lost on sleep/restart, persistent disks are not available on Free, and free Render Postgres expires after 30 days. Therefore free Render Postgres is not a lasting storage solution. A separate approved durable database is needed for long-term free hosting. Check the account's bandwidth/build allowances and payment settings; do not assume every overage is free. [Render Free documentation](https://render.com/docs/free)
 

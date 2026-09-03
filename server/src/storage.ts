@@ -215,6 +215,9 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
       client = new Client({
         connectionString,
         application_name: 'conti-game-server',
+        // Neon connection strings request SCRAM channel binding. Opt in so the
+        // driver can use SCRAM-SHA-256-PLUS when the server offers it.
+        enableChannelBinding: true,
         connectionTimeoutMillis: 10_000,
         statement_timeout: 25_000,
         query_timeout: 30_000,
