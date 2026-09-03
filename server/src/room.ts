@@ -566,8 +566,8 @@ export class Room {
     p.hand.push(this.topDiscard)
     this.discardPile.pop()
     this.topDiscard = this.discardPile.length > 0 ? this.discardPile[this.discardPile.length - 1]! : null
-    this.hasHadTurn[optionIndex] = true
-    this.currentPlayerHasDrawn = true
+    if (isPriority) this.hasHadTurn[optionIndex] = true
+    this.currentPlayerHasDrawn = isPriority
     this.playedMeldThisTurn = false
 
     if (!isPriority) {
@@ -576,7 +576,8 @@ export class Room {
       this.stock = stockAfterPenalty
       if (penaltyDraw[0]) p.hand.push(penaltyDraw[0])
     }
-    this.currentPlayerIndex = optionIndex
+    // Buying a passed discard is not a turn: the priority player still plays next.
+    this.currentPlayerIndex = turnPlayerIndex
     this.discardOptionPlayerIndex = null
     this.discarderIndex = null
     this.discardOptionAvailableAt = null

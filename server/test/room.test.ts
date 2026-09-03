@@ -24,6 +24,27 @@ function playableRoom(): Room {
   return room
 }
 
+function roomWithDiscardOffer(): Room {
+  const room = new Room({ roomId: '1234', discardOptionDelaySeconds: 0 })
+  room.addPlayer('p1', 'One')
+  room.addPlayer('p2', 'Two')
+  room.addPlayer('p3', 'Three')
+  room.phase = 'playing'
+  room.currentPlayerIndex = 0
+  room.currentPlayerHasDrawn = true
+  room.hasHadTurn = [true, false, false]
+  room.players[0]!.hand = [card('ace', 'hearts', 14), card('held', 'clubs', 10)]
+  room.players[1]!.hand = [card('p2-held', 'diamonds', 8)]
+  room.players[2]!.hand = [card('p3-held', 'spades', 9)]
+  room.stock = [card('penalty', 'clubs', 5), card('next-draw', 'diamonds', 6)]
+  room.discardPile = [card('old-discard', 'spades', 4)]
+  room.topDiscard = room.discardPile[0]!
+
+  assert.equal(room.discard('p1', 'ace').ok, true)
+  assert.equal(room.discardOptionPlayerIndex, 1)
+  return room
+}
+
 test('playMelds rejects a card ID that is not in the server hand', () => {
   const room = playableRoom()
   const result = room.playMelds('p1', [
@@ -95,4 +116,39 @@ test('an expired discard decision automatically passes', () => {
   assert.equal(room.discardOptionPlayerIndex, null)
   assert.equal(room.currentPlayerIndex, 1)
   assert.ok((room.turnDeadline ?? 0) > Date.now())
+})
+
+test('an out-of-turn discard taker pays the penalty without taking the next player turn', () => {
+  const room = roomWithDiscardOffer()
+
+  assert.equal(room.passDiscard('p2').ok, true)
+  assert.equal(room.discardOptionPlayerIndex, 2)
+  assert.equal(room.takeDiscard('p3').ok, true)
+
+  assert.equal(room.currentPlayerIndex, 1)
+  assert.equal(room.currentPlayerHasDrawn, false)
+  assert.deepEqual(room.hasHadTurn, [true, false, false])
+  assert.deepEqual(room.players[2]!.hand.map(c => c.id), ['p3-held', 'ace', 'penalty'])
+  assert.deepEqual(room.stock.map(c => c.id), ['next-draw'])
+  assert.equal(room.roundPenalties.p3, 10)
+  assert.equal(room.discardOptionPlayerIndex, null)
+  assert.equal(room.discarderIndex, null)
+
+  assert.deepEqual(room.draw('p3', false), { ok: false, error: 'Not your turn' })
+  assert.equal(room.draw('p2', false).ok, true)
+  assert.equal(room.currentPlayerHasDrawn, true)
+  assert.deepEqual(room.hasHadTurn, [true, true, false])
+})
+
+test('the priority player who takes the discard starts their turn with a completed draw', () => {
+  const room = roomWithDiscardOffer()
+
+  assert.equal(room.takeDiscard('p2').ok, true)
+
+  assert.equal(room.currentPlayerIndex, 1)
+  assert.equal(room.currentPlayerHasDrawn, true)
+  assert.deepEqual(room.hasHadTurn, [true, true, false])
+  assert.deepEqual(room.players[1]!.hand.map(c => c.id), ['p2-held', 'ace'])
+  assert.deepEqual(room.stock.map(c => c.id), ['penalty', 'next-draw'])
+  assert.equal(room.roundPenalties.p2, undefined)
 })
