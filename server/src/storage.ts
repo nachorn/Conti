@@ -17,6 +17,20 @@ export const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 const LOCK_STALE_MS = 10_000
 const LOCK_UPDATE_MS = 2_000
 
+function safeDatabaseErrorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = String(error.code)
+    if (/^[A-Z0-9_-]{1,40}$/i.test(code)) return code
+  }
+  const message = error instanceof Error ? error.message : ''
+  if (/password authentication failed/i.test(message)) return 'AUTH_FAILED'
+  if (/certificate|\bssl\b|\btls\b/i.test(message)) return 'TLS_ERROR'
+  if (/getaddrinfo|name resolution|dns/i.test(message)) return 'DNS_ERROR'
+  if (/timed?\s*out|timeout/i.test(message)) return 'TIMEOUT'
+  if (/permission|privilege/i.test(message)) return 'PERMISSION_ERROR'
+  return 'UNKNOWN'
+}
+
 function encodeSnapshot(snapshot: unknown): string {
   let encoded: string | undefined
   try {
@@ -240,7 +254,10 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
         )
       `)
       return store
-    } catch {
+    } catch (error) {
+      // Keep credentials and raw driver messages out of hosted logs while still
+      // exposing enough of the failure class to diagnose deployment safely.
+      console.error(`Game database startup failed (${safeDatabaseErrorCode(error)})`)
       await client?.end().catch(() => undefined)
       // Connection errors can include credentials; return an actionable safe error.
       throw new Error('Cannot open game database or acquire its writer lock; verify DATABASE_URL and stop the previous server')
