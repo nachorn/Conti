@@ -118,7 +118,7 @@ test('an expired discard decision automatically passes', () => {
   assert.ok((room.turnDeadline ?? 0) > Date.now())
 })
 
-test('an out-of-turn discard taker pays the penalty without taking the next player turn', () => {
+test('an out-of-turn discard taker draws a penalty card without taking the next player turn', () => {
   const room = roomWithDiscardOffer()
 
   assert.equal(room.passDiscard('p2').ok, true)
@@ -130,7 +130,7 @@ test('an out-of-turn discard taker pays the penalty without taking the next play
   assert.deepEqual(room.hasHadTurn, [true, false, false])
   assert.deepEqual(room.players[2]!.hand.map(c => c.id), ['p3-held', 'ace', 'penalty'])
   assert.deepEqual(room.stock.map(c => c.id), ['next-draw'])
-  assert.equal(room.roundPenalties.p3, 10)
+  assert.equal(room.roundPenalties.p3, undefined)
   assert.equal(room.discardOptionPlayerIndex, null)
   assert.equal(room.discarderIndex, null)
 
@@ -151,4 +151,40 @@ test('the priority player who takes the discard starts their turn with a complet
   assert.deepEqual(room.players[1]!.hand.map(c => c.id), ['p2-held', 'ace'])
   assert.deepEqual(room.stock.map(c => c.id), ['penalty', 'next-draw'])
   assert.equal(room.roundPenalties.p2, undefined)
+})
+
+test('a remaining deuce scores five despite legacy out-of-turn purchase penalties', () => {
+  const room = playableRoom()
+  room.players[0]!.hand = []
+  room.players[1]!.hand = [card('two', 'clubs', 2, true)]
+  // Older version-1 snapshots may contain these now-retired score surcharges.
+  room.roundPenalties.p2 = 20
+
+  room.endRound('p1', false)
+
+  assert.equal(room.roundScores.p1, -10)
+  assert.equal(room.roundScores.p2, 5)
+  assert.equal(room.players[1]!.score, 5)
+})
+
+test('discarding a final wild deuce awards the normal winner score', () => {
+  const room = playableRoom()
+  room.melds = [{
+    id: 'own-trio',
+    type: 'trio',
+    cards: [card('7h-table', 'hearts', 7), card('7d-table', 'diamonds', 7), card('7c-table', 'clubs', 7)],
+    ownerId: 'p1',
+  }]
+  room.players[0]!.hand = [card('final-two', 'spades', 2, true)]
+  room.players[1]!.hand = [card('ace', 'hearts', 14)]
+
+  assert.deepEqual(room.discard('p1', 'final-two'), { ok: true })
+
+  assert.equal(room.phase, 'round_end')
+  assert.equal(room.roundEnderId, 'p1')
+  assert.deepEqual(room.players[0]!.hand, [])
+  assert.equal(room.topDiscard?.id, 'final-two')
+  assert.equal(room.roundScores.p1, -10)
+  assert.equal(room.players[0]!.score, -10)
+  assert.equal(room.roundScores.p2, 20)
 })

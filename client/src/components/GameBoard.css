@@ -1080,6 +1080,34 @@
   border-radius: var(--card-radius);
 }
 
+.game-hand-card-wrap.pointer-dragging .card {
+  opacity: 0.82;
+  transform: translateY(-10px) scale(1.04);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+}
+
+.game-hand.is-arranging {
+  touch-action: none;
+  scroll-snap-type: none;
+}
+
+.game-hand.is-arranging .game-hand-card-wrap {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.game-hand.is-arranging .game-hand-card-wrap.pointer-dragging {
+  cursor: grabbing;
+}
+
+@media (pointer: coarse) {
+  .game-hand .card {
+    -webkit-user-drag: none;
+  }
+}
+
 .game-hand-toolbar {
   display: flex;
   align-items: center;
@@ -1094,15 +1122,36 @@
   opacity: 0.9;
 }
 
-.hand-sort-btn {
+.hand-sort-btn,
+.hand-arrange-btn {
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
   background: rgba(255, 255, 255, 0.15);
   color: var(--cream);
 }
 
-.hand-sort-btn:hover {
+.hand-sort-btn:hover,
+.hand-arrange-btn:hover {
   background: rgba(255, 255, 255, 0.25);
+}
+
+.hand-arrange-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hand-arrange-btn[aria-pressed="true"] {
+  background: var(--gold);
+  color: var(--black);
+}
+
+.hand-arrange-hint {
+  display: block;
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .priority-badge {
@@ -1259,6 +1308,7 @@
 .game-board button:focus-visible,
 .game-board [role="button"]:focus-visible,
 .game-board .hand-sort-btn:focus-visible,
+.game-board .hand-arrange-btn:focus-visible,
 .game-board .meld-hide-btn:focus-visible,
 .game-board .meld-show-btn:focus-visible,
 .game-board .scoreboard-btn:focus-visible,
@@ -1355,6 +1405,7 @@
 
   .game-actions button,
   .hand-sort-btn,
+  .hand-arrange-btn,
   .meld-hide-btn,
   .meld-show-btn,
   .options-menu-btn,
@@ -1557,11 +1608,16 @@
     margin: 0.15rem 0 0.35rem;
   }
 
+  .game-hand-toolbar.is-arranging {
+    flex-wrap: wrap;
+  }
+
   .hand-toolbar-label {
     margin-right: auto;
   }
 
-  .hand-sort-btn {
+  .hand-sort-btn,
+  .hand-arrange-btn {
     min-height: 40px;
     padding: 0.35rem 0.6rem;
   }
@@ -1750,7 +1806,8 @@
     padding: 0.5rem 0.75rem;
   }
 
-  .hand-sort-btn {
+  .hand-sort-btn,
+  .hand-arrange-btn {
     min-height: 44px;
     min-width: 44px;
     padding: 0.4rem 0.6rem;

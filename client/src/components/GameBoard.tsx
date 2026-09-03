@@ -8,6 +8,7 @@ import { ReportBugButton } from './ReportBugButton'
 import { CardBack } from './cards/CardBack'
 import { rankLabel, SUIT_SYMBOL } from './cards'
 import { findMeldsForContract } from '../lib/meld'
+import { cardDropSide, moveHandCard } from '../lib/handOrder'
 import { GameShell } from './GameShell'
 import './GameBoard.css'
 
@@ -19,6 +20,15 @@ function cardLabel(c: CardType): string {
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
+
+interface PointerDragState {
+  pointerId: number
+  cardId: string
+  clientX: number
+  clientY: number
+  edgeVelocity: number
+  animationFrameId: number | null
+}
 
 /** Seat positions around an oval, with display index 0 anchored at the bottom. */
 function seatPosition(displayIndex: number, radius = 48, seatCount = POKER_SEAT_COUNT): { x: number; y: number } {
@@ -125,9 +135,13 @@ export function GameBoard({
   onDebugSkipRound,
   onSetSeat,
 }: GameBoardProps) {
+  const arrangeHintId = useId()
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
   const [selectedMeldId, setSelectedMeldId] = useState<string | null>(null)
   const [handOrder, setHandOrder] = useState<string[]>([])
+  const [arrangeMode, setArrangeMode] = useState(false)
+  const [pointerDraggedCardId, setPointerDraggedCardId] = useState<string | null>(null)
+  const [pointerDropTargetId, setPointerDropTargetId] = useState<string | null>(null)
   const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
   const [lobbyDiscardDelay, setLobbyDiscardDelay] = useState(state.discardOptionDelaySeconds ?? 10)
   const [lobbyTurnSecs, setLobbyTurnSecs] = useState(state.secondsPerTurn ?? 0)
@@ -142,6 +156,8 @@ export function GameBoard({
   const [animationsOn, setAnimationsOn] = useState(true)
   const [jokerToast, setJokerToast] = useState<string | null>(null)
   const jokerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handRef = useRef<HTMLDivElement | null>(null)
+  const pointerDragRef = useRef<PointerDragState | null>(null)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
   const prevHandIdsRef = useRef<string[]>([])
@@ -335,6 +351,139 @@ export function GameBoard({
     onDiscard(cardId)
     setSelectedCards(new Set())
   }
+
+  const reorderPointerAt = (clientX: number, clientY: number, cardId: string) => {
+    const hand = handRef.current
+    if (!hand) return
+    const pointedElement = document.elementFromPoint(clientX, clientY)
+    const target = pointedElement?.closest<HTMLElement>('.game-hand-card-wrap[data-card-id]')
+    if (!target || !hand.contains(target)) return
+    const targetId = target.dataset.cardId
+    if (!targetId) return
+
+    const targetRect = target.getBoundingClientRect()
+    const side = cardDropSide(clientX, targetRect.left, targetRect.width)
+    setPointerDropTargetId((current) => current === targetId ? current : targetId)
+    setHandOrder((prev) => moveHandCard(prev, cardId, targetId, side))
+  }
+
+  const startPointerAutoScroll = () => {
+    const drag = pointerDragRef.current
+    if (!drag || drag.edgeVelocity === 0 || drag.animationFrameId !== null) return
+
+    const step = () => {
+      const current = pointerDragRef.current
+      const hand = handRef.current
+      if (!current || !hand || current.edgeVelocity === 0) {
+        if (current) current.animationFrameId = null
+        return
+      }
+
+      const previousScrollLeft = hand.scrollLeft
+      hand.scrollLeft += current.edgeVelocity
+      reorderPointerAt(current.clientX, current.clientY, current.cardId)
+      if (hand.scrollLeft === previousScrollLeft) {
+        current.edgeVelocity = 0
+        current.animationFrameId = null
+        return
+      }
+      current.animationFrameId = window.requestAnimationFrame(step)
+    }
+
+    drag.animationFrameId = window.requestAnimationFrame(step)
+  }
+
+  const clearPointerReorder = () => {
+    const drag = pointerDragRef.current
+    if (drag?.animationFrameId !== null && drag?.animationFrameId !== undefined) {
+      window.cancelAnimationFrame(drag.animationFrameId)
+    }
+    pointerDragRef.current = null
+    setPointerDraggedCardId(null)
+    setPointerDropTargetId(null)
+  }
+
+  const startPointerReorder = (event: React.PointerEvent<HTMLDivElement>, cardId: string) => {
+    if (!arrangeMode || state.phase !== 'playing' || !event.isPrimary || event.button !== 0 || pointerDragRef.current) return
+    const hand = handRef.current
+    if (!hand) return
+    event.preventDefault()
+    pointerDragRef.current = {
+      pointerId: event.pointerId,
+      cardId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      edgeVelocity: 0,
+      animationFrameId: null,
+    }
+    // Capture on the stable rail rather than the card. React moves the card
+    // node while sorting, which can otherwise cancel capture after one slot.
+    hand.setPointerCapture(event.pointerId)
+    setPointerDraggedCardId(cardId)
+    setPointerDropTargetId(cardId)
+  }
+
+  const movePointerReorder = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = pointerDragRef.current
+    if (!arrangeMode || !drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
+
+    const hand = handRef.current
+    if (!hand) return
+    drag.clientX = event.clientX
+    drag.clientY = event.clientY
+    const handRect = hand.getBoundingClientRect()
+    const edgeSize = Math.min(80, handRect.width * 0.18)
+    if (event.clientX < handRect.left + edgeSize) {
+      const proximity = (handRect.left + edgeSize - event.clientX) / edgeSize
+      drag.edgeVelocity = -Math.max(4, Math.round(16 * Math.min(1, proximity)))
+    } else if (event.clientX > handRect.right - edgeSize) {
+      const proximity = (event.clientX - (handRect.right - edgeSize)) / edgeSize
+      drag.edgeVelocity = Math.max(4, Math.round(16 * Math.min(1, proximity)))
+    } else {
+      drag.edgeVelocity = 0
+      if (drag.animationFrameId !== null) {
+        window.cancelAnimationFrame(drag.animationFrameId)
+        drag.animationFrameId = null
+      }
+    }
+
+    reorderPointerAt(event.clientX, event.clientY, drag.cardId)
+    startPointerAutoScroll()
+  }
+
+  const finishPointerReorder = (event: React.PointerEvent<HTMLDivElement>, releaseCapture = true) => {
+    const drag = pointerDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    clearPointerReorder()
+    if (releaseCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const moveCardWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>, cardId: string) => {
+    if (!arrangeMode || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+    event.preventDefault()
+    const direction = event.key === 'ArrowLeft' ? -1 : 1
+    setHandOrder((prev) => {
+      const visibleOrder = sortHandByOrder(rawHand, prev).map((card) => card.id)
+      const currentIndex = visibleOrder.indexOf(cardId)
+      const targetId = visibleOrder[currentIndex + direction]
+      if (currentIndex < 0 || !targetId) return prev
+      return moveHandCard(visibleOrder, cardId, targetId, direction < 0 ? 'before' : 'after')
+    })
+  }
+
+  useEffect(() => {
+    clearPointerReorder()
+    setArrangeMode(false)
+    return () => {
+      const drag = pointerDragRef.current
+      if (drag?.animationFrameId !== null && drag?.animationFrameId !== undefined) {
+        window.cancelAnimationFrame(drag.animationFrameId)
+      }
+    }
+  }, [state.phase, state.round])
 
   if (state.phase === 'lobby') {
     const lobbySeats = getSeatsAroundTable([...state.players], socketId)
@@ -800,39 +949,50 @@ export function GameBoard({
       </div>
 
       <div className="game-hand-area">
-        <div className="game-hand" aria-label={`${myHand.length} ${t(lang, 'cards')}`}>
+        <div
+          ref={handRef}
+          className={`game-hand ${arrangeMode ? 'is-arranging' : ''}`}
+          role="group"
+          aria-label={`${myHand.length} ${t(lang, 'cards')}`}
+          aria-describedby={arrangeMode ? arrangeHintId : undefined}
+          onPointerMove={movePointerReorder}
+          onPointerUp={finishPointerReorder}
+          onPointerCancel={finishPointerReorder}
+          onLostPointerCapture={(event) => finishPointerReorder(event, false)}
+        >
           {myHand.map((c, i) => (
             <div
               key={c.id}
-              className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''}`}
+              className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''} ${pointerDraggedCardId === c.id ? 'pointer-dragging' : ''} ${pointerDropTargetId === c.id && pointerDraggedCardId !== c.id ? 'drop-target' : ''}`}
               style={dealAnimKey != null ? { animationDelay: `${i * (totalToDeal > 20 ? 30 : 55)}ms` } : undefined}
               data-card-id={c.id}
+              onPointerDown={(event) => startPointerReorder(event, c.id)}
+              onKeyDown={(event) => moveCardWithKeyboard(event, c.id)}
               onDragOver={(e) => {
+                if (arrangeMode) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
                 e.currentTarget.classList.add('drop-target')
               }}
               onDragLeave={(e) => e.currentTarget.classList.remove('drop-target')}
+              onDragEnd={() => {
+                handRef.current?.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'))
+              }}
               onDrop={(e) => {
                 e.preventDefault()
                 e.currentTarget.classList.remove('drop-target')
                 const draggedId = e.dataTransfer.getData('cardId')
                 const targetId = e.currentTarget.dataset.cardId
                 if (!draggedId || !targetId || draggedId === targetId) return
-                setHandOrder((prev) => {
-                  const next = prev.filter((id) => id !== draggedId)
-                  const idx = next.indexOf(targetId)
-                  if (idx === -1) return [...next, draggedId]
-                  next.splice(idx, 0, draggedId)
-                  return next
-                })
+                const rect = e.currentTarget.getBoundingClientRect()
+                setHandOrder((prev) => moveHandCard(prev, draggedId, targetId, cardDropSide(e.clientX, rect.left, rect.width)))
               }}
             >
               <Card
                 card={c}
                 selected={selectedCards.has(c.id)}
-                onClick={() => toggleCard(c.id)}
-                draggable={state.phase === 'playing'}
+                onClick={() => { if (!arrangeMode) toggleCard(c.id) }}
+                draggable={state.phase === 'playing' && !arrangeMode}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('cardId', c.id)
                   e.dataTransfer.effectAllowed = 'move'
@@ -842,8 +1002,20 @@ export function GameBoard({
             </div>
           ))}
         </div>
-        <div className="game-hand-toolbar">
+        <div className={`game-hand-toolbar ${arrangeMode ? 'is-arranging' : ''}`}>
           <span className="hand-toolbar-label">{t(lang, 'sort')}</span>
+          <button
+            type="button"
+            className="hand-arrange-btn"
+            aria-pressed={arrangeMode}
+            aria-describedby={arrangeMode ? arrangeHintId : undefined}
+            onClick={() => {
+              clearPointerReorder()
+              setArrangeMode((active) => !active)
+            }}
+          >
+            {t(lang, arrangeMode ? 'doneArranging' : 'arrangeCards')}
+          </button>
           <button
             type="button"
             className="hand-sort-btn"
@@ -870,6 +1042,7 @@ export function GameBoard({
           >
             {t(lang, 'suit')}
           </button>
+          {arrangeMode && <span id={arrangeHintId} className="hand-arrange-hint" role="status">{t(lang, 'dragToArrange')}</span>}
         </div>
         <div className="game-actions">
           {!isConnected && (

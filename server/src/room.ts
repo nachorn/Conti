@@ -11,7 +11,6 @@ const MAX_PLAYERS = 10
 /** Win in same turn as playing meld: -10 * round. Win in a later turn: -10. */
 const WIN_BONUS_SAME_TURN_MULTIPLIER = 10
 const WIN_BONUS_OTHER = -10
-const OUT_OF_TURN_DISCARD_PENALTY = 10
 
 export type GameType = 'continental' | 'pocha'
 
@@ -42,6 +41,7 @@ export interface RoomSnapshot {
   discardPile: Card[]
   topDiscard: Card | null
   roundScores: Record<string, number>
+  /** Legacy score surcharges retained only so version-1 snapshots remain readable. */
   roundPenalties: Record<string, number>
   roundEnderId: string | null
   discardOptionPlayerIndex: number | null
@@ -270,6 +270,7 @@ export class Room {
   discardPile: Card[] = []
   topDiscard: Card | null = null
   roundScores: Record<string, number> = {}
+  /** Legacy score surcharges retained only for version-1 snapshot compatibility. */
   roundPenalties: Record<string, number> = {}
   roundEnderId: string | null = null
   /** When >2 players: who can take the discard or pass. */
@@ -571,7 +572,6 @@ export class Room {
     this.playedMeldThisTurn = false
 
     if (!isPriority) {
-      this.roundPenalties[playerId] = (this.roundPenalties[playerId] ?? 0) + OUT_OF_TURN_DISCARD_PENALTY
       const { drawn: penaltyDraw, remaining: stockAfterPenalty } = draw(this.stock, 1)
       this.stock = stockAfterPenalty
       if (penaltyDraw[0]) p.hand.push(penaltyDraw[0])
@@ -818,13 +818,12 @@ export class Room {
     this.discarderIndex = null
     for (const p of this.players) {
       const penalty = handPenalty(p.hand)
-      const roundPen = this.roundPenalties[p.id] ?? 0
       if (p.id === winnerId) {
         this.roundScores[p.id] = sameTurnWin
           ? -this.round * WIN_BONUS_SAME_TURN_MULTIPLIER
           : WIN_BONUS_OTHER
       } else {
-        this.roundScores[p.id] = penalty + roundPen
+        this.roundScores[p.id] = penalty
       }
       p.score += this.roundScores[p.id]!
     }
