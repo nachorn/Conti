@@ -9,6 +9,7 @@ interface LobbyProps {
   onCreatePocha: () => void
   onJoin: (roomId: string, name: string) => void
   error: string | null
+  isConnected?: boolean
   lang: Lang
   setLang: (lang: Lang) => void
   /** Pre-fill join room code (e.g. from /room/:roomId) */
@@ -24,6 +25,7 @@ export function Lobby({
   onCreatePocha,
   onJoin,
   error,
+  isConnected = true,
   lang,
   setLang,
   initialJoinRoomId = null,
@@ -41,12 +43,12 @@ export function Lobby({
   const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = createName.trim()
-    if (name) onCreateContinental(name, createDecks)
+    if (name && isConnected) onCreateContinental(name, createDecks)
   }
 
   const handleJoinSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (joinRoomId.length !== 4) return
+    if (!isConnected || joinRoomId.length !== 4) return
     onJoin(joinRoomId, joinName.trim() || 'Player')
   }
 
@@ -127,7 +129,7 @@ export function Lobby({
                 <option value={3}>3</option>
               </select>
             </label>
-            <button type="submit" disabled={!createName.trim()}>
+            <button type="submit" disabled={!isConnected || !createName.trim()}>
               {t(lang, 'createRoom')}
             </button>
           </form>
@@ -182,7 +184,7 @@ export function Lobby({
                 enterKeyHint="done"
               />
             </label>
-            <button type="submit" disabled={joinRoomId.length !== 4}>
+            <button type="submit" disabled={!isConnected || joinRoomId.length !== 4}>
               {t(lang, 'joinRoom')}
             </button>
           </form>

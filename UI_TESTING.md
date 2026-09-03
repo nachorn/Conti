@@ -53,3 +53,15 @@ Temporary socket clients and test rooms were disconnected after testing.
 5. Run `npm test` and `npm run build --prefix client` before merging.
 
 The development-only Continental shortcut can be used to inspect later-round hand sizes; it is hidden in production builds.
+
+## Server recovery verification — 2026-09-03
+
+- Server: **48 tests passed**, including 13 real Socket.IO integration tests and 9 file/database-adapter storage tests. Storage tests cover killing a child writer during atomic replacement; PostgreSQL itself was not available for a live integration test.
+- Client: **6 recovery helper tests passed**, plus TypeScript and Vite production build.
+- Two independent browser tabs joined room 8709, started a real round, and survived stopping/restarting the local Node process twice. Both visible seven-card hands, room code and current player were restored exactly. Reloading the same tab recovered its seat without another join.
+- Reconnect notices and disabled gameplay were inspected at 390 × 844, 820 × 1180 and the default desktop viewport. Phone/tablet document width did not overflow. Temporary viewport override was reset afterward.
+- Security/consistency checks: incorrect token/public ID rejection; same-name isolation; replacement connection race; explicit-leave revocation; all-offline clock pause; save-before-publish; serialized writes; failed/ambiguous save recovery; corruption refusal; expired-room capacity; disconnect cleanup under a saturated action queue.
+- Cloud recovery is **not yet verified**. Railway source deployment was rejected before a build; Render awaits account authorization and an approved durable database. A file on Render Free's temporary disk does not satisfy recovery.
+- Recovery starts after a successful join and uses per-tab sessionStorage. Closing/clearing that tab or switching devices is not guaranteed to preserve seat access. Rooms expire after 72 inactive hours.
+
+To repeat restart testing: create/join in two tabs, start and note each hand, stop the server, verify offline controls, start it again with the same snapshot/database, then confirm both seats restore and take/discard still works. Do not test production recovery by deleting its snapshot or database.

@@ -30,11 +30,12 @@ The repository includes `railway.toml`, which builds and starts the server from 
 3. Leave **Root Directory** at the repository root. Do not set it to `server`, because the config and shared types live at the root.
 4. Clear dashboard Build or Start Command overrides so Railway uses `railway.toml`:
    - Build: `npm run build:server`
-   - Start: `cd server && npm start`
+   - Start: `node server/dist/index.js`
 5. Find **Watch Paths** (optional):
    - You can leave default so it redeploys when you push.
 
-6. Click **Deploy** (or wait for the first deploy to start).
+6. Configure durable storage **before deploying** (see Saving games below). Set `NODE_ENV=production`.
+7. Click **Deploy** (or wait for the first deploy to start).
 
 ### Step 1.4 – Get the server URL
 
@@ -133,8 +134,50 @@ The server accepts all origins when `CLIENT_ORIGINS` is unset, which makes the f
 
 ---
 
+## Saving games and recovering after a server stop
+
+The server now saves a versioned private snapshot before publishing every accepted change. It preserves room codes, seats, hands, deck order, scores, melds and turn state. A reconnect uses a private recovery token; names and room codes cannot reclaim somebody else's hand. Tokens are hashed in storage and must never be copied into bug reports or committed to Git.
+
+- Your seat is recoverable after the first successful join, through connection loss, server restarts and reloads of the **same browser tab**. Keep that tab open. Closing it, clearing browser storage or changing device does not guarantee recovery.
+- Disconnected players stay in the room. **Back to menu / Leave** explicitly gives up your seat.
+- When all players disconnect, clocks pause. After restart, clocks resume relative to the last saved state with at least 10 seconds of turn grace. If some players remain online, normal configured turn timeouts still apply.
+- Abandoned rooms expire after **72 hours** without activity. This is recovery for ongoing games, not permanent game-history storage.
+- A storage failure pauses actions. The hosted process exits after the first failed action so the host supervisor can restart it and reload the last confirmed snapshot. Unconfirmed clicks are not automatically replayed. Health checks report an unhealthy store without querying it to keep a free database awake.
+
+Choose **one** storage configuration:
+
+1. **Railway volume:** attach a persistent volume at `/data`, then set `GAME_STATE_PATH=/data/games.json`. Do not set this path unless the volume is actually mounted. Volume usage counts against the hosting allowance; confirm the plan and spending constraints first.
+2. **PostgreSQL:** set a server-only `DATABASE_URL` for a durable database, using a direct connection or session-mode pool. Transaction-mode poolers are incompatible with the exclusive writer lock. TLS must remain verified. The database user needs permission to create/update `conti_game_state` in its own database.
+
+Never put `DATABASE_URL` in Vercel's `VITE_` variables. It is a secret for the server, not the website.
+
+The ordinary container filesystem is temporary. A JSON file inside it does **not** survive provider replacement/redeployment. Production, Railway and Render starts refuse to run without explicit storage configuration. Local development defaults to `server/data/games.json` when started from `server/`; this private directory is ignored by Git and Docker.
+
+Run only **one server replica** against a snapshot. Stop the previous instance before starting its replacement. The storage lock intentionally prevents two servers from corrupting a shared game. File locks recover after a hard stop in about 10 seconds; startup waits for the stale lock. PostgreSQL waits up to 20 seconds for the previous writer. With database-backed Render deployments, use manual stop/suspend, deploy/resume so the old writer is released. A normal overlapping zero-downtime deploy will be rejected by the lock. Keep a separate database/snapshot for previews.
+
+## Render fallback (website stays on Vercel)
+
+`render.yaml` declares a **Free** Node web service only. It does not create a database, buy storage, or upgrade a plan. Authorize access to the intended GitHub repository, then supply a durable `DATABASE_URL`. Keep auto-deploy off for the single-writer replacement procedure described above.
+
+If configuring manually:
+
+- Repository root: leave empty (root of Conti).
+- Build: `npm --prefix server install --include=dev && npm --prefix server run build`
+- Start: `node server/dist/index.js`
+- Health check: `/health`
+- Node: 22; `NODE_ENV=production`.
+- `CLIENT_ORIGINS=https://conti-six.vercel.app` (add separate approved origins only as needed).
+- `DATABASE_URL`: durable direct/session-mode PostgreSQL connection, server-only.
+- Compute: **Free**, one instance. Do not attach a paid disk or select a paid instance without approval.
+
+After `/health` returns `{ "ok": true }`, set Vercel's `VITE_SOCKET_URL` to the new **HTTPS** Render URL and redeploy the client. Test two-player gameplay and server restart before declaring the migration complete. Keep Railway unchanged until the replacement is verified.
+
+Render Free sleeps after 15 minutes of no inbound HTTP/WebSocket traffic and can take about a minute to wake. Local files are lost on sleep/restart, persistent disks are not available on Free, and free Render Postgres expires after 30 days. Therefore free Render Postgres is not a lasting storage solution. A separate approved durable database is needed for long-term free hosting. Check the account's bandwidth/build allowances and payment settings; do not assume every overage is free. [Render Free documentation](https://render.com/docs/free)
+
+Railway Free currently rejects deployments from 8 a.m. to 8 p.m. in the target region's local time. For US East that means Eastern time. This restriction is separate from code/build failures. [Railway deployment reference](https://docs.railway.com/deployments/reference#free-tier-peak-hours-restriction)
+
 ## Updating the app later
 
-- **Code:** Push to GitHub. Railway and Vercel will redeploy automatically if connected to the repo.
+- **Code:** Run the tests, push to GitHub, and check the included CI workflow. Railway's “Wait for CI” now has a workflow to wait on. Vercel may deploy automatically. For a shared database, replace the backend using the single-writer procedure above.
 - **Server:** Keep the repository root and let `railway.toml` provide the build, start, and health-check settings.
 - **Client:** Change Root Directory = `client`, keep `VITE_SOCKET_URL` set to the same Railway URL.

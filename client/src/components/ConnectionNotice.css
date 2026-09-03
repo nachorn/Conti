@@ -1,0 +1,40 @@
+.connection-notice {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  width: 100%;
+  padding: max(0.85rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) 0.85rem max(1rem, env(safe-area-inset-left, 0px));
+  background: #302912;
+  border-bottom: 1px solid var(--gold-dim);
+  color: var(--cream);
+}
+
+.connection-notice-copy {
+  flex: 1 1 240px;
+  max-width: 900px;
+  min-width: 0;
+}
+
+.connection-notice strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.connection-notice p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--cream-muted);
+  overflow-wrap: anywhere;
+}
+
+.connection-notice button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  background: var(--gold-bright);
+  color: var(--black);
+}

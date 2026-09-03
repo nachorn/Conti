@@ -1,0 +1,23 @@
+# The website remains on Vercel. This creates only the free game server.
+# DATABASE_URL must be a durable PostgreSQL direct/session connection.
+# Never replace it with the free service's ephemeral filesystem.
+services:
+  - type: web
+    name: conti-server
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm --prefix server install --include=dev && npm --prefix server run build
+    startCommand: node server/dist/index.js
+    healthCheckPath: /health
+    # One writer owns the game snapshot. Stop old server before manual replacement.
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGINS
+        value: https://conti-six.vercel.app
+      - key: DATABASE_URL
+        sync: false

@@ -86,6 +86,8 @@ function sortHandByOrder(hand: CardType[], order: string[]): CardType[] {
 interface GameBoardProps {
   state: GameState
   socketId: string | null
+  /** Last state remains visible while offline, but no gameplay actions are allowed. */
+  isConnected?: boolean
   lang: Lang
   setLang: (lang: Lang) => void
   error?: string | null
@@ -106,6 +108,7 @@ interface GameBoardProps {
 export function GameBoard({
   state,
   socketId,
+  isConnected = true,
   lang,
   setLang,
   error: serverError,
@@ -172,9 +175,10 @@ export function GameBoard({
   const cardsThisRound = cardsPerPlayerForRound(state.round)
   const currentPlayerHasDrawn = state.currentPlayerHasDrawn ?? (myHand.length !== cardsThisRound)
   const needToDraw = state.currentPlayerHasDrawn != null ? !state.currentPlayerHasDrawn : (myHand.length === cardsThisRound)
-  const canDraw = state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && needToDraw
+  const canDraw = isConnected && state.phase === 'playing' && discardOptionIndex === null && state.currentPlayerIndex === myIndex && needToDraw
   const everyoneHadTurn = (state.hasHadTurn?.length === n && state.hasHadTurn.every(Boolean)) ?? false
   const canDiscard =
+    isConnected &&
     state.phase === 'playing' &&
     discardOptionIndex === null &&
     state.currentPlayerIndex === myIndex &&
@@ -197,12 +201,12 @@ export function GameBoard({
   const discardDelayRemaining = discardOptionAvailableAt != null && now < discardOptionAvailableAt
     ? Math.ceil((discardOptionAvailableAt - now) / 1000)
     : 0
-  const canTakeOrPass = isMyDiscardOption && !discardDelayRemaining
+  const canTakeOrPass = isConnected && isMyDiscardOption && !discardDelayRemaining
 
   const secondsPerTurn = state.secondsPerTurn ?? 0
   const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null)
   useEffect(() => {
-    if (!isMyTurn) {
+    if (!isConnected || !isMyTurn) {
       setTurnSecondsLeft(null)
       return
     }
@@ -217,7 +221,7 @@ export function GameBoard({
     updateCountdown()
     const t = setInterval(updateCountdown, 500)
     return () => clearInterval(t)
-  }, [state.phase, isMyTurn, secondsPerTurn, turnDeadline])
+  }, [state.phase, isConnected, isMyTurn, secondsPerTurn, turnDeadline])
 
 
   // Show a short sample deal, regardless of the number of cards in the round.
@@ -381,13 +385,14 @@ export function GameBoard({
                 className={`poker-seat ${isEmpty ? 'poker-seat-empty' : ''} ${isMe ? 'poker-seat-me' : ''}`}
                 style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
                 onClick={() => {
-                  if (isEmpty && onSetSeat) onSetSeat(seatIndex)
+                  if (isConnected && isEmpty && onSetSeat) onSetSeat(seatIndex)
                 }}
                 role={isEmpty && onSetSeat ? 'button' : undefined}
-                tabIndex={isEmpty && onSetSeat ? 0 : undefined}
+                tabIndex={isConnected && isEmpty && onSetSeat ? 0 : undefined}
+                aria-disabled={isEmpty && onSetSeat ? !isConnected : undefined}
                 aria-label={isEmpty ? `${t(lang, 'sitHere')} ${seatIndex + 1}` : undefined}
                 onKeyDown={(event) => {
-                  if (isEmpty && onSetSeat && (event.key === 'Enter' || event.key === ' ')) {
+                  if (isConnected && isEmpty && onSetSeat && (event.key === 'Enter' || event.key === ' ')) {
                     event.preventDefault()
                     onSetSeat(seatIndex)
                   }
@@ -441,7 +446,7 @@ export function GameBoard({
                     secondsPerTurn: lobbyTurnSecs,
                   })
                 }
-                disabled={state.players.length < 2}
+                disabled={!isConnected || state.players.length < 2}
               >
                 {t(lang, 'startGame')} ({state.players.length} {t(lang, 'players')})
               </button>
@@ -489,7 +494,7 @@ export function GameBoard({
             ))}
           </ul>
           {state.round < 7 && isHost && (
-            <button className="game-next-round-btn" onClick={onNextRound}>{t(lang, 'nextRound')}</button>
+            <button className="game-next-round-btn" onClick={onNextRound} disabled={!isConnected}>{t(lang, 'nextRound')}</button>
           )}
           {state.round < 7 && !isHost && (
             <p className="game-wait-host-msg">{t(lang, 'waitingForHost')}</p>
@@ -559,7 +564,7 @@ export function GameBoard({
               animationsOn={animationsOn}
               toggleAnimations={() => setAnimationsOn((v) => !v)}
               onBack={onLeave}
-              onDebugSkipRound={state.phase === 'playing' ? onDebugSkipRound : undefined}
+              onDebugSkipRound={isConnected && state.phase === 'playing' ? onDebugSkipRound : undefined}
               setLang={setLang}
             />
             <Scoreboard state={state} lang={lang} />
@@ -576,7 +581,8 @@ export function GameBoard({
           </span>
         </div>
         <div className="game-turn-status" role="status" aria-live="polite">
-          {turnPlayer && (
+          {!isConnected && <span className="turn-badge">{lang === 'es' ? 'Sin conexión' : 'Offline'}</span>}
+          {isConnected && turnPlayer && (
             <span className={`turn-badge ${isMyTurn ? 'turn-badge-you' : ''}`}>
               {isMyTurn ? t(lang, 'yourTurn') : `${turnPlayer.name}${t(lang, 'turn')}`}
             </span>
@@ -584,7 +590,7 @@ export function GameBoard({
           {turnSecondsLeft != null && secondsPerTurn > 0 && (
             <span className="turn-timer">{turnSecondsLeft}{t(lang, 's')}</span>
           )}
-          {isMyDiscardOption && discardDelayRemaining > 0 && (
+          {isConnected && isMyDiscardOption && discardDelayRemaining > 0 && (
             <span className="turn-badge discard-delay-badge">{t(lang, 'takePassIn')} {discardDelayRemaining}{t(lang, 's')}</span>
           )}
           {hasPriority && canTakeOrPass && (
@@ -866,6 +872,11 @@ export function GameBoard({
           </button>
         </div>
         <div className="game-actions">
+          {!isConnected && (
+            <p className="game-meld-wait-msg" role="status">
+              {lang === 'es' ? 'No se enviarán jugadas hasta recuperar la conexión.' : 'Moves are disabled until your connection is restored.'}
+            </p>
+          )}
           {isMyDiscardOption && (
             <>
               <span className="game-actions-label">{t(lang, 'wantTheTopCard')}</span>

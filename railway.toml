@@ -6,6 +6,6 @@ builder = "railpack"
 buildCommand = "npm run build:server"
 
 [deploy]
-startCommand = "cd server && npm start"
+startCommand = "node server/dist/index.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 30

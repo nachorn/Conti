@@ -18,6 +18,10 @@ server/dist/
 .pnpm-store/
 *.tsbuildinfo
 
+# Local private game snapshots (never publish hands or session hashes)
+data/
+server/data/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -13,8 +13,9 @@ RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
-COPY --from=builder /app/server/dist ./dist
-COPY --from=builder /app/server/package.json ./
-RUN npm install --omit=dev --ignore-scripts
+ENV NODE_ENV=production
+COPY --from=builder /app/server/dist ./server/dist
+COPY --from=builder /app/server/package*.json ./server/
+RUN cd server && npm install --omit=dev --ignore-scripts
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "server/dist/index.js"]

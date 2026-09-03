@@ -24,6 +24,236 @@ export interface RoomOptions {
   secondsPerTurn?: number
 }
 
+/** Private server save data. Never emit this in place of the redacted GameState. */
+export interface RoomSnapshot {
+  version: 1
+  roomId: string
+  gameType: GameType
+  maxPlayers: number
+  deckCount: 2 | 3
+  players: Player[]
+  phase: GamePhase
+  round: number
+  contract: RoundContract
+  currentPlayerIndex: number
+  dealerIndex: number
+  melds: Meld[]
+  stock: Card[]
+  discardPile: Card[]
+  topDiscard: Card | null
+  roundScores: Record<string, number>
+  roundPenalties: Record<string, number>
+  roundEnderId: string | null
+  discardOptionPlayerIndex: number | null
+  discarderIndex: number | null
+  discardOptionAvailableAt: number | null
+  discardOptionDelaySeconds: number
+  secondsPerTurn: number
+  turnDeadline: number | null
+  swappedJokerCardId: string | null
+  swappedJokerPlayerId: string | null
+  hasHadTurn: boolean[]
+  currentPlayerHasDrawn: boolean
+  playedMeldThisTurn: boolean
+}
+
+const MAX_SNAPSHOT_CARDS = 3 * 54
+
+function invalidSnapshot(field: string): never {
+  throw new Error(`Invalid room snapshot: ${field}`)
+}
+
+function snapshotObject(value: unknown, field: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) invalidSnapshot(field)
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) invalidSnapshot(field)
+  return value as Record<string, unknown>
+}
+
+function snapshotNumber(value: unknown, field: string, min: number, max: number, integer = true): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isSafeInteger(value))) {
+    invalidSnapshot(field)
+  }
+  return value
+}
+
+function snapshotBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') invalidSnapshot(field)
+  return value
+}
+
+function snapshotId(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value) || ['__proto__', 'constructor', 'prototype'].includes(value)) {
+    invalidSnapshot(field)
+  }
+  return value
+}
+
+function snapshotNullableId(value: unknown, field: string): string | null {
+  return value === null ? null : snapshotId(value, field)
+}
+
+function snapshotNullableNumber(value: unknown, field: string, max = Number.MAX_SAFE_INTEGER, integer = true): number | null {
+  return value === null ? null : snapshotNumber(value, field, 0, max, integer)
+}
+
+function snapshotArray(value: unknown, field: string, maxLength: number): unknown[] {
+  if (!Array.isArray(value) || value.length > maxLength) invalidSnapshot(field)
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) invalidSnapshot(`${field}[${index}]`)
+  }
+  return value
+}
+
+function snapshotCard(value: unknown, field: string): Card {
+  const card = snapshotObject(value, field)
+  const id = snapshotId(card.id, `${field}.id`)
+  const suit = card.suit
+  if (suit !== 'hearts' && suit !== 'diamonds' && suit !== 'clubs' && suit !== 'spades' && suit !== 'joker') {
+    invalidSnapshot(`${field}.suit`)
+  }
+  const rank = suit === 'joker'
+    ? snapshotNumber(card.rank, `${field}.rank`, 0, 0)
+    : snapshotNumber(card.rank, `${field}.rank`, 2, 14)
+  const result: Card = { id, suit, rank }
+  if (Object.hasOwn(card, 'isWild')) result.isWild = snapshotBoolean(card.isWild, `${field}.isWild`)
+  return result
+}
+
+function snapshotCards(value: unknown, field: string): Card[] {
+  return snapshotArray(value, field, MAX_SNAPSHOT_CARDS).map((card, index) => snapshotCard(card, `${field}[${index}]`))
+}
+
+function snapshotScores(value: unknown, field: string, playerIds: Set<string>): Record<string, number> {
+  const source = snapshotObject(value, field)
+  const scores: Record<string, number> = {}
+  for (const [key, score] of Object.entries(source)) {
+    const id = snapshotId(key, `${field}.playerId`)
+    if (!playerIds.has(id)) invalidSnapshot(`${field}.playerId`)
+    scores[id] = snapshotNumber(score, `${field}.${id}`, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+  }
+  return scores
+}
+
+/** Parse only known fields, so stored credentials or unexpected properties cannot enter Room. */
+function parseRoomSnapshot(value: unknown): RoomSnapshot {
+  const source = snapshotObject(value, 'record')
+  if (source.version !== 1) throw new Error('Unsupported room snapshot version')
+  const roomId = snapshotId(source.roomId, 'roomId')
+  const gameType = source.gameType
+  if (gameType !== 'continental' && gameType !== 'pocha') invalidSnapshot('gameType')
+  const maxPlayers = snapshotNumber(source.maxPlayers, 'maxPlayers', 1, MAX_PLAYERS)
+  const deckCount = source.deckCount
+  if (deckCount !== 2 && deckCount !== 3) invalidSnapshot('deckCount')
+  const phase = source.phase
+  if (phase !== 'lobby' && phase !== 'playing' && phase !== 'round_end' && phase !== 'game_end') invalidSnapshot('phase')
+  const round = snapshotNumber(source.round, 'round', 1, 8)
+  const players: Player[] = snapshotArray(source.players, 'players', maxPlayers).map((value, index) => {
+    const field = `players[${index}]`
+    const player = snapshotObject(value, field)
+    if (typeof player.name !== 'string' || player.name.length === 0 || player.name.length > 24) invalidSnapshot(`${field}.name`)
+    return {
+      id: snapshotId(player.id, `${field}.id`),
+      name: player.name,
+      score: snapshotNumber(player.score, `${field}.score`, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+      hand: snapshotCards(player.hand, `${field}.hand`),
+      connected: snapshotBoolean(player.connected, `${field}.connected`),
+      seatIndex: snapshotNumber(player.seatIndex, `${field}.seatIndex`, 0, maxPlayers - 1),
+    }
+  })
+  const playerIds = new Set(players.map(player => player.id))
+  if (playerIds.size !== players.length) invalidSnapshot('duplicate player ids')
+  if (new Set(players.map(player => player.seatIndex)).size !== players.length) invalidSnapshot('duplicate player seats')
+  if (phase === 'playing' && players.length < MIN_PLAYERS) invalidSnapshot('playing player count')
+  if (round === 8 && phase !== 'game_end' && !(phase === 'lobby' && players.length === 0)) invalidSnapshot('round')
+
+  const contractSource = snapshotObject(source.contract, 'contract')
+  const contract: RoundContract = {
+    round: snapshotNumber(contractSource.round, 'contract.round', 1, 7),
+    minCards: snapshotNumber(contractSource.minCards, 'contract.minCards', 1, 13),
+    requirements: snapshotArray(contractSource.requirements, 'contract.requirements', 3).map((value, index) => {
+      const field = `contract.requirements[${index}]`
+      const requirement = snapshotObject(value, field)
+      if (requirement.type !== 'trio' && requirement.type !== 'straight') invalidSnapshot(`${field}.type`)
+      return { type: requirement.type, minLength: snapshotNumber(requirement.minLength, `${field}.minLength`, 3, 4) }
+    }),
+  }
+  const expectedContract = CONTINENTAL_ROUNDS[Math.min(round, 7) - 1]!
+  if (JSON.stringify(contract) !== JSON.stringify(expectedContract)) invalidSnapshot('contract does not match round')
+
+  const maxPlayerIndex = Math.max(0, players.length - 1)
+  const currentPlayerIndex = snapshotNumber(source.currentPlayerIndex, 'currentPlayerIndex', 0, maxPlayerIndex)
+  const dealerIndex = snapshotNumber(source.dealerIndex, 'dealerIndex', 0, maxPlayerIndex)
+  const discardOptionPlayerIndex = snapshotNullableNumber(source.discardOptionPlayerIndex, 'discardOptionPlayerIndex', maxPlayerIndex)
+  const discarderIndex = snapshotNullableNumber(source.discarderIndex, 'discarderIndex', maxPlayerIndex)
+  if (players.length === 0 && (discardOptionPlayerIndex !== null || discarderIndex !== null)) invalidSnapshot('empty room discard indexes')
+
+  const melds: Meld[] = snapshotArray(source.melds, 'melds', MAX_SNAPSHOT_CARDS).map((value, index) => {
+    const field = `melds[${index}]`
+    const meld = snapshotObject(value, field)
+    if (meld.type !== 'trio' && meld.type !== 'straight') invalidSnapshot(`${field}.type`)
+    const cards = snapshotCards(meld.cards, `${field}.cards`)
+    if (!isValidMeld(meld.type, cards)) invalidSnapshot(`${field}.cards`)
+    return {
+      id: snapshotId(meld.id, `${field}.id`),
+      type: meld.type,
+      cards,
+      // A player who explicitly leaves may still own melds on the table.
+      ownerId: snapshotId(meld.ownerId, `${field}.ownerId`),
+    }
+  })
+  if (new Set(melds.map(meld => meld.id)).size !== melds.length) invalidSnapshot('duplicate meld ids')
+  const stock = snapshotCards(source.stock, 'stock')
+  const discardPile = snapshotCards(source.discardPile, 'discardPile')
+  const topDiscard = source.topDiscard === null ? null : snapshotCard(source.topDiscard, 'topDiscard')
+  const expectedTopDiscard = discardPile.at(-1) ?? null
+  if (JSON.stringify(topDiscard) !== JSON.stringify(expectedTopDiscard)) invalidSnapshot('topDiscard does not match discardPile')
+  const physicalCards = [...players.flatMap(player => player.hand), ...stock, ...discardPile, ...melds.flatMap(meld => meld.cards)]
+  if (physicalCards.length > deckCount * 54) invalidSnapshot('too many cards')
+  if (new Set(physicalCards.map(card => card.id)).size !== physicalCards.length) invalidSnapshot('duplicate card ids')
+
+  const swappedJokerCardId = snapshotNullableId(source.swappedJokerCardId, 'swappedJokerCardId')
+  const swappedJokerPlayerId = snapshotNullableId(source.swappedJokerPlayerId, 'swappedJokerPlayerId')
+  if ((swappedJokerCardId === null) !== (swappedJokerPlayerId === null)) invalidSnapshot('swapped joker references')
+  if (swappedJokerCardId !== null && !players.find(player => player.id === swappedJokerPlayerId)?.hand.some(card => card.id === swappedJokerCardId && card.suit === 'joker')) {
+    invalidSnapshot('swapped joker missing from player hand')
+  }
+  const hasHadTurn = snapshotArray(source.hasHadTurn, 'hasHadTurn', players.length).map((value, index) => snapshotBoolean(value, `hasHadTurn[${index}]`))
+  if (hasHadTurn.length !== players.length && !(phase === 'lobby' && hasHadTurn.length === 0)) invalidSnapshot('hasHadTurn length')
+
+  return {
+    version: 1,
+    roomId,
+    gameType,
+    maxPlayers,
+    deckCount,
+    players,
+    phase,
+    round,
+    contract,
+    currentPlayerIndex,
+    dealerIndex,
+    melds,
+    stock,
+    discardPile,
+    topDiscard,
+    roundScores: snapshotScores(source.roundScores, 'roundScores', playerIds),
+    roundPenalties: snapshotScores(source.roundPenalties, 'roundPenalties', playerIds),
+    roundEnderId: snapshotNullableId(source.roundEnderId, 'roundEnderId'),
+    discardOptionPlayerIndex,
+    discarderIndex,
+    discardOptionAvailableAt: snapshotNullableNumber(source.discardOptionAvailableAt, 'discardOptionAvailableAt', Number.MAX_SAFE_INTEGER, false),
+    discardOptionDelaySeconds: snapshotNumber(source.discardOptionDelaySeconds, 'discardOptionDelaySeconds', 0, 30, false),
+    secondsPerTurn: snapshotNumber(source.secondsPerTurn, 'secondsPerTurn', 0, 120, false),
+    turnDeadline: snapshotNullableNumber(source.turnDeadline, 'turnDeadline', Number.MAX_SAFE_INTEGER, false),
+    swappedJokerCardId,
+    swappedJokerPlayerId,
+    hasHadTurn,
+    currentPlayerHasDrawn: snapshotBoolean(source.currentPlayerHasDrawn, 'currentPlayerHasDrawn'),
+    playedMeldThisTurn: snapshotBoolean(source.playedMeldThisTurn, 'playedMeldThisTurn'),
+  }
+}
+
 export class Room {
   roomId: string
   gameType: GameType
@@ -60,6 +290,51 @@ export class Room {
   currentPlayerHasDrawn: boolean = false
   /** Current player played contract meld this turn (for same-turn win scoring). */
   playedMeldThisTurn: boolean = false
+
+  /** Return detached, complete private data, including stock order and every hand. */
+  toSnapshot(): RoomSnapshot {
+    return structuredClone({
+      version: 1,
+      roomId: this.roomId,
+      gameType: this.gameType,
+      maxPlayers: this.maxPlayers,
+      deckCount: this.deckCount,
+      players: this.players,
+      phase: this.phase,
+      round: this.round,
+      contract: this.contract,
+      currentPlayerIndex: this.currentPlayerIndex,
+      dealerIndex: this.dealerIndex,
+      melds: this.melds,
+      stock: this.stock,
+      discardPile: this.discardPile,
+      topDiscard: this.topDiscard,
+      roundScores: this.roundScores,
+      roundPenalties: this.roundPenalties,
+      roundEnderId: this.roundEnderId,
+      discardOptionPlayerIndex: this.discardOptionPlayerIndex,
+      discarderIndex: this.discarderIndex,
+      discardOptionAvailableAt: this.discardOptionAvailableAt,
+      discardOptionDelaySeconds: this.discardOptionDelaySeconds,
+      secondsPerTurn: this.secondsPerTurn,
+      turnDeadline: this.turnDeadline,
+      swappedJokerCardId: this.swappedJokerCardId,
+      swappedJokerPlayerId: this.swappedJokerPlayerId,
+      hasHadTurn: this.hasHadTurn,
+      currentPlayerHasDrawn: this.currentPlayerHasDrawn,
+      playedMeldThisTurn: this.playedMeldThisTurn,
+    })
+  }
+
+  /** Startup restores offline players; pass false for an exact transaction rollback clone. */
+  static fromSnapshot(value: unknown, { disconnectPlayers = true }: { disconnectPlayers?: boolean } = {}): Room {
+    const { version: _version, ...snapshot } = parseRoomSnapshot(value)
+    const room = new Room(snapshot)
+    // All properties here came from the explicit validated allowlist above.
+    Object.assign(room, snapshot)
+    if (disconnectPlayers) for (const player of room.players) player.connected = false
+    return room
+  }
 
   constructor(options: RoomOptions = {}) {
     this.roomId = options.roomId ?? ''

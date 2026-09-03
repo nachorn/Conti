@@ -5,6 +5,7 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
 import { GameBoard } from './components/GameBoard'
+import { ConnectionNotice } from './components/ConnectionNotice'
 import { PochaBoard } from './components/PochaBoard'
 import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
@@ -45,6 +46,11 @@ export default function App() {
     leave,
     nextRound,
     socketId,
+    connectionStatus,
+    isConnected,
+    recoveryRoomId,
+    sessionStorageAvailable,
+    reconnect,
   } = useSocket()
 
   useEffect(() => {
@@ -67,7 +73,8 @@ export default function App() {
     leave()
     setShowPochaDev(false)
     setShowContinentalDev(false)
-    navigate('/')
+    // GamePage redirects only after the server confirms left. An offline click
+    // must not abandon the saved seat or briefly show the wrong screen.
   }
 
   const handleCreateContinental = (name: string, deckCount?: 2 | 3) => {
@@ -81,6 +88,16 @@ export default function App() {
 
   return (
     <>
+      {!showPochaDev && !showContinentalDev && (
+        <ConnectionNotice
+          status={connectionStatus}
+          recoveryRoomId={recoveryRoomId}
+          sessionStorageAvailable={sessionStorageAvailable}
+          error={location.pathname === '/game' && !state ? error : null}
+          lang={lang}
+          onReconnect={reconnect}
+        />
+      )}
       <Routes>
         <Route
           path="/"
@@ -90,6 +107,7 @@ export default function App() {
               onCreatePocha={handleCreatePocha}
               onJoin={join}
               error={error}
+              isConnected={isConnected}
               lang={lang}
               setLang={setLang}
               initialJoinRoomId={null}
@@ -112,6 +130,7 @@ export default function App() {
               onCreatePocha={handleCreatePocha}
               onJoin={join}
               error={error}
+              isConnected={isConnected}
               lang={lang}
               setLang={setLang}
               onOpenPochaDev={() => { setShowPochaDev(true); navigate('/game') }}
@@ -127,6 +146,8 @@ export default function App() {
               roomId={roomId}
               error={error}
               socketId={socketId}
+              isConnected={isConnected}
+              recovering={recoveryRoomId !== null}
               lang={lang}
               setLang={setLang}
               showPochaDev={showPochaDev}
@@ -174,6 +195,8 @@ function GamePage({
   roomId,
   error,
   socketId,
+  isConnected,
+  recovering,
   lang,
   setLang,
   showPochaDev,
@@ -198,6 +221,8 @@ function GamePage({
   roomId: string | null
   error: string | null
   socketId: string | null
+  isConnected: boolean
+  recovering: boolean
   lang: import('./i18n').Lang
   setLang: (l: import('./i18n').Lang) => void
   showPochaDev: boolean
@@ -220,10 +245,10 @@ function GamePage({
 }) {
   const navigate = useNavigate()
   useEffect(() => {
-    if (!showPochaDev && !showContinentalDev && !(state && roomId)) {
+    if (!showPochaDev && !showContinentalDev && !recovering && !(state && roomId)) {
       navigate('/', { replace: true })
     }
-  }, [showPochaDev, showContinentalDev, state, roomId, navigate])
+  }, [showPochaDev, showContinentalDev, recovering, state, roomId, navigate])
 
   if (showPochaDev) {
     return (
@@ -272,6 +297,7 @@ function GamePage({
       <GameBoard
         state={state}
         socketId={socketId}
+        isConnected={isConnected}
         lang={lang}
         setLang={setLang}
         error={error}

@@ -7,6 +7,8 @@ client/
 node_modules/
 server/node_modules/
 server/dist/
+data/
+server/data/
 .cursor/
 .idea/
 .vscode/
