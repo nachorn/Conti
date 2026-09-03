@@ -5,7 +5,7 @@ export interface Card {
   id: string
   suit: Suit
   rank: number
-  isWild?: boolean
+  isWild?: boolean // true only for Jokers; optional for snapshot compatibility
 }
 
 export type MeldType = 'trio' | 'straight'

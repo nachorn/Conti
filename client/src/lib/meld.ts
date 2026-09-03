@@ -1,7 +1,7 @@
 import type { Card, MeldType, RoundContract } from '../types'
 
 function isWild(c: Card): boolean {
-  return c.isWild === true || c.suit === 'joker' || c.rank === 0
+  return c.suit === 'joker' || c.rank === 0
 }
 
 export function isValidTrio(cards: Card[]): boolean {

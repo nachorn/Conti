@@ -6,7 +6,7 @@ function makeId(): string {
 }
 
 function makeCard(suit: Card['suit'], rank: number, isWild = false): Card {
-  const wild = isWild || suit === 'joker' || rank === 2
+  const wild = isWild || suit === 'joker'
   return { id: makeId(), suit, rank, ...(wild ? { isWild: true } : {}) }
 }
 

@@ -1,22 +1,24 @@
 import type { Card, MeldType, RoundContract } from '../types.js'
 import { CONTINENTAL_ROUNDS } from '../types.js'
 
-/** Check if cards form a valid trio (same rank, 3+ cards, wilds allowed). More natural cards than jokers. */
-export function isValidTrio(cards: Card[]): boolean {
-  if (cards.length < 3) return false
-  const nonWild = cards.filter(c => !c.isWild && c.suit !== 'joker')
-  const wildCount = cards.length - nonWild.length
-  if (nonWild.length <= wildCount) return false
-  if (nonWild.length === 0) return false
-  const rank = nonWild[0]!.rank
-  if (nonWild.some(c => c.rank !== rank)) return false
-  return nonWild.length + wildCount >= 3
+function isJoker(card: Card): boolean {
+  return card.suit === 'joker' || card.rank === 0
 }
 
-/** Check if cards form a valid straight: 4+ cards, one suit, consecutive (A-2-3-4 or A-K-Q-J ok; no wrap), more cards than jokers, no two jokers adjacent. */
+/** Check if cards form a valid trio (same rank, 3+ cards, Jokers allowed). More natural cards than Jokers. */
+export function isValidTrio(cards: Card[]): boolean {
+  if (cards.length < 3) return false
+  const nonWild = cards.filter(card => !isJoker(card))
+  const wildCount = cards.length - nonWild.length
+  if (nonWild.length <= wildCount || nonWild.length === 0) return false
+  const rank = nonWild[0]!.rank
+  return nonWild.every(card => card.rank === rank)
+}
+
+/** Check if cards form a valid straight: 4+ cards, one suit, consecutive (A-2-3-4 or A-K-Q-J ok; no wrap), more natural cards than Jokers, no two Jokers adjacent. */
 export function isValidStraight(cards: Card[]): boolean {
   if (cards.length < 4) return false
-  const nonWild = cards.filter(c => !c.isWild && c.suit !== 'joker')
+  const nonWild = cards.filter(card => !isJoker(card))
   const wildCount = cards.length - nonWild.length
   if (nonWild.length <= wildCount) return false
   if (nonWild.length === 0) return false
@@ -79,7 +81,7 @@ export function getContract(round: number): RoundContract {
 
 /** Check if a card from hand can replace a joker in this meld (for swap). */
 export function canReplaceJokerInMeld(meld: { type: MeldType; cards: Card[] }, card: Card): boolean {
-  if (card.suit === 'joker' || card.isWild) return false
+  if (isJoker(card)) return false
   for (let index = 0; index < meld.cards.length; index++) {
     const existing = meld.cards[index]!
     if (existing.suit !== 'joker') continue

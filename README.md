@@ -5,7 +5,7 @@ A real-time multiplayer web app for **Continental Rummy** (2–10 players). One 
 ## Rules (standard variant)
 
 - **7 rounds**, each with a contract (e.g. Round 1: two trios; Round 2: one trio + one straight; …).
-- **Trios**: 3+ cards of the same rank (2s and Jokers are wild).
+- **Trios**: 3+ cards of the same rank (Jokers are wild; 2s always play naturally as 2s).
 - **Straights**: 4+ cards of the same suit in sequence (Ace high or low, no wrap).
 - Each round you **draw** (stock or top discard), optionally **play melds** or add to existing melds, then **discard**.
 - The round ends when a player gets rid of their last card. **Penalty scoring**: cards left in hand count against you (Joker 50, Ace 20, J/Q/K 10, numbered cards at face value). Lowest total score after 7 rounds wins.

@@ -5,7 +5,7 @@ export interface Card {
   id: string
   suit: Suit
   rank: number // 2-14, 0 for joker
-  isWild?: boolean // deuce or joker
+  isWild?: boolean // true only for Jokers; optional for snapshot compatibility
 }
 
 /** Melds: trio = same rank; straight = same suit, consecutive (ace high or low, no wrap). */

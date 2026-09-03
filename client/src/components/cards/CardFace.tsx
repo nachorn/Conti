@@ -11,7 +11,7 @@ export interface CardFaceProps {
   rank: number
   width?: number
   height?: number
-  /** Emphasize as wild (e.g. deuce or joker). */
+  /** Emphasize a Joker as wild. */
   isWild?: boolean
 }
 

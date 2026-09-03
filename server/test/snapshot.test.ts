@@ -63,6 +63,16 @@ test('startup hydration resets connection flags but does not change deadlines or
   assert.equal(saved.players[0]!.connected, true)
 })
 
+test('startup hydration migrates a legacy wild deuce to a natural card', () => {
+  const saved = jsonSnapshot(playingRoom())
+  saved.stock[0] = { ...saved.stock[0]!, suit: 'diamonds', rank: 2, isWild: true }
+
+  const restored = Room.fromSnapshot(saved, { disconnectPlayers: false })
+
+  assert.equal(restored.stock[0]!.rank, 2)
+  assert.equal(restored.stock[0]!.isWild, false)
+})
+
 test('snapshots and hydrated rooms do not retain mutable references to their source', () => {
   const room = playingRoom()
   const saved = room.toSnapshot()

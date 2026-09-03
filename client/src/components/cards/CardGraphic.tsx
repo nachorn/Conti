@@ -20,7 +20,7 @@ export function CardGraphic({ card, faceDown = false, width, height }: CardGraph
       rank={card.rank}
       width={width}
       height={height}
-      isWild={card.isWild}
+      isWild={card.suit === 'joker'}
     />
   )
 }

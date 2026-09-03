@@ -21,7 +21,7 @@
 ## Card Values and Wilds
 
 - **Ranks:** 2–10, J (11), Q (12), K (13), A (14). Joker has rank 0.
-- **Wild cards:** All **2s** and all **Jokers** are wild (can stand for any rank/suit in melds).
+- **Wild cards:** Only **Jokers** are wild (they can stand for any rank/suit in melds). **2s always play naturally as rank 2.**
 - **Penalties** (counted at end of each round for cards left in hand):
   - Joker: **50**
   - Ace: **20**
@@ -34,8 +34,8 @@
 
 Two types of melds are used:
 
-1. **Trio** — 3 or more cards of the **same rank** (e.g. 7♥ 7♦ 7♣). Wilds (2s and Jokers) may substitute, but there must be **more natural cards than wilds** in the meld.
-2. **Straight** — 4 or more cards of the **same suit** in **consecutive rank** (e.g. 5♥ 6♥ 7♥ 8♥). Ace can be high (…Q-K-A) or low (A-2-3-4). Again, more natural cards than wilds; no wrap (e.g. K-A-2-3 is not valid).
+1. **Trio** — 3 or more cards of the **same rank** (e.g. 7♥ 7♦ 7♣). Jokers may substitute, but there must be **more natural cards than Jokers** in the meld.
+2. **Straight** — 4 or more cards of the **same suit** in **consecutive rank** (e.g. 5♥ 6♥ 7♥ 8♥). Ace can be high (…Q-K-A) or low (A-2-3-4). Again, there must be more natural cards than Jokers; no wrap (e.g. K-A-2-3 is not valid).
 
 ---
 

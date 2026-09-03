@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createContinentalDeck } from '../src/game/deck.js'
-import { isValidStraight, satisfiesContract } from '../src/game/meld.js'
+import { isValidStraight, isValidTrio, satisfiesContract } from '../src/game/meld.js'
 import { createPochaDeck, createSpanishDeck40, createSpanishDeck48 } from '../src/game/pocha/spanishDeck.js'
 import { getCardsPerHand, trickWinner } from '../src/game/pocha/pochaEngine.js'
 import { handPenalty } from '../src/game/scoring.js'
@@ -11,31 +11,42 @@ function card(id: string, suit: Card['suit'], rank: number, isWild = false): Car
   return { id, suit, rank, isWild }
 }
 
-test('deuces and jokers are marked wild in a Continental deck', () => {
+test('only jokers are marked wild in a Continental deck', () => {
   const deck = createContinentalDeck(2, 2)
   const deuces = deck.filter(c => c.rank === 2)
   const jokers = deck.filter(c => c.suit === 'joker')
+  const nonJokers = deck.filter(c => c.suit !== 'joker')
 
   assert.equal(deuces.length, 8)
-  assert.ok(deuces.every(c => c.isWild === true))
+  assert.ok(deuces.every(c => c.isWild !== true))
   assert.equal(jokers.length, 4)
   assert.ok(jokers.every(c => c.isWild === true))
+  assert.ok(nonJokers.every(c => c.isWild !== true))
 })
 
-test('a wild card can fill an internal straight gap', () => {
+test('a joker can fill an internal straight gap', () => {
   assert.equal(isValidStraight([
     card('5h', 'hearts', 5),
-    card('2h', 'hearts', 2, true),
+    card('j', 'joker', 0, true),
     card('7h', 'hearts', 7),
     card('8h', 'hearts', 8),
   ]), true)
 })
 
-test('two adjacent wild positions do not make a valid straight', () => {
+test('a deuce cannot substitute for a missing rank', () => {
   assert.equal(isValidStraight([
     card('5h', 'hearts', 5),
     card('2h', 'hearts', 2, true),
-    card('j', 'joker', 0, true),
+    card('7h', 'hearts', 7),
+    card('8h', 'hearts', 8),
+  ]), false)
+})
+
+test('two adjacent wild positions do not make a valid straight', () => {
+  assert.equal(isValidStraight([
+    card('5h', 'hearts', 5),
+    card('j1', 'joker', 0, true),
+    card('j2', 'joker', 0, true),
     card('8h', 'hearts', 8),
     card('9h', 'hearts', 9),
   ]), false)
@@ -68,6 +79,24 @@ test('Continental penalties use face value for 2 through 10 and fixed picture-ca
 
   assert.deepEqual(hand.map(card => handPenalty([card])), [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 20, 50])
   assert.equal(handPenalty(hand), 154)
+})
+
+test('a suited deuce can be its natural rank while a joker fills a straight gap', () => {
+  assert.equal(isValidStraight([
+    card('2d', 'diamonds', 2, true),
+    card('3d', 'diamonds', 3),
+    card('joker', 'joker', 0, true),
+    card('5d', 'diamonds', 5),
+  ]), true)
+})
+
+test('deuces form a natural trio while a joker remains wild', () => {
+  assert.equal(isValidTrio([
+    card('2h', 'hearts', 2, true),
+    card('2d', 'diamonds', 2, true),
+    card('2c', 'clubs', 2, true),
+    card('joker', 'joker', 0, true),
+  ]), true)
 })
 
 test('Pocha trick comparison selects the stronger card', () => {

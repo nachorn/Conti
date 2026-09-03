@@ -70,6 +70,29 @@ test('playMelds uses canonical server cards instead of client card attributes', 
   assert.deepEqual(room.players[0]!.hand.map(c => c.id), ['keep'])
 })
 
+test('round two accepts a natural deuce in a straight alongside a joker', () => {
+  const room = playableRoom()
+  room.contract = CONTINENTAL_ROUNDS[1]!
+  room.players[0]!.hand = [
+    card('2d', 'diamonds', 2, true),
+    card('3d', 'diamonds', 3),
+    card('joker', 'joker', 0, true),
+    card('5d', 'diamonds', 5),
+    card('jh', 'hearts', 11),
+    card('jd', 'diamonds', 11),
+    card('jc', 'clubs', 11),
+  ]
+
+  const result = room.playMelds('p1', [
+    { type: 'straight', cards: room.players[0]!.hand.slice(0, 4) },
+    { type: 'trio', cards: room.players[0]!.hand.slice(4) },
+  ])
+
+  assert.deepEqual(result, { ok: true })
+  assert.deepEqual(room.players[0]!.hand, [])
+  assert.deepEqual(room.melds.map(meld => meld.type), ['straight', 'trio'])
+})
+
 test('removing a player preserves turn indexes', () => {
   const room = new Room({ roomId: '1234' })
   room.addPlayer('p1', 'One')
@@ -167,7 +190,7 @@ test('a remaining deuce scores two despite legacy out-of-turn purchase penalties
   assert.equal(room.players[1]!.score, 2)
 })
 
-test('discarding a final wild deuce awards the normal winner score', () => {
+test('discarding a final deuce awards the normal winner score', () => {
   const room = playableRoom()
   room.melds = [{
     id: 'own-trio',

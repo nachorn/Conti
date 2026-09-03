@@ -116,7 +116,14 @@ function snapshotCard(value: unknown, field: string): Card {
     ? snapshotNumber(card.rank, `${field}.rank`, 0, 0)
     : snapshotNumber(card.rank, `${field}.rank`, 2, 14)
   const result: Card = { id, suit, rank }
-  if (Object.hasOwn(card, 'isWild')) result.isWild = snapshotBoolean(card.isWild, `${field}.isWild`)
+  if (Object.hasOwn(card, 'isWild')) {
+    snapshotBoolean(card.isWild, `${field}.isWild`)
+    // Version-1 snapshots marked deuces as wild. Preserve the optional field
+    // shape while migrating its meaning so restored games follow current rules.
+    result.isWild = suit === 'joker'
+  } else if (suit === 'joker') {
+    result.isWild = true
+  }
   return result
 }
 
