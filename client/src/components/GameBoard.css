@@ -1093,6 +1093,7 @@
 
 .game-hand-card-wrap {
   display: inline-block;
+  position: relative;
 }
 
 .game-hand-card-wrap.deal-in {
@@ -1121,26 +1122,11 @@
   border-radius: var(--card-radius);
 }
 
-.game-hand-card-wrap.pointer-dragging .card {
-  opacity: 0.82;
-  transform: translateY(-10px) scale(1.04);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
-}
-
-.game-hand.is-arranging {
-  touch-action: none;
-  scroll-snap-type: none;
-}
-
 .game-hand.is-arranging .game-hand-card-wrap {
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-
-.game-hand.is-arranging .game-hand-card-wrap.pointer-dragging {
-  cursor: grabbing;
 }
 
 @media (pointer: coarse) {
@@ -2019,4 +2005,101 @@
   .poker-table-playing {
     min-height: 300px;
   }
+}
+
+/* Receipts remain readable after the animation and while the hand is scrolled. */
+.card-activity {
+  display: flex;
+  gap: 0.65rem;
+  max-width: 980px;
+  margin: 0 auto 0.5rem;
+  color: var(--cream);
+  font-size: 0.85rem;
+}
+.card-activity-discard,
+.card-receipt {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(255,255,255,0.24);
+  border-radius: 10px;
+  background: #163b2a;
+  min-width: 0;
+  flex: 1;
+}
+.card-activity-discard { flex: 1; }
+.card-activity-draws { display: flex; flex: 2; gap: 0.65rem; min-width: 0; }
+.card-receipt { border-color: #85bdaa; }
+.card-receipt-penalty { border-color: #e5b562; background: #44371c; }
+.card-activity-copy { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; overflow-wrap: anywhere; }
+.card-activity-label { font-size: 0.75rem; font-weight: 700; color: #f4d997; }
+.card-activity-empty { align-self: center; padding: 0.5rem; color: #d0dfd5; }
+.card-activity .card { width: 58px; height: 80px; pointer-events: none; }
+.hand-new-badge {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #15291b;
+  background: #f4d997;
+  font-size: 0.65rem;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.game-hand-card-wrap.card-just-drawn .card { outline: 2px solid #f4d997; outline-offset: 1px; }
+.game-hand.is-arranging {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 14px 6px;
+  max-height: 40dvh;
+  overflow: auto;
+  padding: 1rem 0.4rem 0.5rem;
+  touch-action: pan-y;
+  scroll-snap-type: none;
+}
+.game-hand.is-arranging .game-hand-card-wrap { justify-self: center; cursor: pointer; }
+.game-hand.is-arranging .card { width: 72px; height: 100px; }
+.game-hand.is-arranging .card[data-selected="true"] { transform: none; outline: 3px solid #f4d997; outline-offset: 3px; }
+.hand-move-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem; margin-bottom: 0.5rem; }
+.hand-move-controls button,
+.game-hand-toolbar .hand-sort-btn,
+.game-hand-toolbar .hand-arrange-btn { min-height: 44px; }
+.hand-move-controls button { padding: 0.45rem 0.7rem; }
+.hand-move-controls button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.hand-arrange-hint { font-size: 0.85rem; color: var(--cream); }
+@media (max-width: 700px) {
+  .card-activity { gap: 0.35rem; font-size: 0.75rem; }
+  .card-activity-draws { gap: 0.35rem; }
+  .card-activity-discard, .card-receipt { flex-direction: column; gap: 0.25rem; padding: 0.35rem 0.2rem; text-align: center; }
+  .card-activity .card { width: 52px; height: 70px; padding: 4px; }
+  .card-activity .card-rank { font-size: 1.8rem; }
+  .card-activity .card-rank-joker { font-size: 0.55rem; }
+  .card-activity .card-suit-mark { font-size: 1.45rem; }
+  .card-activity-copy { gap: 0.1rem; }
+  .card-activity-label { font-size: 0.68rem; }
+  .game-hand.is-arranging { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+  .game-hand-area:has(.is-arranging) { position: relative; }
+}
+
+.game-hand-area { display: flex; flex-direction: column; }
+.game-hand-area > .card-activity { order: 0; width: 100%; }
+.game-hand-area > .game-hand-toolbar { order: 1; }
+.game-hand-area > .hand-move-controls { order: 2; }
+.game-hand-area > .game-hand { order: 3; }
+.game-hand-area > .game-actions { order: 4; }
+.game-hand-area { flex-shrink: 0; min-width: 0; }
+@media (max-width: 1024px) and (max-height: 600px) and (orientation: landscape) {
+  .game-hand-area {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 42%);
+    grid-template-areas: "activity activity" "hand toolbar" "hand actions" "move move";
+  }
+  .game-hand-area > .card-activity { grid-area: activity; }
+  .game-hand-area > .hand-move-controls { grid-area: move; }
 }

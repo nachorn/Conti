@@ -65,3 +65,11 @@ The development-only Continental shortcut can be used to inspect later-round han
 - Recovery starts after a successful join and uses per-tab sessionStorage. Closing/clearing that tab or switching devices is not guaranteed to preserve seat access. Rooms expire after 72 inactive hours.
 
 To repeat restart testing: create/join in two tabs, start and note each hand, stop the server, verify offline controls, start it again with the same snapshot/database, then confirm both seats restore and take/discard still works. Do not test production recovery by deleting its snapshot or database.
+
+## Card visibility and arrangement — 2026-09-07
+
+- Added a persistent latest-discard recap with the player's name, plus private draw receipts distinguishing stock, discard and actual penalty cards. New cards retain labeled highlights until the next draw; round changes/reconnection clear the recap baseline.
+- Arrange now opens a larger card grid: select a card, tap a destination to insert before it, or use Left/Right/To end. Keyboard arrows and desktop drag in the normal hand remain available. Sorting and arranging do not submit a game action.
+- Client: 44 tests passed, including seven receipt tests covering penalties, empty-stock/no-penalty takes, older exposed discards, new deals, Joker exchanges, spectators and translated card names. TypeScript and Vite production build passed.
+- Browser fixture checks: 390 × 844, 820 × 1180, 1440 × 900, 320 × 568, and 844 × 390. Checked a 14-card hand growing to 16 cards, distinct discard/penalty receipts, a subsequent stock receipt, tap insertion, keyboard ordering and Spanish labels. No browser warnings/errors from the fixture. Temporary fixture files were removed.
+- These are browser viewport checks with controlled state transitions, not physical touch-device tests or a full live multiplayer match. No server rules changed.

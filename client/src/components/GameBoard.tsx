@@ -8,6 +8,7 @@ import { ReportBugButton } from './ReportBugButton'
 import { CardBack } from './cards/CardBack'
 import { findMeldsForContract, replaceJokerInStraight } from '../lib/meld'
 import { cardDropSide, moveHandCard } from '../lib/handOrder'
+import { cardLabel, getCardActivity, type DrawReceipt } from '../lib/cardActivity'
 import { GameShell } from './GameShell'
 import { MeldTargetDialog } from './MeldTargetDialog'
 import { assessMeldTarget, orderMeldCardsForDisplay } from '../lib/meldTargeting'
@@ -15,15 +16,6 @@ import './GameBoard.css'
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
-
-interface PointerDragState {
-  pointerId: number
-  cardId: string
-  clientX: number
-  clientY: number
-  edgeVelocity: number
-  animationFrameId: number | null
-}
 
 /** Seat positions around an oval, with display index 0 anchored at the bottom. */
 function seatPosition(displayIndex: number, radius = 48, seatCount = POKER_SEAT_COUNT): { x: number; y: number } {
@@ -136,8 +128,10 @@ export function GameBoard({
   const [recentlyUpdatedMeldId, setRecentlyUpdatedMeldId] = useState<string | null>(null)
   const [handOrder, setHandOrder] = useState<string[]>([])
   const [arrangeMode, setArrangeMode] = useState(false)
-  const [pointerDraggedCardId, setPointerDraggedCardId] = useState<string | null>(null)
-  const [pointerDropTargetId, setPointerDropTargetId] = useState<string | null>(null)
+  const [arrangeCardId, setArrangeCardId] = useState<string | null>(null)
+  const [lastDraw, setLastDraw] = useState<DrawReceipt[]>([])
+  const [lastDiscard, setLastDiscard] = useState<{ card: CardType; playerName: string } | null>(null)
+  const activityStateRef = useRef<GameState | null>(null)
   const [lobbyDeckCount, setLobbyDeckCount] = useState<2 | 3>(state.deckCount ?? 2)
   const [lobbyDiscardDelay, setLobbyDiscardDelay] = useState(state.discardOptionDelaySeconds ?? 10)
   const [lobbyTurnSecs, setLobbyTurnSecs] = useState(state.secondsPerTurn ?? 0)
@@ -156,10 +150,8 @@ export function GameBoard({
   const handRef = useRef<HTMLDivElement | null>(null)
   const gameActionsRef = useRef<HTMLDivElement | null>(null)
   const roundResultRef = useRef<HTMLDivElement | null>(null)
-  const pointerDragRef = useRef<PointerDragState | null>(null)
   const prevPhaseRef = useRef<string>(state.phase)
   const prevRoundRef = useRef(state.round)
-  const prevHandIdsRef = useRef<string[]>([])
   const lastGuidedOwedJokerRef = useRef<string | null>(null)
   const prevMeldDraftScopeRef = useRef(
     `${state.phase}:${state.round}:${state.currentPlayerIndex}:${state.discardOptionPlayerIndex ?? ''}`
@@ -403,18 +395,24 @@ export function GameBoard({
     }
   }, [state.phase, state.round, animatedDealCount, dealCardDurationMs, animationsOn])
 
-  // "Just drawn" animation when hand gains a new card
+  // Keep receipts visible until the next draw/discard, independently of animation.
   useEffect(() => {
-    const ids = rawHand.map((c) => c.id)
-    const prev = prevHandIdsRef.current
-    prevHandIdsRef.current = ids
-    if (prev.length === 0 || ids.length <= prev.length) return
-    const newIds = ids.filter((id) => !prev.includes(id))
-    if (newIds.length === 0) return
-    setJustDrawnIds(new Set(newIds))
-    const t = setTimeout(() => setJustDrawnIds(new Set()), 700)
-    return () => clearTimeout(t)
-  }, [handIdsKey, rawHand.length])
+    const previous = activityStateRef.current
+    activityStateRef.current = isConnected ? state : null
+    if (!previous || previous.roomId !== state.roomId || previous.round !== state.round || state.phase !== 'playing') {
+      setLastDraw([])
+      setLastDiscard(null)
+      setJustDrawnIds(new Set())
+      return
+    }
+    if (!isConnected) return
+    const activity = getCardActivity(previous, state, socketId)
+    if (activity.draws.length) {
+      setLastDraw(activity.draws)
+      setJustDrawnIds(new Set(activity.draws.map(({ card }) => card.id)))
+    }
+    if (activity.discard) setLastDiscard(activity.discard)
+  }, [state, socketId, isConnected])
 
   const toggleCard = (id: string) => {
     if (!canDiscard && !canDraw) return
@@ -498,113 +496,20 @@ export function GameBoard({
     setSelectedCards(new Set())
   }
 
-  const reorderPointerAt = (clientX: number, clientY: number, cardId: string) => {
-    const hand = handRef.current
-    if (!hand) return
-    const pointedElement = document.elementFromPoint(clientX, clientY)
-    const target = pointedElement?.closest<HTMLElement>('.game-hand-card-wrap[data-card-id]')
-    if (!target || !hand.contains(target)) return
-    const targetId = target.dataset.cardId
-    if (!targetId) return
-
-    const targetRect = target.getBoundingClientRect()
-    const side = cardDropSide(clientX, targetRect.left, targetRect.width)
-    setPointerDropTargetId((current) => current === targetId ? current : targetId)
-    setHandOrder((prev) => moveHandCard(prev, cardId, targetId, side))
+  const arrangeCard = (cardId: string) => {
+    if (!arrangeCardId || arrangeCardId === cardId) {
+      setArrangeCardId(arrangeCardId === cardId ? null : cardId)
+      return
+    }
+    setHandOrder((order) => moveHandCard(order, arrangeCardId, cardId, 'before'))
+    setArrangeCardId(null)
   }
 
-  const startPointerAutoScroll = () => {
-    const drag = pointerDragRef.current
-    if (!drag || drag.edgeVelocity === 0 || drag.animationFrameId !== null) return
-
-    const step = () => {
-      const current = pointerDragRef.current
-      const hand = handRef.current
-      if (!current || !hand || current.edgeVelocity === 0) {
-        if (current) current.animationFrameId = null
-        return
-      }
-
-      const previousScrollLeft = hand.scrollLeft
-      hand.scrollLeft += current.edgeVelocity
-      reorderPointerAt(current.clientX, current.clientY, current.cardId)
-      if (hand.scrollLeft === previousScrollLeft) {
-        current.edgeVelocity = 0
-        current.animationFrameId = null
-        return
-      }
-      current.animationFrameId = window.requestAnimationFrame(step)
-    }
-
-    drag.animationFrameId = window.requestAnimationFrame(step)
-  }
-
-  const clearPointerReorder = () => {
-    const drag = pointerDragRef.current
-    if (drag?.animationFrameId !== null && drag?.animationFrameId !== undefined) {
-      window.cancelAnimationFrame(drag.animationFrameId)
-    }
-    pointerDragRef.current = null
-    setPointerDraggedCardId(null)
-    setPointerDropTargetId(null)
-  }
-
-  const startPointerReorder = (event: React.PointerEvent<HTMLDivElement>, cardId: string) => {
-    if (!arrangeMode || state.phase !== 'playing' || !event.isPrimary || event.button !== 0 || pointerDragRef.current) return
-    const hand = handRef.current
-    if (!hand) return
-    event.preventDefault()
-    pointerDragRef.current = {
-      pointerId: event.pointerId,
-      cardId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      edgeVelocity: 0,
-      animationFrameId: null,
-    }
-    // Capture on the stable rail rather than the card. React moves the card
-    // node while sorting, which can otherwise cancel capture after one slot.
-    hand.setPointerCapture(event.pointerId)
-    setPointerDraggedCardId(cardId)
-    setPointerDropTargetId(cardId)
-  }
-
-  const movePointerReorder = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = pointerDragRef.current
-    if (!arrangeMode || !drag || drag.pointerId !== event.pointerId) return
-    event.preventDefault()
-
-    const hand = handRef.current
-    if (!hand) return
-    drag.clientX = event.clientX
-    drag.clientY = event.clientY
-    const handRect = hand.getBoundingClientRect()
-    const edgeSize = Math.min(80, handRect.width * 0.18)
-    if (event.clientX < handRect.left + edgeSize) {
-      const proximity = (handRect.left + edgeSize - event.clientX) / edgeSize
-      drag.edgeVelocity = -Math.max(4, Math.round(16 * Math.min(1, proximity)))
-    } else if (event.clientX > handRect.right - edgeSize) {
-      const proximity = (event.clientX - (handRect.right - edgeSize)) / edgeSize
-      drag.edgeVelocity = Math.max(4, Math.round(16 * Math.min(1, proximity)))
-    } else {
-      drag.edgeVelocity = 0
-      if (drag.animationFrameId !== null) {
-        window.cancelAnimationFrame(drag.animationFrameId)
-        drag.animationFrameId = null
-      }
-    }
-
-    reorderPointerAt(event.clientX, event.clientY, drag.cardId)
-    startPointerAutoScroll()
-  }
-
-  const finishPointerReorder = (event: React.PointerEvent<HTMLDivElement>, releaseCapture = true) => {
-    const drag = pointerDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    clearPointerReorder()
-    if (releaseCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+  const moveArrangedCard = (direction: -1 | 1 | 'end') => {
+    if (!arrangeCardId) return
+    const index = myHand.findIndex((card) => card.id === arrangeCardId)
+    const target = direction === 'end' ? myHand[myHand.length - 1] : myHand[index + direction]
+    if (target) setHandOrder((order) => moveHandCard(order, arrangeCardId, target.id, direction === -1 ? 'before' : 'after'))
   }
 
   const moveCardWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>, cardId: string) => {
@@ -621,15 +526,13 @@ export function GameBoard({
   }
 
   useEffect(() => {
-    clearPointerReorder()
     setArrangeMode(false)
-    return () => {
-      const drag = pointerDragRef.current
-      if (drag?.animationFrameId !== null && drag?.animationFrameId !== undefined) {
-        window.cancelAnimationFrame(drag.animationFrameId)
-      }
-    }
+    setArrangeCardId(null)
   }, [state.phase, state.round])
+
+  useEffect(() => {
+    if (arrangeCardId && !rawHand.some((card) => card.id === arrangeCardId)) setArrangeCardId(null)
+  }, [handIdsKey, arrangeCardId])
 
   if (state.phase === 'lobby') {
     const lobbySeats = getSeatsAroundTable([...state.players], socketId)
@@ -1078,57 +981,28 @@ export function GameBoard({
       </div>
 
       <div className="game-hand-area">
-        <div
-          ref={handRef}
-          className={`game-hand ${arrangeMode ? 'is-arranging' : ''}`}
-          role="group"
-          aria-label={`${myHand.length} ${t(lang, 'cards')}`}
-          aria-describedby={arrangeMode ? arrangeHintId : undefined}
-          onPointerMove={movePointerReorder}
-          onPointerUp={finishPointerReorder}
-          onPointerCancel={finishPointerReorder}
-          onLostPointerCapture={(event) => finishPointerReorder(event, false)}
-        >
-          {myHand.map((c, i) => (
-            <div
-              key={c.id}
-              className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''} ${pointerDraggedCardId === c.id ? 'pointer-dragging' : ''} ${pointerDropTargetId === c.id && pointerDraggedCardId !== c.id ? 'drop-target' : ''}`}
-              style={dealAnimKey != null ? { animationDelay: `${i * (totalToDeal > 20 ? 30 : 55)}ms` } : undefined}
-              data-card-id={c.id}
-              onPointerDown={(event) => startPointerReorder(event, c.id)}
-              onKeyDown={(event) => moveCardWithKeyboard(event, c.id)}
-              onDragOver={(e) => {
-                if (arrangeMode) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                e.currentTarget.classList.add('drop-target')
-              }}
-              onDragLeave={(e) => e.currentTarget.classList.remove('drop-target')}
-              onDragEnd={() => {
-                handRef.current?.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'))
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                e.currentTarget.classList.remove('drop-target')
-                const draggedId = e.dataTransfer.getData('cardId')
-                const targetId = e.currentTarget.dataset.cardId
-                if (!draggedId || !targetId || draggedId === targetId) return
-                const rect = e.currentTarget.getBoundingClientRect()
-                setHandOrder((prev) => moveHandCard(prev, draggedId, targetId, cardDropSide(e.clientX, rect.left, rect.width)))
-              }}
-            >
-              <Card
-                card={c}
-                selected={selectedCards.has(c.id)}
-                onClick={() => { if (!arrangeMode) toggleCard(c.id) }}
-                draggable={state.phase === 'playing' && !arrangeMode}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('cardId', c.id)
-                  e.dataTransfer.effectAllowed = 'move'
-                }}
-              />
-            </div>
-          ))}
+        <div className="card-activity" aria-label={t(lang, 'cardRecap')}>
+          <div className="card-activity-discard" role="status" aria-atomic="true">
+            {(lastDiscard?.card ?? state.topDiscard) ? <>
+              <Card card={(lastDiscard?.card ?? state.topDiscard)!} />
+              <div className="card-activity-copy">
+                <span className="card-activity-label">{t(lang, lastDiscard ? 'lastDiscard' : 'onDiscard')}</span>
+                {lastDiscard && <strong>{lastDiscard.playerName}</strong>}
+                <span>{cardLabel((lastDiscard?.card ?? state.topDiscard)!, lang)}</span>
+              </div>
+            </> : <span>{t(lang, 'emptyDiscard')}</span>}
+          </div>
+          <div className="card-activity-draws" role="status" aria-atomic="true">
+            {lastDraw.length ? lastDraw.map(({ card, source }) => (
+              <div key={card.id} className={`card-receipt card-receipt-${source}`}>
+                <Card card={card} />
+                <div className="card-activity-copy">
+                  <span className="card-activity-label">{t(lang, source === 'penalty' ? 'penaltyCard' : source === 'discard' ? 'fromDiscard' : 'fromStock')}</span>
+                  <span>{cardLabel(card, lang)}</span>
+                </div>
+              </div>
+            )) : <span className="card-activity-empty">{t(lang, 'drawRecapHint')}</span>}
+          </div>
         </div>
         <div className={`game-hand-toolbar ${arrangeMode ? 'is-arranging' : ''}`}>
           <span className="hand-toolbar-label">{t(lang, 'sort')}</span>
@@ -1138,7 +1012,8 @@ export function GameBoard({
             aria-pressed={arrangeMode}
             aria-describedby={arrangeMode ? arrangeHintId : undefined}
             onClick={() => {
-              clearPointerReorder()
+              setArrangeCardId(null)
+              setSelectedCards(new Set())
               setArrangeMode((active) => !active)
             }}
           >
@@ -1170,7 +1045,60 @@ export function GameBoard({
           >
             {t(lang, 'suit')}
           </button>
-          {arrangeMode && <span id={arrangeHintId} className="hand-arrange-hint" role="status">{t(lang, 'dragToArrange')}</span>}
+          {arrangeMode && <span id={arrangeHintId} className="hand-arrange-hint" role="status">{t(lang, arrangeCardId ? 'tapDestination' : 'tapToArrange')}</span>}
+        </div>
+        {arrangeMode && arrangeCardId && <div className="hand-move-controls">
+          <button type="button" onClick={() => moveArrangedCard(-1)} disabled={myHand[0]?.id === arrangeCardId}>{t(lang, 'moveLeft')}</button>
+          <button type="button" onClick={() => moveArrangedCard(1)} disabled={myHand[myHand.length - 1]?.id === arrangeCardId}>{t(lang, 'moveRight')}</button>
+          <button type="button" onClick={() => moveArrangedCard('end')} disabled={myHand[myHand.length - 1]?.id === arrangeCardId}>{t(lang, 'moveToEnd')}</button>
+        </div>}
+        <div
+          ref={handRef}
+          className={`game-hand ${arrangeMode ? 'is-arranging' : ''}`}
+          role="group"
+          aria-label={`${myHand.length} ${t(lang, 'cards')}`}
+          aria-describedby={arrangeMode ? arrangeHintId : undefined}
+        >
+          {myHand.map((c, i) => (
+            <div
+              key={c.id}
+              className={`game-hand-card-wrap ${dealAnimKey != null ? 'deal-in' : ''} ${justDrawnIds.has(c.id) ? 'card-just-drawn' : ''} ${arrangeMode && arrangeCardId === c.id ? 'arrange-picked' : ''}`}
+              style={dealAnimKey != null ? { animationDelay: `${i * (totalToDeal > 20 ? 30 : 55)}ms` } : undefined}
+              data-card-id={c.id}
+              onKeyDown={(event) => moveCardWithKeyboard(event, c.id)}
+              onDragOver={(e) => {
+                if (arrangeMode) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                e.currentTarget.classList.add('drop-target')
+              }}
+              onDragLeave={(e) => e.currentTarget.classList.remove('drop-target')}
+              onDragEnd={() => {
+                handRef.current?.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'))
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.currentTarget.classList.remove('drop-target')
+                const draggedId = e.dataTransfer.getData('cardId')
+                const targetId = e.currentTarget.dataset.cardId
+                if (!draggedId || !targetId || draggedId === targetId) return
+                const rect = e.currentTarget.getBoundingClientRect()
+                setHandOrder((prev) => moveHandCard(prev, draggedId, targetId, cardDropSide(e.clientX, rect.left, rect.width)))
+              }}
+            >
+              {justDrawnIds.has(c.id) && <span className="hand-new-badge">{t(lang, lastDraw.find((item) => item.card.id === c.id)?.source === 'penalty' ? 'penaltyCard' : 'newCard')}</span>}
+              <Card
+                card={c}
+                selected={arrangeMode ? arrangeCardId === c.id : selectedCards.has(c.id)}
+                onClick={() => { if (arrangeMode) arrangeCard(c.id); else toggleCard(c.id) }}
+                draggable={state.phase === 'playing' && !arrangeMode}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('cardId', c.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+              />
+            </div>
+          ))}
         </div>
         <div
           ref={gameActionsRef}
@@ -1187,7 +1115,7 @@ export function GameBoard({
           {isMyDiscardOption && (
             <>
               <span className="game-actions-label">{t(lang, 'wantTheTopCard')}</span>
-              <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>{t(lang, 'takeDiscard')}</button>
+              <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>{t(lang, 'takeDiscard')}{!hasPriority && state.stockCount > 0 ? ` · ${t(lang, 'penaltyCard')}` : ''}</button>
               <button
                 onClick={onPassDiscard}
                 disabled={!canTakeOrPass}
