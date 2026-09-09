@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useId, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useId, useCallback, useMemo, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionResult, Card as CardType, GameState, Meld, Player } from '../types'
 import type { Lang } from '../i18n'
@@ -11,8 +11,11 @@ import { cardDropSide, moveHandCard } from '../lib/handOrder'
 import { cardLabel, getCardActivity, type DrawReceipt } from '../lib/cardActivity'
 import { GameShell } from './GameShell'
 import { MeldTargetDialog } from './MeldTargetDialog'
-import { assessMeldTarget, orderMeldCardsForDisplay } from '../lib/meldTargeting'
+import { assessMeldTarget } from '../lib/meldTargeting'
+import { PublicTable, RoundRecap, ScoreHistory } from './TableReview'
+import { discardExplanation, shortCard } from '../lib/tableSummary'
 import './GameBoard.css'
+import './TableReview.css'
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
@@ -93,11 +96,12 @@ interface GameBoardProps {
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
   onAddToMeld: (meldId: string, cards: CardType[]) => Promise<ActionResult>
   onSwapJoker: (meldId: string, cardId: string, jokerCardId: string) => Promise<ActionResult>
-  onDiscard: (cardId: string) => void
+  onDiscard: (cardId: string) => Promise<ActionResult>
   onTakeDiscard: () => void
   onPassDiscard: () => void
   onLeave: () => void
   onNextRound: () => void
+  onRematch: () => void
   onDebugSkipRound?: () => void
   onSetSeat?: (seatIndex: number) => void
 }
@@ -119,6 +123,7 @@ export function GameBoard({
   onPassDiscard,
   onLeave,
   onNextRound,
+  onRematch,
   onDebugSkipRound,
   onSetSeat,
 }: GameBoardProps) {
@@ -128,6 +133,10 @@ export function GameBoard({
   const [recentlyUpdatedMeldId, setRecentlyUpdatedMeldId] = useState<string | null>(null)
   const [handOrder, setHandOrder] = useState<string[]>([])
   const [arrangeMode, setArrangeMode] = useState(false)
+  const [compactHand, setCompactHand] = useState(() => {
+    try { return localStorage.getItem('continental.handLayout') === 'two-rows' }
+    catch { return false }
+  })
   const [arrangeCardId, setArrangeCardId] = useState<string | null>(null)
   const [lastDraw, setLastDraw] = useState<DrawReceipt[]>([])
   const [lastDiscard, setLastDiscard] = useState<{ card: CardType; playerName: string } | null>(null)
@@ -140,7 +149,10 @@ export function GameBoard({
   const [dealingPhase, setDealingPhase] = useState(false)
   const [dealingIndex, setDealingIndex] = useState(0)
   const [justDrawnIds, setJustDrawnIds] = useState<Set<string>>(new Set())
-  const [expandedMeldIds, setExpandedMeldIds] = useState<Set<string>>(new Set())
+  const [discardPending, setDiscardPending] = useState(false)
+  const discardPendingRef = useRef(false)
+  const [discardError, setDiscardError] = useState<string | null>(null)
+  const discardHintId = useId()
   const [reportCopied, setReportCopied] = useState(false)
   const [roomLinkCopied, setRoomLinkCopied] = useState(false)
   const [animationsOn, setAnimationsOn] = useState(true)
@@ -159,7 +171,7 @@ export function GameBoard({
   useEffect(() => () => { if (jokerToastTimerRef.current) clearTimeout(jokerToastTimerRef.current) }, [])
   useEffect(() => {
     if (state.phase !== 'round_end' && state.phase !== 'game_end') return
-    const frame = window.requestAnimationFrame(() => roundResultRef.current?.focus())
+    const frame = window.requestAnimationFrame(() => roundResultRef.current?.focus({ preventScroll: true }))
     return () => window.cancelAnimationFrame(frame)
   }, [state.phase, state.round])
   const me = state.players.find((p) => p.id === socketId)
@@ -181,8 +193,7 @@ export function GameBoard({
   const discarderIndex = state.discarderIndex ?? null
   const hasPriority =
     isMyDiscardOption &&
-    discarderIndex !== null &&
-    (discarderIndex + 1) % n === discardOptionIndex
+    (discarderIndex !== null ? (discarderIndex + 1) % n : (state.firstTurnIndex ?? state.dealerIndex)) === discardOptionIndex
   const handIdsKey = rawHand.map((c) => c.id).sort().join(',')
   useEffect(() => {
     const ids = rawHand.map((c) => c.id)
@@ -488,13 +499,33 @@ export function GameBoard({
     }, 3500)
   }
 
-  const handleDiscardSelected = () => {
-    if (!canDiscardNow || selectedCards.size !== 1) return
-    const [cardId] = selectedCards
-    if (!cardId) return
-    onDiscard(cardId)
-    setSelectedCards(new Set())
+  const selectedDiscardReason = selectedHandCards.length === 1
+    ? discardExplanation(state, socketId, selectedHandCards[0]!, lang) : null
+
+  const submitDiscard = async (cardId: string) => {
+    if (!canDiscardNow || discardPendingRef.current) return
+    const card = myHand.find(c => c.id === cardId)
+    if (!card) return
+    setSelectedCards(new Set([cardId]))
+    const reason = discardExplanation(state, socketId, card, lang)
+    if (reason) { setDiscardError(reason); return }
+    discardPendingRef.current = true
+    setDiscardPending(true)
+    setDiscardError(null)
+    try {
+      const result = await onDiscard(cardId)
+      if (result.ok) setSelectedCards(previous => { const next = new Set(previous); next.delete(cardId); return next })
+      else setDiscardError(result.error ?? (lang === 'es' ? 'No se pudo descartar.' : 'Could not discard.'))
+    } catch {
+      setDiscardError(lang === 'es' ? 'No se confirmó el descarte. Revisa la conexión.' : 'Discard was not confirmed. Check your connection.')
+    } finally { discardPendingRef.current = false; setDiscardPending(false) }
   }
+  const handleDiscardSelected = () => {
+    if (selectedCards.size !== 1) return
+    const [cardId] = selectedCards
+    if (cardId) void submitDiscard(cardId)
+  }
+  useEffect(() => { setDiscardError(null) }, [selectedCards, state.round])
 
   const arrangeCard = (cardId: string) => {
     if (!arrangeCardId || arrangeCardId === cardId) {
@@ -691,14 +722,8 @@ export function GameBoard({
         />
         <div ref={roundResultRef} className="game-round-end-box" tabIndex={-1}>
           <h2>{t(lang, 'round')} {state.round} {t(lang, 'roundOver')}</h2>
-          <p>{t(lang, 'thisRound')}</p>
-          <ul>
-            {state.players.map((p) => (
-              <li key={p.id}>
-                {p.name}: {state.roundScores[p.id] ?? 0} {t(lang, 'points')}
-              </li>
-            ))}
-          </ul>
+          <RoundRecap result={state.roundHistory?.find(r => r.round === state.round)} lang={lang} />
+          <ScoreHistory state={state} lang={lang} />
           {isHost && (
             <button className="game-next-round-btn" onClick={onNextRound} disabled={!isConnected}>{t(lang, 'nextRound')}</button>
           )}
@@ -741,16 +766,10 @@ export function GameBoard({
               {t(lang, 'winner')}: <strong>{winner.name}</strong> {t(lang, 'with')} {winner.score} {t(lang, 'points')}
             </p>
           )}
-          <h3>{t(lang, 'scoreboard')}</h3>
-          <ol className="game-final-standings">
-            {standings.map((player, index) => (
-              <li key={player.id} className={index === 0 ? 'is-winner' : undefined}>
-                <span className="game-final-rank">{index + 1}</span>
-                <span className="game-final-name">{player.name}</span>
-                <strong className="game-final-score">{player.score} {t(lang, 'points')}</strong>
-              </li>
-            ))}
-          </ol>
+          <RoundRecap result={state.roundHistory?.find(r => r.round === state.round)} lang={lang} />
+          <ScoreHistory state={state} lang={lang} />
+          {isHost ? <button className="game-next-round-btn" onClick={onRematch} disabled={!isConnected || state.players.length < 2}>{lang === 'es' ? 'Jugar de nuevo con este grupo' : 'Play again with this group'}</button>
+            : <p className="game-wait-host-msg">{lang === 'es' ? 'El anfitrión puede iniciar otra partida con este grupo.' : 'The host can start another game with this group.'}</p>}
         </div>
       </div>
     )
@@ -761,7 +780,7 @@ export function GameBoard({
   const playingSeatCount = playingSeats.length
 
   return (
-    <div className={`game-board game-board-playing ${isDealingActive ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''}`}>
+    <div className={`game-board game-board-playing ${isDealingActive ? 'dealing-cards' : ''} ${!animationsOn ? 'animations-off' : ''} ${arrangeMode ? 'arranging-hand' : ''}`}>
       <GameShell
         title="Continental"
         backLabel={t(lang, 'backToMenu')}
@@ -818,7 +837,8 @@ export function GameBoard({
         </div>
       </div>
 
-      <div className={`poker-table-wrap poker-table-playing ${shuffleActive ? 'table-shuffle-active' : ''} ${dealingPhase ? 'dealing-cards' : ''}`}>
+      <div className="game-table-scroll" tabIndex={0} aria-label={lang === 'es' ? 'Mesa' : 'Table'}>
+      <div className={`poker-table-wrap poker-table-playing ${n > 4 ? 'table-many-players' : ''} ${shuffleActive ? 'table-shuffle-active' : ''} ${dealingPhase ? 'dealing-cards' : ''}`}>
         {shuffleActive && (
           <div className="deal-overlay" aria-hidden>
             <span className="deal-overlay-text">
@@ -853,7 +873,7 @@ export function GameBoard({
               <button
                 type="button"
                 className="game-discard-zone"
-                disabled={!canDiscardNow}
+                disabled={!canDiscardNow || discardPending}
                 aria-label={mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'dropToDiscard')}
                 onDragOver={(e) => {
                   if (!canDiscardNow) return
@@ -864,10 +884,7 @@ export function GameBoard({
                   e.preventDefault()
                   if (!canDiscardNow) return
                   const cardId = e.dataTransfer.getData('cardId')
-                  if (cardId) {
-                    onDiscard(cardId)
-                    setSelectedCards(new Set())
-                  }
+                  if (cardId) void submitDiscard(cardId)
                 }}
                 onClick={handleDiscardSelected}
               >
@@ -892,7 +909,7 @@ export function GameBoard({
                 className={`game-discard ${state.topDiscard ? 'discard-has-card' : ''}`}
                 onClick={handleDrawDiscard}
                 disabled={!canDraw || !state.topDiscard}
-                aria-label={t(lang, 'drawDiscard')}
+                aria-label={state.topDiscard ? `${t(lang, 'drawDiscard')}: ${cardLabel(state.topDiscard, lang)}` : t(lang, 'drawDiscard')}
                 data-clickable={canDraw && !!state.topDiscard}
               >
                 {state.topDiscard ? (
@@ -906,55 +923,6 @@ export function GameBoard({
             </div>
           </div>
         </div>
-        {/* Meld zones: one per seat, in front of each player (inner radius) */}
-        {playingSeats.map((player, d) => {
-          const meldsForSeat = state.melds.filter((m) => m.ownerId === player.id)
-          const pos = seatPosition(d, 27, playingSeatCount)
-          let trioNum = 0
-          let straightNum = 0
-          return (
-            <div
-              key={`meld-${d}`}
-              className="poker-seat-melds"
-              style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-            >
-              {meldsForSeat.map((meld) => {
-                const isTrio = meld.type === 'trio'
-                const labelNum = isTrio ? ++trioNum : ++straightNum
-                const showLabel = isTrio
-                  ? `${t(lang, 'trioNum')} #${labelNum}`
-                  : `${t(lang, 'straightNum')} #${labelNum}`
-                const expanded = expandedMeldIds.has(meld.id)
-                return (
-                  <div
-                    key={meld.id}
-                    className={`meld-row-wrap ${recentlyUpdatedMeldId === meld.id ? 'meld-row-updated' : ''} ${expanded ? 'meld-row-expanded' : 'meld-row-collapsed'}`}
-                  >
-                    {expanded ? (
-                      <>
-                        <div className="meld-row-header">
-                          <span className="meld-row-title">{showLabel}</span>
-                          <button type="button" className="meld-hide-btn" onClick={(e) => { e.stopPropagation(); setExpandedMeldIds((prev) => { const n = new Set(prev); n.delete(meld.id); return n }); }} aria-label={t(lang, 'hide')}>
-                            {t(lang, 'hide')}
-                          </button>
-                        </div>
-                        <MeldRow meld={meld} />
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="meld-show-btn"
-                        onClick={() => setExpandedMeldIds((prev) => new Set(prev).add(meld.id))}
-                      >
-                        {showLabel}
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })}
         {playingSeats.map((player, d) => {
           const pos = seatPosition(d, 40, playingSeatCount)
           const isMe = player.id === socketId
@@ -980,15 +948,17 @@ export function GameBoard({
         })}
       </div>
 
+      <PublicTable state={state} lang={lang} updatedId={recentlyUpdatedMeldId} />
+      </div>
       <div className="game-hand-area">
         <div className="card-activity" aria-label={t(lang, 'cardRecap')}>
           <div className="card-activity-discard" role="status" aria-atomic="true">
-            {(lastDiscard?.card ?? state.topDiscard) ? <>
-              <Card card={(lastDiscard?.card ?? state.topDiscard)!} />
+            {state.topDiscard ? <>
+              <Card card={state.topDiscard!} />
               <div className="card-activity-copy">
-                <span className="card-activity-label">{t(lang, lastDiscard ? 'lastDiscard' : 'onDiscard')}</span>
-                {lastDiscard && <strong>{lastDiscard.playerName}</strong>}
-                <span>{cardLabel((lastDiscard?.card ?? state.topDiscard)!, lang)}</span>
+                <span className="card-activity-label">{lang === 'es' ? 'Descarte disponible' : 'Available discard'}</span>
+                {lastDiscard?.card.id === state.topDiscard?.id && <strong>{lastDiscard.playerName}</strong>}
+                <span>{cardLabel(state.topDiscard!, lang)}</span>
               </div>
             </> : <span>{t(lang, 'emptyDiscard')}</span>}
           </div>
@@ -1004,8 +974,22 @@ export function GameBoard({
             )) : <span className="card-activity-empty">{t(lang, 'drawRecapHint')}</span>}
           </div>
         </div>
+        {lastDiscard && lastDiscard.card.id !== state.topDiscard?.id && <p className="previous-discard">{lang === 'es' ? 'Último descarte' : 'Last discarded'}: {lastDiscard.playerName} · {shortCard(lastDiscard.card)}</p>}
         <div className={`game-hand-toolbar ${arrangeMode ? 'is-arranging' : ''}`}>
           <span className="hand-toolbar-label">{t(lang, 'sort')}</span>
+          {!arrangeMode && <button
+            type="button"
+            className="hand-layout-btn"
+            aria-label={t(lang, 'compactHandLabel')}
+            aria-pressed={compactHand}
+            title={t(lang, 'compactHandLabel')}
+            onClick={() => {
+              const next = !compactHand
+              setCompactHand(next)
+              try { localStorage.setItem('continental.handLayout', next ? 'two-rows' : 'normal') }
+              catch { /* The preference still works when browser storage is unavailable. */ }
+            }}
+          >{t(lang, 'compactHand')}</button>}
           <button
             type="button"
             className="hand-arrange-btn"
@@ -1054,7 +1038,8 @@ export function GameBoard({
         </div>}
         <div
           ref={handRef}
-          className={`game-hand ${arrangeMode ? 'is-arranging' : ''}`}
+          className={`game-hand ${arrangeMode ? 'is-arranging' : ''} ${compactHand ? 'is-compact' : ''}`}
+          style={{ '--hand-columns': Math.max(1, Math.ceil(myHand.length / 2)) } as CSSProperties}
           role="group"
           aria-label={`${myHand.length} ${t(lang, 'cards')}`}
           aria-describedby={arrangeMode ? arrangeHintId : undefined}
@@ -1114,7 +1099,7 @@ export function GameBoard({
           )}
           {isMyDiscardOption && (
             <>
-              <span className="game-actions-label">{t(lang, 'wantTheTopCard')}</span>
+              <span className="game-actions-label">{t(lang, 'wantTheTopCard')} {state.topDiscard && shortCard(state.topDiscard)}</span>
               <button onClick={onTakeDiscard} disabled={!canTakeOrPass}>{t(lang, 'takeDiscard')}{!hasPriority && state.stockCount > 0 ? ` · ${t(lang, 'penaltyCard')}` : ''}</button>
               <button
                 onClick={onPassDiscard}
@@ -1188,12 +1173,14 @@ export function GameBoard({
               type="button"
               className="game-discard-action"
               onClick={handleDiscardSelected}
-              disabled={!canDiscardNow || selectedCards.size !== 1}
-              title={mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'discardSelected')}
+              disabled={!canDiscardNow || selectedCards.size !== 1 || discardPending || !!selectedDiscardReason}
+              aria-describedby={selectedDiscardReason || discardError ? discardHintId : undefined}
+              title={selectedDiscardReason ?? (mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'discardSelected'))}
             >
               {mustPlaceOwedJoker ? t(lang, 'playJokerFirst') : t(lang, 'discardSelected')}
             </button>
           )}
+          {(selectedDiscardReason || discardError) && <p id={discardHintId} className="discard-explanation" role="status">{selectedDiscardReason || discardError}</p>}
         </div>
       </div>
       <MeldTargetDialog
@@ -1265,7 +1252,6 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
   }, [open])
 
   const sorted = [...state.players].sort((a, b) => a.score - b.score)
-  const hasRoundScores = state.roundScores && Object.keys(state.roundScores).length > 0
   return (
     <>
       <button
@@ -1313,42 +1299,13 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
                   ))}
                 </div>
               </section>
-              {hasRoundScores && (
-                <section className="scoreboard-section">
-                  <h3 className="scoreboard-section-title">
-                    {`${t(lang, 'roundPoints')} ${state.round}`}
-                  </h3>
-                  <div className="scoreboard-panel-list">
-                    {state.players.map((p) => {
-                      const pts = state.roundScores[p.id] ?? 0
-                      return (
-                        <div key={p.id} className="scoreboard-panel-row scoreboard-round-row">
-                          <span className="scoreboard-name">{p.name}</span>
-                          <span className={`scoreboard-score ${pts >= 0 ? 'score-positive' : 'score-negative'}`}>
-                            {pts >= 0 ? '+' : ''}{pts}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </section>
-              )}
+              <ScoreHistory state={state} lang={lang} />
             </div>
           </div>
         </div>,
         document.body
       )}
     </>
-  )
-}
-
-function MeldRow({ meld }: { meld: Meld }) {
-  return (
-    <div className="meld-row" data-type={meld.type}>
-      {orderMeldCardsForDisplay(meld).map((c) => (
-        <Card key={c.id} card={c} size="small" />
-      ))}
-    </div>
   )
 }
 

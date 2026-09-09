@@ -54,7 +54,32 @@ export type GamePhase = 'lobby' | 'playing' | 'round_end' | 'game_end'
 
 export type GameType = 'continental' | 'pocha'
 
+
+/** Only already-public card faces belong in this feed. Stock and penalty draws use counts. */
+export interface PublicAction {
+  id: string
+  round: number
+  playerId: string
+  playerName: string
+  kind: 'stock' | 'take' | 'buy' | 'pass' | 'discard' | 'meld' | 'add' | 'swap'
+  cards: Card[]
+  penaltyCount: number
+  targetName?: string
+}
+
+export interface RoundResult {
+  round: number
+  winnerId: string | null
+  sameTurnWin: boolean
+  scores: Record<string, number>
+  totals: Record<string, number>
+  names: Record<string, string>
+  closingAction?: PublicAction
+}
+
 export interface GameState {
+  activity?: PublicAction[]
+  roundHistory?: RoundResult[]
   roomId: string
   gameType: GameType
   phase: GamePhase

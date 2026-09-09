@@ -67,6 +67,7 @@ test('playMelds uses canonical server cards instead of client card attributes', 
 
   assert.equal(result.ok, true)
   assert.deepEqual(room.melds.map(m => m.cards[0]?.rank), [7, 8])
+  assert.deepEqual(room.activity.at(-1)?.cards.map(c => c.rank), [7, 7, 7, 8, 8, 8])
   assert.deepEqual(room.players[0]!.hand.map(c => c.id), ['keep'])
 })
 

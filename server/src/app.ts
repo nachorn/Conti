@@ -216,6 +216,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     action('take_discard', (room, id) => room.takeDiscard(id))
     action('pass_discard', (room, id) => room.passDiscard(id))
     action('swap_joker', (room, id, p) => room.swapJoker(id, text(p?.meldId), text(p?.cardId), text(p?.jokerCardId)))
+    action('rematch', room => room.rematch() ? { ok: true } : { ok: false, error: 'Finish the game with at least two players before starting again.' }, true)
     action('next_round', room => {
       if (room.phase !== 'round_end') return { ok: false, error: 'The round has not ended' }
       room.nextRound()

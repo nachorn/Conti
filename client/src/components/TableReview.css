@@ -1,0 +1,133 @@
+/* Reserve independent space for table content and the player's controls. */
+.game-board.game-board-playing { height: 100dvh; min-height: 0; overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.game-board-playing > .game-shell, .game-board-playing > .game-info { flex: 0 0 auto; }
+.game-board-playing > .game-info { position: static; margin: 0; }
+.game-table-scroll { flex: 1 1 auto; min-height: 70px; overflow: auto; overscroll-behavior: contain; padding-bottom: 12px; }
+.game-table-scroll:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px; }
+.game-table-scroll .poker-table-playing { height: 270px; min-height: 270px; max-height: none; width: min(90%, 760px); margin: 12px auto; }
+.game-table-scroll .poker-table-oval { height: 100%; min-height: 0; aspect-ratio: auto; }
+.game-table-scroll .game-table-center { flex-direction: row; gap: 12px; }
+.game-table-scroll .game-discard-zone { width: 100px; min-width: 0; height: 100px; margin: 0; }
+.public-table { width: min(100% - 24px, 1040px); margin: 0 auto; color: var(--cream); }
+.public-table details { min-width: 0; }
+.public-table summary { cursor: pointer; min-height: 44px; padding: 12px; overflow-wrap: anywhere; }
+.public-table summary:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
+.public-melds, .public-activity { border: 1px solid #688478; border-radius: 12px; background: #143b2b; margin-bottom: 8px; }
+.public-meld-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; padding: 0 12px 12px; }
+.public-player-melds { min-width: 0; border-top: 1px solid #688478; }
+.public-player-melds h3 { margin: 10px 0 4px; font-size: 1rem; color: #f4d997; }
+.public-meld { background: #0b291c; border-radius: 8px; margin: 5px 0; }
+.public-meld summary { font-size: .88rem; }
+.public-meld-cards { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 12px 12px; }
+.public-meld-cards .card { width: 58px; height: 80px; flex: none; }
+.public-activity ol { margin: 0; padding: 0 16px 12px 36px; max-height: 240px; overflow: auto; }
+.public-activity li { padding: 7px 0; border-top: 1px solid #42604f; font-size: .9rem; overflow-wrap: anywhere; }
+.public-table p { padding: 0 12px; }
+.public-table { display: flex; flex-direction: column; }
+.public-activity { order: -1; }
+.game-table-scroll .table-many-players { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; height: auto; min-height: 0; }
+.game-table-scroll .table-many-players .poker-table-oval { grid-column: 1 / -1; position: static; transform: none; width: 100%; height: 150px; }
+.game-table-scroll .table-many-players .poker-seat { position: static; transform: none !important; min-width: 0; max-width: none; padding: 5px 3px; }
+.game-table-scroll .table-many-players .poker-seat-name { max-width: 100%; }
+.game-board-playing .game-hand-area { position: relative; bottom: auto; display: flex; flex-direction: column; flex: 0 0 auto; width: 100%; max-width: none; min-height: 0; max-height: none; padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); margin: 0; border-top: 1px solid #799487; background: #082719; }
+.game-board-playing .game-hand-area > * { flex-shrink: 0; }
+.game-board-playing .game-hand { width: min(100%, 1040px); margin: 0 auto; min-height: 106px; padding: 14px 6px 6px; flex-wrap: nowrap; overflow-x: auto; justify-content: safe center; }
+.game-board-playing .game-hand-card-wrap { flex-shrink: 0; }
+.game-board-playing .game-hand-toolbar { width: 100%; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin: 0; padding: 0; }
+.hand-layout-btn { display: none; }
+.game-board-playing .game-actions { display: flex; margin: 0; padding: 5px 0 0; gap: 6px; flex-wrap: wrap; }
+.game-board-playing .game-actions button { min-height: 44px; }
+.game-board-playing .game-actions-label { font-size: .8rem; }
+.game-board-playing .game-meld-wait-msg { margin: 0; }
+.game-board-playing .card-activity { margin-bottom: 4px; }
+.game-board-playing .previous-discard { order: 0; text-align: center; margin: 0 0 4px; font-size: .78rem; color: #f4d997; }
+.discard-explanation { flex-basis: 100%; max-width: 850px; margin: 2px auto; color: #ffdf9a; font-size: .85rem; text-align: center; }
+.game-board-playing.arranging-hand .game-table-scroll { display: none; }
+.game-board-playing.arranging-hand .game-hand-area { flex: 1 1 0; max-height: none; }
+.game-board-playing.arranging-hand .card-activity { display: none; }
+.game-board-playing.arranging-hand .previous-discard { display: none; }
+.game-board-playing .game-hand.is-arranging { flex: 1 1 auto; min-height: 100px; max-height: none; overflow: auto; align-content: start; }
+.game-board-playing .hand-move-controls { margin: 4px 0; }
+.score-history { overflow-x: auto; margin: 14px 0; max-width: 100%; }
+.score-history table { border-collapse: collapse; width: max-content; min-width: 100%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.score-history caption { text-align: left; padding: 8px; color: #f4d997; }
+.score-history th, .score-history td { padding: 10px; border-bottom: 1px solid #597064; text-align: right; }
+.score-history th:first-child { text-align: left; position: sticky; left: 0; z-index: 1; background: #143526; min-width: 100px; max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score-history th:last-child, .score-history td:last-child { position: sticky; right: 0; z-index: 1; background: #143526; }
+.score-history-hint { font-size: .8rem; color: #d0dfd5; }
+.round-winner-score { color: #a6efb9; font-weight: 700; }
+.round-recap { text-align: left; border: 1px solid #708773; border-radius: 12px; padding: 12px; margin: 12px 0; background: #143526; }
+.round-recap p { margin: 8px 0; }
+.scoring-explanation { font-size: .85rem; color: #d0dfd5; }
+.game-round-end-box, .game-round-end-box.game-final-scoreboard { width: min(96%, 860px); max-width: 860px; }
+
+@media (min-width: 1100px) and (min-height: 601px) {
+  .game-table-scroll { display: grid; grid-template-columns: minmax(540px, 40%) minmax(0, 1fr); align-items: start; padding-top: 12px; }
+  .game-table-scroll .public-table { margin-top: 12px; }
+}
+
+/* Two short rows occupy the same hand space as the standard mobile cards. */
+@media (max-width: 700px), (max-width: 1000px) and (max-height: 600px) and (orientation: landscape) {
+  .game-board-playing .hand-toolbar-label { display: none; }
+  .game-board-playing .hand-layout-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 6px 9px; border: 1px solid #829486; border-radius: 6px; background: #294638; color: var(--cream); white-space: nowrap; }
+  .game-board-playing .hand-layout-btn[aria-pressed="true"] { background: #e5c56b; color: #15291b; border-color: #f4d997; }
+  .game-board-playing .hand-layout-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) { display: grid; grid-template-columns: repeat(var(--hand-columns), minmax(0, 1fr)); grid-template-rows: repeat(2, 44px); gap: 4px 3px; min-height: 102px; height: 102px; max-height: 102px; padding: 6px 3px 4px; overflow: visible; align-content: start; scroll-snap-type: none; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .game-hand-card-wrap { min-width: 0; width: 100%; max-width: 36px; justify-self: center; container-type: inline-size; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card { width: 100%; min-width: 0; height: 44px; min-height: 0; padding: 3px 1px; border-radius: 4px; transform: none; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card-rank { font-size: min(18px, 65cqi); }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card-rank-joker { font-size: min(7px, 22cqi); letter-spacing: 0; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card-suit-mark { font-size: min(16px, 60cqi); }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card[data-selected="true"] { background: #fff0ad; box-shadow: inset 0 0 0 2px #a87600, 0 0 0 2px #f4d997; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .hand-new-badge { top: -4px; max-width: 100%; padding: 0 2px; font-size: 7px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (max-width: 1000px) and (max-height: 600px) and (orientation: landscape) {
+  .game-board-playing:not(.arranging-hand) .game-hand-area { grid-template-columns: minmax(250px, 30%) minmax(0, 1fr); }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) { grid-template-rows: repeat(2, 38px); height: 90px; min-height: 90px; max-height: 90px; }
+  .game-board-playing .game-hand.is-compact:not(.is-arranging) .card { height: 38px; }
+}
+
+@media (max-width: 700px) {
+  .game-round-end-box { padding: 16px; margin-block: 12px; }
+  .game-table-scroll .poker-table-playing { height: 250px; min-height: 250px; width: 85%; }
+  .game-board-playing .card-activity .card { width: 44px; height: 60px; }
+  .game-board-playing .card-activity-discard, .game-board-playing .card-receipt { flex-direction: row; text-align: left; gap: 4px; }
+  .game-board-playing .card-activity-copy > span:last-child { font-size: .7rem; }
+  .game-board-playing .card-activity-copy strong { font-size: .72rem; }
+  .game-board-playing .card-activity-empty { font-size: .75rem; }
+  .game-board-playing .game-hand { min-height: 102px; }
+  .game-board-playing .hand-arrange-hint { flex-basis: 100%; text-align: center; }
+  .game-board-playing .game-hand-toolbar.is-arranging { grid-template-columns: none; }
+  .game-table-scroll .game-discard-zone { display: none; }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .game-board-playing .game-shell { padding-top: 2px; padding-bottom: 2px; }
+  .game-board-playing .game-info { padding: 3px 10px; gap: 8px; flex-direction: row; }
+  .game-board-playing .game-info-main, .game-board-playing .game-turn-status { flex-wrap: nowrap; }
+  .game-board-playing .game-meta-pill:first-child { display: none; }
+  .game-table-scroll { min-height: 44px; }
+  .game-table-scroll .poker-table-playing { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; height: auto; min-height: 0; width: 100%; margin: 4px 0; }
+  .game-table-scroll .poker-table-oval, .game-table-scroll .deal-overlay, .game-table-scroll .flying-deal-card { display: none; }
+  .game-table-scroll .poker-seat-playing { position: static; transform: none !important; display: flex; flex-direction: row; gap: 5px; max-width: none; min-height: 30px; padding: 4px 8px; }
+  .game-table-scroll .poker-seat-name { max-width: 100px; }
+  .game-board-playing .game-hand-area { display: grid; grid-template-columns: minmax(150px, 26%) minmax(0, 1fr); grid-template-areas: 'activity hand' 'toolbar actions' 'move move'; gap: 3px 8px; max-height: none; padding-top: 4px; }
+  .game-board-playing .card-activity { grid-area: activity; font-size: .7rem; align-self: center; }
+  .game-board-playing .card-activity-discard, .game-board-playing .card-receipt { flex-direction: column; padding: 3px; gap: 2px; }
+  .game-board-playing .card-activity-copy > span:last-child, .game-board-playing .card-activity-empty { display: none; }
+  .game-board-playing .card-activity .card { width: 40px; height: 56px; }
+  .game-board-playing .card-activity-label { font-size: .65rem; }
+  .game-board-playing .previous-discard { display: none; }
+  .game-board-playing .game-hand { grid-area: hand; min-height: 90px; }
+  .game-board-playing .game-hand-toolbar { grid-area: toolbar; flex-wrap: nowrap; gap: 3px; }
+  .game-board-playing .hand-toolbar-label { display: none; }
+  .game-board-playing .game-actions { grid-area: actions; padding: 0; }
+  .game-board-playing .hand-move-controls { grid-area: move; }
+  .game-board-playing .game-actions-label, .game-board-playing .game-meld-wait-msg { flex-basis: auto; }
+  .game-board-playing.arranging-hand .game-hand-area { display: grid; flex: 1 1 0; max-height: none; grid-template-columns: minmax(220px, 35%) minmax(0, 1fr); grid-template-rows: auto minmax(70px, 1fr) auto; grid-template-areas: 'toolbar toolbar' 'hand hand' 'move actions'; }
+  .game-board-playing.arranging-hand .game-hand-toolbar { flex-wrap: wrap; }
+  .game-board-playing.arranging-hand .hand-arrange-hint { flex-basis: auto; }
+  .game-board-playing.arranging-hand .game-hand.is-arranging { min-height: 70px; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); }
+  .game-board-playing.arranging-hand .game-hand.is-arranging .card { width: 50px; height: 70px; }
+}

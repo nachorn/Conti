@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { Card, GameState, Meld, Player } from './types.js'
+import type { Card, GameState, Meld, Player, PublicAction, RoundResult } from './types.js'
 import { CONTINENTAL_ROUNDS, type GamePhase, type RoundContract } from './types.js'
 import { createContinentalDeck, draw } from './game/deck.js'
 import {
@@ -34,6 +34,8 @@ export interface RoomOptions {
 /** Private server save data. Never emit this in place of the redacted GameState. */
 export interface RoomSnapshot {
   version: 1
+  activity?: PublicAction[]
+  roundHistory?: RoundResult[]
   roomId: string
   gameType: GameType
   maxPlayers: number
@@ -151,6 +153,46 @@ function snapshotScores(value: unknown, field: string, playerIds: Set<string>): 
   return scores
 }
 
+
+function snapshotName(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.length || value.length > 24) invalidSnapshot(field)
+  return value
+}
+
+function snapshotAction(value: unknown): PublicAction {
+  const a = snapshotObject(value, 'activity')
+  const kind = a.kind as PublicAction['kind']
+  if (!['stock', 'take', 'buy', 'pass', 'discard', 'meld', 'add', 'swap'].includes(kind)) invalidSnapshot('activity.kind')
+  const cards = snapshotCards(a.cards, 'activity.cards')
+  if ((kind === 'stock' || kind === 'pass') && cards.length) invalidSnapshot('private activity cards')
+  return {
+    id: snapshotId(a.id, 'activity.id'), round: snapshotNumber(a.round, 'activity.round', 1, 7),
+    playerId: snapshotId(a.playerId, 'activity.playerId'), playerName: snapshotName(a.playerName, 'activity.playerName'),
+    kind, cards, penaltyCount: snapshotNumber(a.penaltyCount, 'activity.penaltyCount', 0, 1),
+    ...(a.targetName === undefined ? {} : { targetName: snapshotName(a.targetName, 'activity.targetName') }),
+  }
+}
+
+function snapshotHistory(value: unknown): RoundResult[] {
+  return snapshotArray(value ?? [], 'roundHistory', 7).map((entry, index) => {
+    const r = snapshotObject(entry, 'roundHistory')
+    const names: Record<string, string> = {}
+    for (const [id, name] of Object.entries(snapshotObject(r.names, 'roundHistory.names'))) {
+      names[snapshotId(id, 'roundHistory.playerId')] = snapshotName(name, 'roundHistory.name')
+    }
+    const ids = new Set(Object.keys(names))
+    if (ids.size > MAX_PLAYERS) invalidSnapshot('roundHistory.names')
+    const round = snapshotNumber(r.round, 'roundHistory.round', 1, 7)
+    // Old saves can begin collecting history mid-game, but may not duplicate a round.
+    if (index && round <= (value as RoundResult[])[index - 1]!.round) invalidSnapshot('roundHistory.order')
+    return { round, winnerId: snapshotNullableId(r.winnerId, 'roundHistory.winnerId'),
+      sameTurnWin: snapshotBoolean(r.sameTurnWin, 'roundHistory.sameTurnWin'), names,
+      scores: snapshotScores(r.scores, 'roundHistory.scores', ids), totals: snapshotScores(r.totals, 'roundHistory.totals', ids),
+      ...(r.closingAction === undefined ? {} : { closingAction: snapshotAction(r.closingAction) }),
+    }
+  })
+}
+
 /** Parse only known fields, so stored credentials or unexpected properties cannot enter Room. */
 function parseRoomSnapshot(value: unknown): RoomSnapshot {
   const source = snapshotObject(value, 'record')
@@ -239,6 +281,8 @@ function parseRoomSnapshot(value: unknown): RoomSnapshot {
 
   return {
     version: 1,
+    activity: snapshotArray(source.activity ?? [], 'activity', 24).map(snapshotAction),
+    roundHistory: snapshotHistory(source.roundHistory),
     roomId,
     gameType,
     maxPlayers,
@@ -271,6 +315,15 @@ function parseRoomSnapshot(value: unknown): RoomSnapshot {
 }
 
 export class Room {
+  activity: PublicAction[] = []
+  roundHistory: RoundResult[] = []
+
+  private recordAction(playerId: string, kind: PublicAction['kind'], cards: Card[] = [], penaltyCount = 0, targetName?: string): void {
+    const playerName = this.players.find(p => p.id === playerId)?.name ?? 'Player'
+    const id = String(Number(this.activity.at(-1)?.id ?? 0) + 1)
+    this.activity = [...this.activity, { id, round: this.round, playerId, playerName, kind, cards: structuredClone(cards), penaltyCount, ...(targetName ? { targetName } : {}) }].slice(-24)
+  }
+
   roomId: string
   gameType: GameType
   maxPlayers: number
@@ -312,6 +365,8 @@ export class Room {
   toSnapshot(): RoomSnapshot {
     return structuredClone({
       version: 1,
+      activity: this.activity,
+      roundHistory: this.roundHistory,
       roomId: this.roomId,
       gameType: this.gameType,
       maxPlayers: this.maxPlayers,
@@ -479,6 +534,8 @@ export class Room {
     this.phase = 'playing'
     this.round = 1
     this.roundScores = {}
+    this.roundHistory = []
+    for (const p of this.players) p.score = 0
     return this.startRound()
   }
 
@@ -488,6 +545,8 @@ export class Room {
 
   /** @param overrideFirstTurnIndex When set (e.g. from nextRound), first turn is this index; otherwise random. */
   startRound(overrideFirstTurnIndex?: number): boolean {
+    this.activity = []
+    this.roundScores = {}
     this.contract = getContract(this.round)
     this.melds = []
     this.roundEnderId = null
@@ -551,6 +610,7 @@ export class Room {
     if (this.currentPlayerHasDrawn) return { ok: false, error: 'You already drew this turn' }
     if (fromDiscard) {
       if (!this.topDiscard) return { ok: false, error: 'No discard' }
+      this.recordAction(playerId, 'take', [this.topDiscard])
       cp.hand.push(this.topDiscard)
       this.discardPile.pop()
       this.topDiscard = this.discardPile.length > 0 ? this.discardPile[this.discardPile.length - 1]! : null
@@ -565,7 +625,7 @@ export class Room {
       }
       const { drawn: drawnCards, remaining } = draw(this.stock, 1)
       this.stock = remaining
-      if (drawnCards[0]) cp.hand.push(drawnCards[0])
+      if (drawnCards[0]) { cp.hand.push(drawnCards[0]); this.recordAction(playerId, 'stock') }
     }
     this.currentPlayerHasDrawn = true
     this.hasHadTurn[this.currentPlayerIndex] = true
@@ -588,6 +648,7 @@ export class Room {
     const turnPlayerIndex = this.discarderIndex !== null ? (this.discarderIndex + 1) % n : this.dealerIndex
     const isPriority = optionIndex === turnPlayerIndex
 
+    this.recordAction(playerId, isPriority ? 'take' : 'buy', [this.topDiscard], !isPriority && this.stock.length > 0 ? 1 : 0)
     p.hand.push(this.topDiscard)
     this.discardPile.pop()
     this.topDiscard = this.discardPile.length > 0 ? this.discardPile[this.discardPile.length - 1]! : null
@@ -621,6 +682,7 @@ export class Room {
     const optionIndex = this.discardOptionPlayerIndex
     const p = this.players[optionIndex]
     if (!p || p.id !== playerId) return { ok: false, error: 'Not your option to take or pass' }
+    this.recordAction(playerId, 'pass')
     const nextOption = (optionIndex + 1) % n
     const discarderIndex = this.discarderIndex
     const fullCircle = discarderIndex !== null ? nextOption === discarderIndex : nextOption === this.dealerIndex
@@ -697,6 +759,7 @@ export class Room {
         ownerId: playerId,
       })
     }
+    this.recordAction(playerId, 'meld', resolvedMelds.flatMap(m => m.cards))
     this.playedMeldThisTurn = true
     if (this.swappedJokerPlayerId === playerId) {
       this.swappedJokerCardId = null
@@ -733,6 +796,7 @@ export class Room {
     if (!isValidMeld(meld.type, combined)) return { ok: false, error: 'Invalid meld with new cards' }
     cp.hand = cp.hand.filter(card => !cardIds.has(card.id))
     meld.cards = combined
+    this.recordAction(playerId, 'add', resolvedCards, 0, this.players.find(p => p.id === meld.ownerId)?.name)
     if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null && resolvedCards.some(c => c.id === this.swappedJokerCardId)) {
       this.swappedJokerCardId = null
       this.swappedJokerPlayerId = null
@@ -773,6 +837,7 @@ export class Room {
       }
       cp.hand.splice(cardIdx, 1)
       meld.cards = relocated
+      this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name)
       if (cp.hand.length === 0) {
         this.roundEnderId = playerId
         this.endRound(playerId, this.playedMeldThisTurn)
@@ -790,6 +855,7 @@ export class Room {
     }
 
     meld.cards = replacement.cards
+    this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name)
     cp.hand.splice(cardIdx, 1)
     cp.hand.push(replacement.joker)
     this.swappedJokerCardId = replacement.joker.id
@@ -818,6 +884,7 @@ export class Room {
         }
       }
     }
+    this.recordAction(playerId, 'discard', [card])
     cp.hand.splice(idx, 1)
     const sameTurnWin = this.playedMeldThisTurn
     if (card) {
@@ -893,6 +960,8 @@ export class Room {
   }
 
   endRound(winnerId: string | null, sameTurnWin: boolean): void {
+    if (this.phase !== 'playing') return
+    this.roundEnderId = winnerId
     this.phase = this.round >= 7 ? 'game_end' : 'round_end'
     this.turnDeadline = null
     this.discardOptionPlayerIndex = null
@@ -908,6 +977,11 @@ export class Room {
       }
       p.score += this.roundScores[p.id]!
     }
+    this.roundHistory.push({ round: this.round, winnerId, sameTurnWin,
+      scores: { ...this.roundScores }, totals: Object.fromEntries(this.players.map(p => [p.id, p.score])),
+      names: Object.fromEntries(this.players.map(p => [p.id, p.name])),
+      ...(winnerId && this.activity.at(-1)?.playerId === winnerId ? { closingAction: structuredClone(this.activity.at(-1)!) } : {}),
+    })
   }
 
   debugSkipRound(): boolean {
@@ -915,6 +989,12 @@ export class Room {
     this.roundEnderId = null
     this.endRound(null, false)
     return true
+  }
+
+  rematch(): boolean {
+    if (this.phase !== 'game_end' || this.players.length < MIN_PLAYERS) return false
+    this.phase = 'lobby'
+    return this.startGame()
   }
 
   nextRound(): boolean {
@@ -951,6 +1031,8 @@ export class Room {
       topDiscard: this.topDiscard,
       dealerIndex: this.dealerIndex,
       roundScores: this.roundScores,
+      activity: structuredClone(this.activity),
+      roundHistory: structuredClone(this.roundHistory),
       discardOptionPlayerIndex: this.discardOptionPlayerIndex,
       discarderIndex: this.discarderIndex,
       discardOptionAvailableAt: this.discardOptionAvailableAt,

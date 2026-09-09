@@ -219,9 +219,8 @@ export function useSocket() {
   const swapJoker = (meldId: string, cardId: string, jokerCardId: string) =>
     sendWithAck('swap_joker', { meldId, cardId, jokerCardId })
 
-  const discard = (cardId: string) => {
-    send('discard', { cardId })
-  }
+  const discard = (cardId: string) => sendWithAck('discard', { cardId })
+  const rematch = () => { send('rematch') }
 
   const takeDiscard = () => {
     send('take_discard')
@@ -260,6 +259,7 @@ export function useSocket() {
     passDiscard,
     leave,
     nextRound,
+    rematch,
     debugSkipRound,
     socketId,
     connectionStatus,

@@ -216,6 +216,31 @@ test('game actions acknowledge both accepted and rejected mutations', async t =>
   await h.server.idle()
 })
 
+test('only the host can rematch and existing credentials recover the new game', async t => {
+  const h = await harness(t)
+  const players = await twoPlayers(h)
+  await start(h, players)
+  const before = h.server.repository.get(players.roomId)!
+  const finished = cloneRecord(before)
+  finished.room.round = 7
+  finished.room.startRound(0)
+  finished.room.endRound(finished.room.players[0]!.id, false)
+  await h.server.repository.commit(players.roomId, finished)
+  assert.deepEqual(await players.guest.acknowledge('rematch', {}), { ok: false, error: 'Only the host can do that' })
+  assert.deepEqual(await players.host.acknowledge('rematch', {}), { ok: true })
+  const next = h.server.repository.get(players.roomId)!
+  assert.equal(next.room.round, 1)
+  assert.equal(next.room.phase, 'playing')
+  assert.deepEqual(next.sessions, before.sessions)
+  assert.ok(next.room.players.every(p => p.score === 0))
+  await disconnect(h, players.guest)
+  const resumed = await peer(h, credential(players.guestJoined))
+  const joined = await resumed.wait<Joined>('joined')
+  assert.equal(joined.playerId, players.guestJoined.playerId)
+  assert.equal(joined.state.round, 1)
+  assert.equal(joined.state.phase, 'playing')
+})
+
 test('mid-turn server restart restores exact deck, hands, seats, turn and authenticated private views', async t => {
   const first = await harness(t)
   const players = await twoPlayers(first)

@@ -290,6 +290,7 @@ export function useContinentalMockState() {
     passDiscard,
     leave,
     nextRound,
+    rematch: () => setState(buildMockState(state.deckCount)),
     debugSkipRound,
     setSeat,
   }

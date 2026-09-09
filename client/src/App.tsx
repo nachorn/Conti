@@ -47,6 +47,7 @@ export default function App() {
     passDiscard,
     leave,
     nextRound,
+    rematch,
     socketId,
     connectionStatus,
     isConnected,
@@ -172,6 +173,7 @@ export default function App() {
               takeDiscard={takeDiscard}
               passDiscard={passDiscard}
               nextRound={nextRound}
+              rematch={rematch}
               setSeat={setSeat}
             />
           }
@@ -215,6 +217,7 @@ function GamePage({
   takeDiscard,
   passDiscard,
   nextRound,
+  rematch,
   setSeat,
 }: {
   state: import('./types').GameState | null
@@ -237,10 +240,11 @@ function GamePage({
   playMelds: (melds: { type: 'trio' | 'straight'; cards: import('./types').Card[] }[]) => void
   addToMeld: (meldId: string, cards: import('./types').Card[]) => Promise<ActionResult>
   swapJoker: (meldId: string, cardId: string, jokerCardId: string) => Promise<ActionResult>
-  discard: (cardId: string) => void
+  discard: (cardId: string) => Promise<ActionResult>
   takeDiscard: () => void
   passDiscard: () => void
   nextRound: () => void
+  rematch: () => void
   setSeat: (seatIndex: number) => void
 }) {
   const navigate = useNavigate()
@@ -276,11 +280,12 @@ function GamePage({
         onPlayMelds={continentalMock.playMelds}
         onAddToMeld={continentalMock.addToMeld}
         onSwapJoker={continentalMock.swapJoker}
-        onDiscard={continentalMock.discard}
+        onDiscard={async (id) => { continentalMock.discard(id); return { ok: true } }}
         onTakeDiscard={continentalMock.takeDiscard}
         onPassDiscard={continentalMock.passDiscard}
         onLeave={onLeaveContinentalDev}
         onNextRound={continentalMock.nextRound}
+        onRematch={continentalMock.rematch}
         onDebugSkipRound={continentalMock.debugSkipRound}
         onSetSeat={continentalMock.setSeat}
       />
@@ -311,6 +316,7 @@ function GamePage({
         onPassDiscard={passDiscard}
         onLeave={onLeave}
         onNextRound={nextRound}
+        onRematch={rematch}
         onSetSeat={setSeat}
       />
     )

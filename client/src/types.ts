@@ -6,6 +6,8 @@ export type {
   Meld,
   MeldType,
   Player,
+  PublicAction,
+  RoundResult,
   RoundContract,
   Suit,
 } from '@shared/types'
