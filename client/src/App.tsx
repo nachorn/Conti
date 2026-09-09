@@ -32,6 +32,7 @@ export default function App() {
   const continentalMock = useContinentalMockState()
   const {
     state,
+    pochaAction,
     roomId,
     error,
     create,
@@ -84,10 +85,13 @@ export default function App() {
     create(name, 'continental', deckCount)
   }
 
-  const handleCreatePocha = (deckSize: PochaDeckSize) => {
+  const openPochaPreview = (deckSize: PochaDeckSize) => {
     pochaMock.reset(deckSize)
     setShowPochaDev(true)
     navigate('/game')
+  }
+  const handleCreatePocha = (deckSize: PochaDeckSize, name: string) => {
+    create(name, 'pocha', undefined, deckSize)
   }
 
   return (
@@ -115,7 +119,7 @@ export default function App() {
               lang={lang}
               setLang={setLang}
               initialJoinRoomId={null}
-              onOpenPochaDev={handleCreatePocha}
+              onOpenPochaDev={openPochaPreview}
               onOpenContinentalDev={() => {
                 setShowContinentalDev(true)
                 navigate('/game')
@@ -134,7 +138,7 @@ export default function App() {
               isConnected={isConnected}
               lang={lang}
               setLang={setLang}
-              onOpenPochaDev={handleCreatePocha}
+              onOpenPochaDev={openPochaPreview}
               onOpenContinentalDev={() => { setShowContinentalDev(true); navigate('/game') }}
             />
           }
@@ -143,6 +147,7 @@ export default function App() {
           path="/game"
           element={
             <GamePage
+              pochaAction={pochaAction}
               state={state}
               roomId={roomId}
               error={error}
@@ -193,6 +198,7 @@ function LobbyWithRoomId(props: Omit<React.ComponentProps<typeof Lobby>, 'initia
 
 /** Renders the correct board for /game; redirects to / if not in a game. */
 function GamePage({
+  pochaAction,
   state,
   roomId,
   error,
@@ -220,6 +226,7 @@ function GamePage({
   rematch,
   setSeat,
 }: {
+  pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
   state: import('./types').GameState | null
   roomId: string | null
   error: string | null
@@ -295,8 +302,9 @@ function GamePage({
   if (state && roomId) {
     const gameType = state.gameType ?? 'continental'
     if (gameType === 'pocha') {
-      // Server Pocha not wired yet; should not reach here with real socket
-      return null
+      return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
+        isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction}
+        onStart={(settings) => start({ pochaSettings: settings })} onNextRound={nextRound} onRematch={rematch} /> : null
     }
     return (
       <GameBoard

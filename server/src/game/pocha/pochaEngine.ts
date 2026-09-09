@@ -1,130 +1,137 @@
-import type {
-  PochaCard,
-  PochaDeckSize,
-  PochaGameState,
-  PochaPlayer,
-  SpanishSuit,
-  TrickCard,
-} from './pochaTypes.js'
-import { POCHA_TRICK_ORDER } from './pochaTypes.js'
-import { createPochaDeck, draw } from './spanishDeck.js'
+import type { PochaAction, PochaDeckSize, PochaGameState, PochaPlayer, PochaSettings, SpanishSuit, TrickCard } from './pochaTypes.js'
+import { createPochaDeck } from './spanishDeck.js'
+import { POCHA_TRICK_REVIEW_MS } from './pochaTypes.js'
+import { defaultPochaSettings, legalCards, roundSchedule, scoreHand, winningCard } from './pochaRules.js'
+export { scoreHand } from './pochaRules.js'
 
-/** Cards per hand: 1, 2, ... up to the largest complete deal, then down. */
-export function getCardsPerHand(
-  handNumber: number,
-  playerCount: number,
-  deckSize: PochaDeckSize = 40
-): number {
-  const up = Math.floor(deckSize / playerCount)
-  if (handNumber <= up) return handNumber
-  const down = handNumber - up
-  const n = up - down
-  return Math.max(1, n)
+export function getCardsPerHand(handNumber: number, playerCount: number, deckSize: PochaDeckSize = 40): number {
+  return roundSchedule(defaultPochaSettings(playerCount, deckSize), playerCount, deckSize)[handNumber - 1] ?? 1
 }
+export const leadPlayerIndex = (dealerIndex: number, playerCount: number) => (dealerIndex + 1) % playerCount
 
-/** Who leads first trick: player to dealer's right. */
-export function leadPlayerIndex(dealerIndex: number, playerCount: number): number {
-  return (dealerIndex + 1) % playerCount
+export function dealerBidsBlocked(totalTricks: number, bids: Record<string, number>, lastId: string): number | null {
+  const forbidden = totalTricks - Object.entries(bids).reduce((sum, [id, bid]) => sum + (id === lastId ? 0 : bid), 0)
+  return forbidden >= 0 && forbidden <= totalTricks ? forbidden : null
 }
-
-/** Dealer cannot bid a number that would make total bids = tricks available. */
-export function dealerBidsBlocked(totalTricks: number, currentBids: Record<string, number>, dealerId: string): number | null {
-  const othersSum = Object.entries(currentBids).reduce((s, [id, b]) => (id === dealerId ? s : s + b), 0)
-  const bidThatWouldTie = totalTricks - othersSum
-  if (Number.isInteger(bidThatWouldTie) && bidThatWouldTie >= 0 && bidThatWouldTie <= totalTricks) {
-    return bidThatWouldTie
+export function trickWinner(trick: TrickCard[], lead: number, trump: SpanishSuit, order: string[]): string {
+  return winningCard(trick, trump)?.playerId ?? order[lead]
+}
+export function createPochaLobby(roomId: string, deckSize: PochaDeckSize = 40): PochaGameState {
+  return { roomId, deckSize, phase: 'lobby', settings: defaultPochaSettings(2, deckSize), schedule: [], hostId: '',
+    handNumber: 0, cardsPerHand: 0, trump: null, trumpCard: null, players: [], dealerIndex: 0,
+    originalLeadPlayerIndex: 0, leadPlayerIndex: 0, currentPlayerIndex: 0, currentTrick: [], bids: {},
+    auction: [], auctionWinnerId: null, lastTrick: null, trickReviewUntil: null, history: [] }
+}
+export function createPochaHandState(roomId: string, players: Omit<PochaPlayer, 'hand' | 'bid' | 'tricksWon'>[], handNumber: number,
+  dealerIndex: number, deckSize: PochaDeckSize = 40, settings = defaultPochaSettings(players.length, deckSize)): PochaGameState {
+  const schedule = roundSchedule(settings, players.length, deckSize)
+  if (!schedule[handNumber - 1]) throw new Error('Ronda inexistente')
+  const state = createPochaLobby(roomId, deckSize)
+  Object.assign(state, { settings, schedule, handNumber, dealerIndex, hostId: players[0].id,
+    players: players.map(p => ({ ...p, hand: [], bid: null, tricksWon: 0 })) })
+  dealHand(state)
+  return state
+}
+export function dealHand(state: PochaGameState): void {
+  const n = state.players.length
+  state.cardsPerHand = state.schedule[state.handNumber - 1]
+  state.originalLeadPlayerIndex = leadPlayerIndex(state.dealerIndex, n)
+  state.leadPlayerIndex = state.originalLeadPlayerIndex
+  state.currentPlayerIndex = state.originalLeadPlayerIndex
+  state.players.forEach(p => { p.hand = []; p.bid = null; p.tricksWon = 0 })
+  state.bids = {}; state.currentTrick = []; state.lastTrick = null; state.auction = []; state.auctionWinnerId = null
+  state.trickReviewUntil = null
+  const deck = createPochaDeck(state.deckSize)
+  const dealt = n * state.cardsPerHand
+  for (let i = 0; i < dealt; i++) state.players[(state.originalLeadPlayerIndex + i) % n].hand.push(deck[i])
+  const auction = state.settings.mode === 'subastada' && dealt === state.deckSize
+  state.trumpCard = auction ? null : deck[dealt] ?? deck[dealt - 1]
+  state.trump = state.trumpCard?.suit ?? null
+  state.phase = auction ? 'auction' : 'bidding'
+}
+export function startPocha(state: PochaGameState, settings: PochaSettings): void {
+  const schedule = roundSchedule(settings, state.players.length, state.deckSize)
+  state.settings = { ...settings }; state.schedule = schedule; state.history = []; state.handNumber = 1
+  state.players.sort((a, b) => a.seatIndex - b.seatIndex)
+  state.players.forEach(p => { p.score = 0 })
+  state.dealerIndex = state.players.length - 1
+  dealHand(state)
+}
+export function isPochaTrickReview(state: PochaGameState, now = Date.now()): boolean {
+  return !!state.lastTrick && (state.trickReviewUntil ?? 0) > now
+}
+export function nextPochaRound(state: PochaGameState): void {
+  if (state.phase !== 'hand_end') throw new Error('La ronda no ha terminado')
+  if (isPochaTrickReview(state)) throw new Error('Espera a que termine el resultado de la baza')
+  state.handNumber++
+  state.dealerIndex = (state.dealerIndex + 1) % state.players.length
+  dealHand(state)
+}
+export function applyPochaAction(state: PochaGameState, playerId: string, action: PochaAction, now = Date.now()): { ok: boolean; error?: string } {
+  const fail = (error: string) => ({ ok: false, error })
+  if (isPochaTrickReview(state, now)) return fail('Espera a que termine el resultado de la baza')
+  const player = state.players[state.currentPlayerIndex]
+  if (!player || player.id !== playerId) return fail('Espera tu turno')
+  const n = state.players.length
+  const validBid = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= state.cardsPerHand
+  if (action.type === 'auction' && state.phase === 'auction') {
+    const best = Math.max(-1, ...state.auction.map(a => a.value ?? -1))
+    if (action.value === null ? !state.auction.length : !validBid(action.value) || action.value <= best) return fail('Debes superar la oferta; la mano debe abrir con una cantidad')
+    state.auction.push({ playerId, value: action.value })
+    if (action.value !== null) state.auctionWinnerId = playerId
+    if (state.auction.length === n) {
+      const winner = state.players.findIndex(p => p.id === state.auctionWinnerId)
+      const value = state.auction.find(a => a.playerId === state.auctionWinnerId)!.value!
+      state.players[winner].bid = value; state.bids[state.auctionWinnerId!] = value
+      state.leadPlayerIndex = winner; state.currentPlayerIndex = winner; state.phase = 'choosing_trump'
+    } else state.currentPlayerIndex = (state.currentPlayerIndex + 1) % n
+    return { ok: true }
   }
-  return null
-}
-
-/** Compare two cards in a trick: led suit, trump. Returns positive if a wins, negative if b wins, 0 if same (shouldn't happen). */
-function compareInTrick(
-  a: PochaCard,
-  b: PochaCard,
-  ledSuit: SpanishSuit,
-  trump: SpanishSuit
-): number {
-  const aTrump = a.suit === trump
-  const bTrump = b.suit === trump
-  const aFollows = a.suit === ledSuit
-  const bFollows = b.suit === ledSuit
-
-  if (aTrump && !bTrump) return 1
-  if (!aTrump && bTrump) return -1
-  if (aTrump && bTrump) return (POCHA_TRICK_ORDER[a.rank] ?? 0) - (POCHA_TRICK_ORDER[b.rank] ?? 0)
-  if (aFollows && !bFollows) return 1
-  if (!aFollows && bFollows) return -1
-  if (aFollows && bFollows) return (POCHA_TRICK_ORDER[a.rank] ?? 0) - (POCHA_TRICK_ORDER[b.rank] ?? 0)
-  return 0
-}
-
-/** Determine winner of the current trick. */
-export function trickWinner(
-  trick: TrickCard[],
-  leadPlayerIndex: number,
-  trump: SpanishSuit,
-  playerOrder: string[]
-): string {
-  if (trick.length === 0) return playerOrder[leadPlayerIndex]
-  const leadCard = trick[0]
-  const ledSuit = leadCard.card.suit
-  let winner = leadCard
-  for (let i = 1; i < trick.length; i++) {
-    const curr = trick[i]
-    if (compareInTrick(curr.card, winner.card, ledSuit, trump) > 0) winner = curr
+  if (action.type === 'trump' && state.phase === 'choosing_trump') {
+    if (!['oros', 'copas', 'espadas', 'bastos'].includes(action.suit)) return fail('Elige un palo válido')
+    state.trump = action.suit; state.phase = 'bidding'; state.currentPlayerIndex = (state.leadPlayerIndex + 1) % n
+    return { ok: true }
   }
-  return winner.playerId
-}
-
-/** Score a hand: +10 for matching bid, plus 1 per trick if matched (common variant). */
-export function scoreHand(bid: number, tricksWon: number): number {
-  if (bid === tricksWon) return 10 + tricksWon
-  return 0
-}
-
-/** Create initial Pocha game state for a hand (after lobby). */
-export function createPochaHandState(
-  roomId: string,
-  players: Omit<PochaPlayer, 'hand' | 'bid' | 'tricksWon'>[],
-  handNumber: number,
-  dealerIndex: number,
-  deckSize: PochaDeckSize = 40
-): PochaGameState {
-  const playerCount = players.length
-  const cardsPerHand = getCardsPerHand(handNumber, playerCount, deckSize)
-  const deck = createPochaDeck(deckSize)
-  const { drawn, remaining } = draw(deck, playerCount * cardsPerHand)
-
-  const hands: PochaCard[][] = []
-  for (let i = 0; i < playerCount; i++) {
-    hands.push(drawn.slice(i * cardsPerHand, (i + 1) * cardsPerHand))
+  if (action.type === 'bid' && state.phase === 'bidding') {
+    if (!validBid(action.value)) return fail('Predicción inválida')
+    if (Object.keys(state.bids).length === n - 1 && dealerBidsBlocked(state.cardsPerHand, state.bids, playerId) === action.value) return fail('El total de predicciones no puede coincidir con las bazas disponibles')
+    player.bid = action.value; state.bids[playerId] = action.value
+    if (Object.keys(state.bids).length === n) { state.phase = 'playing'; state.currentPlayerIndex = state.leadPlayerIndex }
+    else state.currentPlayerIndex = (state.currentPlayerIndex + 1) % n
+    return { ok: true }
   }
-
-  const trumpCard = remaining[0] ?? null
-  const trump = trumpCard?.suit ?? null
-
-  const statePlayers: PochaPlayer[] = players.map((p, i) => ({
-    ...p,
-    hand: hands[i] ?? [],
-    bid: null,
-    tricksWon: 0,
-  }))
-
-  const leadIdx = leadPlayerIndex(dealerIndex, playerCount)
-
-  return {
-    roomId,
-    phase: 'bidding',
-    deckSize,
-    handNumber,
-    cardsPerHand,
-    trump,
-    trumpCard,
-    players: statePlayers,
-    dealerIndex,
-    leadPlayerIndex: leadIdx,
-    currentTrick: [],
-    bids: {},
-    currentPlayerIndex: leadIdx,
+  if (action.type === 'play' && state.phase === 'playing' && state.trump) {
+    const card = legalCards(player.hand, state.currentTrick, state.trump).find(c => c.id === action.cardId)
+    if (!card) return fail('Debes asistir al palo, jugar triunfo si no tienes, y superar si puedes')
+    player.hand = player.hand.filter(c => c.id !== card.id)
+    state.currentTrick.push({ playerId, card })
+    if (state.currentTrick.length < n) state.currentPlayerIndex = (state.currentPlayerIndex + 1) % n
+    else {
+      const winnerId = winningCard(state.currentTrick, state.trump)!.playerId
+      const winner = state.players.findIndex(p => p.id === winnerId)
+      state.players[winner].tricksWon++
+      state.lastTrick = { cards: state.currentTrick, winnerId }
+      state.trickReviewUntil = now + POCHA_TRICK_REVIEW_MS
+      state.currentTrick = []; state.currentPlayerIndex = winner; state.leadPlayerIndex = winner
+      if (state.players.every(p => !p.hand.length)) {
+        const results = state.players.map(p => {
+          const points = scoreHand(p.bid!, p.tricksWon); p.score += points
+          return { id: p.id, name: p.name, bid: p.bid!, tricksWon: p.tricksWon, points, total: p.score }
+        })
+        state.history.push({ handNumber: state.handNumber, cardsPerHand: state.cardsPerHand, trump: state.trump, players: results })
+        state.phase = state.handNumber === state.schedule.length ? 'game_end' : 'hand_end'
+      }
+    }
+    return { ok: true }
   }
+  return fail('Esta acción no corresponde a la fase actual')
+}
+export function publicPochaState(state: PochaGameState, playerId?: string): PochaGameState {
+  const copy = structuredClone(state)
+  copy.serverTime = Date.now()
+  copy.players = state.players.map(p => ({ ...p, handCount: p.hand.length, hand: p.id === playerId ? structuredClone(p.hand) : [] }))
+  const current = state.players[state.currentPlayerIndex]
+  copy.legalCardIds = state.phase === 'playing' && current?.id === playerId && state.trump ? legalCards(current.hand, state.currentTrick, state.trump).map(c => c.id) : []
+  copy.blockedBid = state.phase === 'bidding' && Object.keys(state.bids).length === state.players.length - 1 ? dealerBidsBlocked(state.cardsPerHand, state.bids, current.id) : null
+  return copy
 }

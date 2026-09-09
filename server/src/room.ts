@@ -12,6 +12,10 @@ import {
   satisfiesContract,
 } from './game/meld.js'
 import { handPenalty } from './game/scoring.js'
+import type { PochaAction, PochaDeckSize, PochaGameState, PochaSettings } from './game/pocha/pochaTypes.js'
+import { applyPochaAction, createPochaLobby, isPochaTrickReview, nextPochaRound, publicPochaState, startPocha } from './game/pocha/pochaEngine.js'
+import { defaultPochaSettings } from './game/pocha/pochaRules.js'
+import { parsePochaSnapshot } from './game/pocha/pochaSnapshot.js'
 
 const CARDS_ROUND_1 = 7
 const MIN_PLAYERS = 2
@@ -23,6 +27,7 @@ const WIN_BONUS_OTHER = -10
 export type GameType = 'continental' | 'pocha'
 
 export interface RoomOptions {
+  pochaDeckSize?: PochaDeckSize
   roomId?: string
   gameType?: GameType
   maxPlayers?: number
@@ -33,6 +38,7 @@ export interface RoomOptions {
 
 /** Private server save data. Never emit this in place of the redacted GameState. */
 export interface RoomSnapshot {
+  pocha?: PochaGameState
   version: 1
   activity?: PublicAction[]
   roundHistory?: RoundResult[]
@@ -165,11 +171,19 @@ function snapshotAction(value: unknown): PublicAction {
   if (!['stock', 'take', 'buy', 'pass', 'discard', 'meld', 'add', 'swap'].includes(kind)) invalidSnapshot('activity.kind')
   const cards = snapshotCards(a.cards, 'activity.cards')
   if ((kind === 'stock' || kind === 'pass') && cards.length) invalidSnapshot('private activity cards')
+  const melds = a.melds === undefined ? undefined : snapshotArray(a.melds, 'activity.melds', 3).map(value => {
+    if (!['meld', 'add', 'swap'].includes(kind)) invalidSnapshot('private activity melds')
+    const meld = snapshotObject(value, 'activity.meld')
+    if (meld.type !== 'trio' && meld.type !== 'straight') invalidSnapshot('activity.meld.type')
+    return { id: snapshotId(meld.id, 'activity.meld.id'), ownerId: snapshotId(meld.ownerId, 'activity.meld.ownerId'),
+      type: meld.type as Meld['type'], cards: snapshotCards(meld.cards, 'activity.meld.cards') }
+  })
   return {
     id: snapshotId(a.id, 'activity.id'), round: snapshotNumber(a.round, 'activity.round', 1, 7),
     playerId: snapshotId(a.playerId, 'activity.playerId'), playerName: snapshotName(a.playerName, 'activity.playerName'),
     kind, cards, penaltyCount: snapshotNumber(a.penaltyCount, 'activity.penaltyCount', 0, 1),
     ...(a.targetName === undefined ? {} : { targetName: snapshotName(a.targetName, 'activity.targetName') }),
+    ...(melds === undefined ? {} : { melds }),
   }
 }
 
@@ -281,6 +295,7 @@ function parseRoomSnapshot(value: unknown): RoomSnapshot {
 
   return {
     version: 1,
+    ...(gameType === 'pocha' ? { pocha: parsePochaSnapshot(source.pocha, roomId, players) } : {}),
     activity: snapshotArray(source.activity ?? [], 'activity', 24).map(snapshotAction),
     roundHistory: snapshotHistory(source.roundHistory),
     roomId,
@@ -315,13 +330,42 @@ function parseRoomSnapshot(value: unknown): RoomSnapshot {
 }
 
 export class Room {
+  declare pocha?: PochaGameState
+
+  private syncPochaLobby(): void {
+    if (!this.pocha || this.pocha.phase !== 'lobby') return
+    this.pocha.players = this.players.map(p => ({ ...p, hand: [], bid: null, tricksWon: 0 }))
+    this.pocha.hostId = this.players[0]?.id ?? ''
+    this.pocha.settings = defaultPochaSettings(Math.max(2, this.players.length), this.pocha.deckSize)
+  }
+
+  private syncPochaPhase(): void {
+    if (!this.pocha) return
+    this.phase = this.pocha.phase === 'hand_end' ? 'round_end' : this.pocha.phase === 'game_end' ? 'game_end' : this.pocha.phase === 'lobby' ? 'lobby' : 'playing'
+    this.hasHadTurn = this.players.map(() => false)
+    for (const p of this.players) p.score = this.pocha.players.find(q => q.id === p.id)?.score ?? 0
+  }
+
+  startPochaGame(settings: PochaSettings): { ok: boolean; error?: string } {
+    if (!this.pocha || this.phase !== 'lobby' || this.players.length < 2) return { ok: false, error: 'Se necesitan al menos 2 jugadores en la sala' }
+    if (this.players.some(p => !p.connected)) return { ok: false, error: 'Espera a que todos los jugadores se reconecten' }
+    try { startPocha(this.pocha, settings); this.syncPochaPhase(); return { ok: true } }
+    catch { return { ok: false, error: 'Configuración de rondas inválida' } }
+  }
+
+  pochaAction(id: string, action: PochaAction): { ok: boolean; error?: string } {
+    if (!this.pocha || !action || typeof action !== 'object') return { ok: false, error: 'Acción de Pocha inválida' }
+    const result = applyPochaAction(this.pocha, id, action)
+    if (result.ok) this.syncPochaPhase()
+    return result
+  }
   activity: PublicAction[] = []
   roundHistory: RoundResult[] = []
 
-  private recordAction(playerId: string, kind: PublicAction['kind'], cards: Card[] = [], penaltyCount = 0, targetName?: string): void {
+  private recordAction(playerId: string, kind: PublicAction['kind'], cards: Card[] = [], penaltyCount = 0, targetName?: string, melds?: Meld[]): void {
     const playerName = this.players.find(p => p.id === playerId)?.name ?? 'Player'
     const id = String(Number(this.activity.at(-1)?.id ?? 0) + 1)
-    this.activity = [...this.activity, { id, round: this.round, playerId, playerName, kind, cards: structuredClone(cards), penaltyCount, ...(targetName ? { targetName } : {}) }].slice(-24)
+    this.activity = [...this.activity, { id, round: this.round, playerId, playerName, kind, cards: structuredClone(cards), penaltyCount, ...(targetName ? { targetName } : {}), ...(melds ? { melds: structuredClone(melds) } : {}) }].slice(-24)
   }
 
   roomId: string
@@ -365,6 +409,7 @@ export class Room {
   toSnapshot(): RoomSnapshot {
     return structuredClone({
       version: 1,
+      ...(this.pocha ? { pocha: this.pocha } : {}),
       activity: this.activity,
       roundHistory: this.roundHistory,
       roomId: this.roomId,
@@ -405,6 +450,7 @@ export class Room {
     // All properties here came from the explicit validated allowlist above.
     Object.assign(room, snapshot)
     if (disconnectPlayers) for (const player of room.players) player.connected = false
+    if (disconnectPlayers && room.pocha) for (const player of room.pocha.players) player.connected = false
     return room
   }
 
@@ -415,6 +461,7 @@ export class Room {
     this.deckCount = options.deckCount ?? 2
     this.discardOptionDelaySeconds = Math.max(0, Math.min(30, options.discardOptionDelaySeconds ?? 10))
     this.secondsPerTurn = Math.max(0, Math.min(120, options.secondsPerTurn ?? 0))
+    if (this.gameType === 'pocha') this.pocha = createPochaLobby(this.roomId, options.pochaDeckSize)
   }
 
   addPlayer(id: string, name: string): boolean {
@@ -431,6 +478,7 @@ export class Room {
       connected: true,
       seatIndex,
     })
+    this.syncPochaLobby()
     return true
   }
 
@@ -442,10 +490,19 @@ export class Room {
     const taken = this.players.some(q => q.id !== playerId && q.seatIndex === seatIndex)
     if (taken) return false
     p.seatIndex = seatIndex
+    this.syncPochaLobby()
     return true
   }
 
   removePlayer(id: string): void {
+    if (this.pocha) {
+      this.players = this.players.filter(p => p.id !== id)
+      this.players.forEach(p => { p.score = 0 })
+      this.pocha = createPochaLobby(this.roomId, this.pocha.deckSize)
+      this.phase = 'lobby'; this.currentPlayerIndex = 0; this.dealerIndex = 0; this.hasHadTurn = []
+      this.syncPochaLobby()
+      return
+    }
     const removedIndex = this.players.findIndex(p => p.id === id)
     if (removedIndex < 0) return
     const removedCurrentPlayer = removedIndex === this.currentPlayerIndex
@@ -503,6 +560,8 @@ export class Room {
   setConnected(id: string, connected: boolean): void {
     const p = this.players.find(x => x.id === id)
     if (p) p.connected = connected
+    const pp = this.pocha?.players.find(p => p.id === id)
+    if (pp) pp.connected = connected
   }
 
   setDeckCount(count: 2 | 3): void {
@@ -530,6 +589,7 @@ export class Room {
   }
 
   startGame(): boolean {
+    if (this.pocha) return this.startPochaGame(this.pocha.settings).ok
     if (this.phase !== 'lobby' || this.players.length < MIN_PLAYERS) return false
     this.phase = 'playing'
     this.round = 1
@@ -759,7 +819,7 @@ export class Room {
         ownerId: playerId,
       })
     }
-    this.recordAction(playerId, 'meld', resolvedMelds.flatMap(m => m.cards))
+    this.recordAction(playerId, 'meld', resolvedMelds.flatMap(m => m.cards), 0, undefined, this.melds.slice(-resolvedMelds.length))
     this.playedMeldThisTurn = true
     if (this.swappedJokerPlayerId === playerId) {
       this.swappedJokerCardId = null
@@ -796,7 +856,7 @@ export class Room {
     if (!isValidMeld(meld.type, combined)) return { ok: false, error: 'Invalid meld with new cards' }
     cp.hand = cp.hand.filter(card => !cardIds.has(card.id))
     meld.cards = combined
-    this.recordAction(playerId, 'add', resolvedCards, 0, this.players.find(p => p.id === meld.ownerId)?.name)
+    this.recordAction(playerId, 'add', resolvedCards, 0, this.players.find(p => p.id === meld.ownerId)?.name, [meld])
     if (this.swappedJokerPlayerId === playerId && this.swappedJokerCardId !== null && resolvedCards.some(c => c.id === this.swappedJokerCardId)) {
       this.swappedJokerCardId = null
       this.swappedJokerPlayerId = null
@@ -837,7 +897,7 @@ export class Room {
       }
       cp.hand.splice(cardIdx, 1)
       meld.cards = relocated
-      this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name)
+      this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name, [meld])
       if (cp.hand.length === 0) {
         this.roundEnderId = playerId
         this.endRound(playerId, this.playedMeldThisTurn)
@@ -855,7 +915,7 @@ export class Room {
     }
 
     meld.cards = replacement.cards
-    this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name)
+    this.recordAction(playerId, 'swap', [card], 0, this.players.find(p => p.id === meld.ownerId)?.name, [meld])
     cp.hand.splice(cardIdx, 1)
     cp.hand.push(replacement.joker)
     this.swappedJokerCardId = replacement.joker.id
@@ -992,12 +1052,23 @@ export class Room {
   }
 
   rematch(): boolean {
+    if (this.pocha) {
+      if (this.phase !== 'game_end' || isPochaTrickReview(this.pocha)) return false
+      this.pocha = createPochaLobby(this.roomId, this.pocha.deckSize)
+      this.players.forEach(p => { p.score = 0 })
+      this.phase = 'lobby'; this.hasHadTurn = []; this.syncPochaLobby()
+      return true
+    }
     if (this.phase !== 'game_end' || this.players.length < MIN_PLAYERS) return false
     this.phase = 'lobby'
     return this.startGame()
   }
 
   nextRound(): boolean {
+    if (this.pocha) {
+      if (this.pocha.phase !== 'hand_end' || isPochaTrickReview(this.pocha)) return false
+      nextPochaRound(this.pocha); this.syncPochaPhase(); return true
+    }
     if (this.phase !== 'round_end') return false
     const n = this.players.length
     const enderIdx = this.roundEnderId != null ? this.players.findIndex((p) => p.id === this.roundEnderId) : -1
@@ -1019,6 +1090,7 @@ export class Room {
     }))
     return {
       roomId: this.roomId,
+      ...(this.pocha ? { pocha: publicPochaState(this.pocha, forPlayerId) } : {}),
       gameType: this.gameType,
       phase: this.phase,
       round: this.round,

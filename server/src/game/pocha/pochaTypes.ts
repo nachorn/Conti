@@ -6,6 +6,8 @@
 
 export type SpanishSuit = 'oros' | 'copas' | 'espadas' | 'bastos'
 export type PochaDeckSize = 40 | 48
+/** Shared time to read a completed trick before the next move. */
+export const POCHA_TRICK_REVIEW_MS = 4000
 
 export interface PochaCard {
   id: string
@@ -35,9 +37,28 @@ export interface PochaPlayer {
   bid: number | null
   /** Tricks won so far in current hand. */
   tricksWon: number
+  handCount?: number
 }
 
-export type PochaPhase = 'lobby' | 'bidding' | 'playing' | 'hand_end' | 'game_end'
+export type PochaPhase = 'lobby' | 'auction' | 'choosing_trump' | 'bidding' | 'playing' | 'hand_end' | 'game_end'
+
+export interface PochaSettings {
+  mode: 'normal' | 'subastada'
+  maxCards: number
+  oneCardRounds: number
+  peakRounds: number
+}
+export interface PochaRoundResult {
+  handNumber: number
+  cardsPerHand: number
+  trump: SpanishSuit
+  players: { id: string; name: string; bid: number; tricksWon: number; points: number; total: number }[]
+}
+export type PochaAction =
+  | { type: 'bid'; value: number }
+  | { type: 'auction'; value: number | null }
+  | { type: 'trump'; suit: SpanishSuit }
+  | { type: 'play'; cardId: string }
 
 /** One card played by a player in the current trick. */
 export interface TrickCard {
@@ -46,6 +67,20 @@ export interface TrickCard {
 }
 
 export interface PochaGameState {
+  settings: PochaSettings
+  schedule: number[]
+  hostId: string
+  originalLeadPlayerIndex: number
+  auction: { playerId: string; value: number | null }[]
+  auctionWinnerId: string | null
+  lastTrick: { cards: TrickCard[]; winnerId: string } | null
+  /** Server deadline; optional for saves made before trick review was introduced. */
+  trickReviewUntil?: number | null
+  /** Public snapshot clock, used to tolerate different device clocks. */
+  serverTime?: number
+  history: PochaRoundResult[]
+  legalCardIds?: string[]
+  blockedBid?: number | null
   roomId: string
   phase: PochaPhase
   /** Whether this game uses the 40-card deck or the full 48-card deck. */

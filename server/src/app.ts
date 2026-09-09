@@ -161,6 +161,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (!current) { reject('Room not found', ack); return }
       if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that', ack); return }
       const next = cloneRecord(current)
+      const common = ['set_seat', 'start', 'next_round', 'rematch']
+      if (next.room.gameType === 'pocha' ? !common.includes(event) && event !== 'pocha_action' : event === 'pocha_action') {
+        reject('Esta acción no pertenece a este juego', ack); return
+      }
       const result = apply(next.room, playerId, payload)
       if (!result.ok) { reject(result.error ?? 'Action unavailable', ack); return }
       try {
@@ -175,11 +179,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
     on('create', async payload => {
       if (socket.data.roomId) { reject('Leave the current room before creating another'); return }
-      if (payload?.gameType === 'pocha') { reject('Pocha multiplayer not available yet'); return }
       let roomId: string
       try { roomId = repository.newRoomCode() }
       catch { reject('Server has too many saved rooms. Try again later.'); return }
-      const room = new Room({ roomId, maxPlayers: 10, deckCount: payload?.deckCount === 3 ? 3 : 2,
+      const room = new Room({ roomId, gameType: payload?.gameType === 'pocha' ? 'pocha' : 'continental', pochaDeckSize: payload?.pochaDeckSize === 48 ? 48 : 40, maxPlayers: 10, deckCount: payload?.deckCount === 3 ? 3 : 2,
         discardOptionDelaySeconds: seconds(payload?.discardOptionDelaySeconds, 10, 30),
         secondsPerTurn: seconds(payload?.secondsPerTurn, 0, 120) })
       const { credential, session } = issueCredential(roomId)
@@ -200,12 +203,14 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
     action('set_seat', (room, id, p) => ({ ok: Number.isInteger(p?.seatIndex) && room.setSeat(id, p.seatIndex), error: 'Seat unavailable or invalid' }))
     action('start', (room, _id, p) => {
+      if (room.pocha) return room.startPochaGame(p?.pochaSettings)
       if (room.phase !== 'lobby' || room.players.length < 2) return { ok: false, error: 'Need at least 2 players in the lobby' }
       if (p?.deckCount === 2 || p?.deckCount === 3) room.setDeckCount(p.deckCount)
       room.setDiscardOptionDelaySeconds(seconds(p?.discardOptionDelaySeconds, room.discardOptionDelaySeconds, 30))
       room.setSecondsPerTurn(seconds(p?.secondsPerTurn, room.secondsPerTurn, 120))
       return { ok: room.startGame() }
     }, true)
+    action('pocha_action', (room, id, p) => room.pochaAction(id, p))
     action('draw', (room, id, p) => room.draw(id, p?.fromDiscard === true))
     action('play_melds', (room, id, p) => {
       if (!Array.isArray(p?.melds) || p.melds.some((m: any) => !m || !Array.isArray(m.cards))) return { ok: false, error: 'Invalid meld payload' }
@@ -219,8 +224,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     action('rematch', room => room.rematch() ? { ok: true } : { ok: false, error: 'Finish the game with at least two players before starting again.' }, true)
     action('next_round', room => {
       if (room.phase !== 'round_end') return { ok: false, error: 'The round has not ended' }
-      room.nextRound()
-      return { ok: true }
+      const advanced = room.nextRound()
+      return advanced || !room.pocha ? { ok: true } : { ok: false, error: 'Espera a que termine el resultado de la baza' }
     }, true)
     action('debug_skip_round', room => options.debug ? { ok: room.debugSkipRound() } : { ok: false, error: 'Debug actions are disabled' }, true)
 
@@ -275,7 +280,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
         if (!repository.failed) {
           const records = [...repository.records.values()].map(record => {
             const next = cloneRecord(record)
-            for (const player of next.room.players) player.connected = false
+            for (const player of next.room.players) next.room.setConnected(player.id, false)
             pauseRoom(next)
             return next
           })

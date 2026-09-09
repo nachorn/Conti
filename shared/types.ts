@@ -71,6 +71,8 @@ export interface PublicAction {
   cards: Card[]
   penaltyCount: number
   targetName?: string
+  /** A snapshot of the affected public melds after this action. */
+  melds?: Meld[]
 }
 
 export interface RoundResult {
@@ -84,6 +86,7 @@ export interface RoundResult {
 }
 
 export interface GameState {
+  pocha?: import('./pochaTypes').PochaGameState
   activity?: PublicAction[]
   roundHistory?: RoundResult[]
   roomId: string

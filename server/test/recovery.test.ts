@@ -634,3 +634,43 @@ test('startup rejects corrupt room/session snapshots without overwriting existin
   await assert.rejects(createGameServer(inaccessible), /offline/)
   assert.equal(inaccessible.saveAttempts, 0)
 })
+
+test('Pocha rooms enforce host settings, isolate actions, recover after restart and complete a game', async t => {
+  const h = await harness(t)
+  const host = await peer(h)
+  const hj = await host.request<Joined>('create', { gameType: 'pocha', name: 'Ana', pochaDeckSize: 48 }, 'joined')
+  assert.equal(hj.state.pocha!.deckSize, 48)
+  const guest = await peer(h)
+  const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Luis' }, 'joined')
+  const setup = { pochaSettings: { mode: 'subastada', maxCards: 1, oneCardRounds: 1, peakRounds: 1 } }
+  assert.equal((await guest.acknowledge<{ok:boolean}>('start', setup)).ok, false)
+  await host.request<GameState>('start', setup, 'state', s => s.pocha?.phase === 'bidding')
+  assert.equal((await host.acknowledge<{ok:boolean}>('draw', {fromDiscard:false})).ok, false)
+  const room = h.server.repository.get(hj.roomId)!.room
+  const ownId = room.pocha!.players.find(p => p.id === hj.playerId)!.hand[0].id
+  assert.ok(!JSON.stringify(room.getState(gj.playerId)).includes(ownId))
+  assert.deepEqual(await host.acknowledge('pocha_action', {type:'bid',value:0}), {ok:true})
+  assert.deepEqual(await guest.acknowledge('pocha_action', {type:'bid',value:0}), {ok:true})
+  await h.close()
+  const restarted = await harness(t, new MemoryStore(h.store.value))
+  const host2 = await peer(restarted, credential(hj))
+  const recovered = await host2.wait<Joined>('joined')
+  assert.equal(recovered.state.pocha!.players.find(p=>p.id===hj.playerId)!.hand[0].id, ownId)
+  const guest2 = await peer(restarted, credential(gj))
+  await guest2.wait<Joined>('joined')
+  for(let i=0;i<2;i++) {
+    const r=restarted.server.repository.get(hj.roomId)!.room
+    const id=r.pocha!.players[r.pocha!.currentPlayerIndex].id
+    const cardId=r.getState(id).pocha!.legalCardIds![0]
+    const client=id===hj.playerId?host2:guest2
+    assert.deepEqual(await client.acknowledge('pocha_action',{type:'play',cardId}),{ok:true})
+  }
+  const finished=restarted.server.repository.get(hj.roomId)!.room
+  assert.equal(finished.pocha!.phase,'game_end')
+  assert.equal(finished.pocha!.history[0].players.reduce((sum,p)=>sum+p.tricksWon,0),1)
+  assert.equal((await guest2.acknowledge<{ok:boolean}>('rematch',{})).ok,false)
+  assert.equal((await host2.acknowledge<{ok:boolean}>('rematch',{})).ok,false)
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, (finished.pocha!.trickReviewUntil ?? 0) - Date.now()) + 20))
+  assert.deepEqual(await host2.acknowledge('rematch',{}),{ok:true})
+  assert.equal(restarted.server.repository.get(hj.roomId)!.room.pocha!.phase,'lobby')
+})

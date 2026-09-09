@@ -7,7 +7,7 @@ import './Lobby.css'
 
 interface LobbyProps {
   onCreateContinental: (name: string, deckCount?: 2 | 3) => void
-  onCreatePocha: (deckSize: PochaDeckSize) => void
+  onCreatePocha: (deckSize: PochaDeckSize, name: string) => void
   onJoin: (roomId: string, name: string) => void
   error: string | null
   isConnected?: boolean
@@ -36,6 +36,7 @@ export function Lobby({
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [pochaDeckSize, setPochaDeckSize] = useState<PochaDeckSize>(40)
+  const [pochaName, setPochaName] = useState('')
   const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState('')
   const [reportCopied, setReportCopied] = useState(false)
@@ -138,7 +139,11 @@ export function Lobby({
 
           <section className="lobby-card lobby-card-pocha" aria-labelledby="create-pocha-title">
             <h2 id="create-pocha-title">{t(lang, 'createPocha')}</h2>
-            <p>{t(lang, 'createPochaDesc')}</p>
+            <p>{lang === 'es' ? 'Predice tus bazas y juega con amigos. Partidas normales o subastadas, a vuestro ritmo.' : 'Predict your tricks and play with friends. Normal or auction games, at your pace.'}</p>
+            <label className="lobby-field" htmlFor="pocha-player-name">
+              <span>{t(lang, 'yourName')}</span>
+              <input id="pocha-player-name" autoComplete="name" maxLength={24} value={pochaName} onChange={e => setPochaName(e.target.value)} />
+            </label>
             <label className="lobby-field" htmlFor="pocha-deck-size">
               <span>{t(lang, 'pochaDeck')}</span>
               <select
@@ -151,7 +156,7 @@ export function Lobby({
                 <option value={48}>{t(lang, 'pochaDeck48')}</option>
               </select>
             </label>
-            <button type="button" className="lobby-create-pocha-btn" onClick={() => onCreatePocha(pochaDeckSize)}>
+            <button type="button" className="lobby-create-pocha-btn" disabled={!isConnected || !pochaName.trim()} onClick={() => onCreatePocha(pochaDeckSize, pochaName.trim())}>
               {t(lang, 'createPocha')}
             </button>
           </section>

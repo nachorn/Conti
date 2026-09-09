@@ -36,7 +36,8 @@ export function discardExplanation(state: GameState, playerId: string | null, ca
 
 export function actionSummary(action: PublicAction, lang: Lang): string {
   const faces = action.cards.map(shortCard).join(', ')
-  const target = action.targetName ? ` (${action.targetName})` : ''
+  const destination = [action.targetName, ...(action.melds ?? []).map(meld => meldSummary(meld, lang))].filter(Boolean).join(' · ')
+  const target = destination ? ` (${destination})` : ''
   const text = lang === 'es' ? {
     stock: 'robó del mazo', take: `tomó ${faces} del descarte`, buy: `compró ${faces}${action.penaltyCount ? ' + 1 carta de penalización' : ' (sin carta de penalización)'}`,
     pass: 'pasó', discard: `descartó ${faces}`, meld: `bajó ${faces}`, add: `añadió ${faces}${target}`, swap: `reemplazó un comodín con ${faces}${target}`,

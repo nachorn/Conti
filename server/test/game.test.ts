@@ -222,8 +222,8 @@ test('Pocha full-deck trick order places 9 and 8 between 10 and 7', () => {
 })
 
 test('Pocha hand size uses the largest complete deal for the selected deck', () => {
-  assert.equal(getCardsPerHand(10, 4), 10)
-  assert.equal(getCardsPerHand(12, 4, 48), 12)
-  assert.equal(getCardsPerHand(9, 5, 48), 9)
-  assert.equal(getCardsPerHand(10, 5, 48), 8)
+  assert.equal(getCardsPerHand(13, 4), 10)
+  assert.equal(getCardsPerHand(15, 4, 48), 12)
+  assert.equal(getCardsPerHand(13, 5, 48), 9)
+  assert.equal(getCardsPerHand(18, 5, 48), 8)
 })

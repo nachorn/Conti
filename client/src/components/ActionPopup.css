@@ -1,0 +1,26 @@
+.action-popup { position: fixed; z-index: 45; right: max(12px, env(safe-area-inset-right)); width: min(400px, calc(100% - 24px)); overflow: auto; overscroll-behavior: contain; border: 1px solid #f1d490; border-radius: 12px; background: #112c23; color: #fff8e5; box-shadow: 0 8px 30px #0008; padding: 8px 12px 12px; animation: action-popup-in .18s ease-out; }
+.action-popup-controls { display: flex; align-items: center; gap: 4px; }
+.action-popup-controls > span { margin-right: auto; font-size: .72rem; color: #e5cb8b; }
+.action-popup-controls button { min-height: 36px; padding: 5px 8px; background: #284c3e; color: #fff8e5; border: 1px solid #829b8b; border-radius: 6px; font: inherit; font-size: .75rem; }
+.action-popup-controls button:last-child { min-width: 36px; font-size: 1.2rem; }
+.action-popup-controls button:focus-visible { outline: 3px solid #f1d490; outline-offset: 2px; }
+.action-popup-summary { font-size: .95rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; margin: 6px 0; }
+.action-popup-cards { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; padding: 4px 2px; }
+.action-popup-cards .card { width: 42px; height: 58px; padding: 3px; pointer-events: none; }
+.action-popup-cards .card-rank { font-size: 1.3rem; }
+.action-popup-cards .card-suit-mark { font-size: 1.1rem; }
+.action-popup-cards .card-rank-joker { font-size: .42rem; }
+.action-popup-private { padding: 8px; border: 1px dashed #c5b47f; border-radius: 6px; font-size: .75rem; text-align: center; }
+.action-popup-meld { border-top: 1px solid #6d8777; margin-top: 8px; padding-top: 8px; }
+.action-popup-meld > strong, .action-popup-meld > span { display: block; font-size: .75rem; margin-bottom: 4px; overflow-wrap: anywhere; }
+.action-popup-meld .action-popup-cards { gap: 4px; }
+.action-popup-meld .card { width: 26px; height: 36px; padding: 2px; border-radius: 4px; }
+.action-popup-meld .card-rank { font-size: 14px; }
+.action-popup-meld .card-suit-mark { font-size: 12px; }
+.action-popup-meld .card-rank-joker { font-size: 5px; }
+.action-popup-added { border-radius: 5px; outline: 3px solid #e8bc52; outline-offset: 1px; }
+.action-popup-short { padding: 4px 10px; }
+.action-popup-short .action-popup-summary { font-size: .8rem; margin: 3px 0; }
+@keyframes action-popup-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+@media (max-width: 700px) { .action-popup { right: 8px; width: calc(100% - 16px); } .action-popup-controls button { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .action-popup { animation: none; } }

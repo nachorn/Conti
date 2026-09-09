@@ -86,3 +86,29 @@ test('legacy snapshots can collect new history and malformed public history fail
   r.endRound(null, false)
   assert.deepEqual(r.players.map(p => p.score), before)
 })
+
+test('meld action snapshots use canonical cards and retain the exact destination after later additions', () => {
+  const r = room()
+  r.discardOptionPlayerIndex = null
+  r.currentPlayerIndex = 0
+  r.currentPlayerHasDrawn = true
+  r.players[0]!.hand = [c('added-1'), c('added-2'), c('spare', 3)]
+  r.melds = [
+    {id:'own',ownerId:'host',type:'trio',cards:[c('own-1',7),c('own-2',7),c('own-3',7)]},
+    {id:'target',ownerId:'ada',type:'trio',cards:[c('target-1'),c('target-2'),c('target-3')]},
+  ]
+  assert.equal(r.addToMeld('host', 'target', [c('added-1', 2)]).ok, true)
+  const first = r.getState('bram').activity!.at(-1)!
+  assert.equal(first.cards[0]!.rank, 8)
+  assert.equal(first.targetName, 'ada')
+  assert.equal(first.melds![0]!.id, 'target')
+  assert.equal(first.melds![0]!.cards.length, 4)
+  assert.equal(r.addToMeld('host', 'target', [c('added-2')]).ok, true)
+  assert.equal(r.activity[0]!.melds![0]!.cards.length, 4)
+  assert.equal(r.activity[1]!.melds![0]!.cards.length, 5)
+  assert.deepEqual(Room.fromSnapshot(r.toSnapshot()).activity, r.activity)
+  const bad = r.toSnapshot()
+  bad.activity![0]!.kind = 'stock'
+  bad.activity![0]!.cards = []
+  assert.throws(() => Room.fromSnapshot(bad), /private activity melds/)
+})

@@ -114,6 +114,9 @@ function buildMockState(
 
   return {
     roomId: 'mock-pocha',
+    settings: { mode: 'normal', maxCards: cardsPerHand, oneCardRounds: playerCount, peakRounds: playerCount },
+    schedule: [1, 1, cardsPerHand], hostId: players[0]!.id, originalLeadPlayerIndex: 1,
+    auction: [], auctionWinnerId: null, lastTrick: null, history: [],
     phase,
     handNumber: 3,
     cardsPerHand,

@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
+import type { PochaAction, PochaDeckSize, PochaSettings } from '@shared/pochaTypes'
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
@@ -189,8 +190,8 @@ export function useSocket() {
     socket.connect()
   }
 
-  const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3) => {
-    send('create', { name, gameType, deckCount: deckCount ?? 2 })
+  const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3, pochaDeckSize?: PochaDeckSize) => {
+    send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize })
   }
 
   const join = (id: string, name: string) => {
@@ -201,7 +202,7 @@ export function useSocket() {
     send('set_seat', { seatIndex })
   }
 
-  const start = (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => {
+  const start = (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number; pochaSettings?: PochaSettings }) => {
     send('start', opts)
   }
 
@@ -243,6 +244,7 @@ export function useSocket() {
   }
 
   return {
+    pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),
     state,
     roomId,
     error,

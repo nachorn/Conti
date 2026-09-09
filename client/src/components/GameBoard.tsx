@@ -13,6 +13,7 @@ import { GameShell } from './GameShell'
 import { MeldTargetDialog } from './MeldTargetDialog'
 import { assessMeldTarget } from '../lib/meldTargeting'
 import { PublicTable, RoundRecap, ScoreHistory } from './TableReview'
+import { ActionPopup } from './ActionPopup'
 import { discardExplanation, shortCard } from '../lib/tableSummary'
 import './GameBoard.css'
 import './TableReview.css'
@@ -106,7 +107,15 @@ interface GameBoardProps {
   onSetSeat?: (seatIndex: number) => void
 }
 
-export function GameBoard({
+export function GameBoard(props: GameBoardProps) {
+  const boardRef = useRef<HTMLDivElement>(null)
+  return <div ref={boardRef}>
+    <GameBoardContent {...props} />
+    <ActionPopup state={props.state} lang={props.lang} connected={props.isConnected ?? true} boardRef={boardRef} />
+  </div>
+}
+
+function GameBoardContent({
   state,
   socketId,
   isConnected = true,
