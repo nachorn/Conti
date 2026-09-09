@@ -209,6 +209,10 @@ export function Lobby({
           </form>
         </div>
 
+        <a className="lobby-dashboard-link" href="/dashboard" target="_blank" rel="noopener noreferrer">
+          {lang === 'es' ? 'Panel privado' : 'Owner dashboard'} ↗
+        </a>
+
         {error && (
           <p className="lobby-error" role="alert" aria-live="assertive">
             {error}

@@ -12,9 +12,19 @@ import { useContinentalMockState } from './useContinentalMockState'
 import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
 import type { ActionResult } from './types'
+import { Dashboard } from './components/Dashboard'
 
-/** Root: routes and game/socket state. Syncs URL with in-game state. */
 export default function App() {
+  // Do not mount useSocket on the dashboard: a copied player tab may contain a
+  // recovery token, and monitoring must never reconnect or replace that seat.
+  return <Routes>
+    <Route path="/dashboard" element={<Dashboard />} />
+    <Route path="/*" element={<GameApp />} />
+  </Routes>
+}
+
+/** Game routes and socket state. Syncs URL with in-game state. */
+function GameApp() {
   const [lang, setLang] = useState<Lang>(() => {
     try {
       const saved = window.localStorage.getItem('conti-language')

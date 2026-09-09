@@ -31,6 +31,10 @@ npm test
 
 Open **http://localhost:5173**. Create a room, share the room code, have others join, then Start game (host only). Play with 2–10 players.
 
+## Private player dashboard
+
+Use **Owner dashboard** in the lobby, or open `/dashboard`, to see who is online across Continental and Pocha. It refreshes automatically and requires a private server access key. See [dashboard setup](DASHBOARD.md) to enable access.
+
 ## Tech
 
 - **Client**: Vite, React, TypeScript, Socket.io-client.

@@ -5,6 +5,7 @@ import { Server, type Socket } from 'socket.io'
 import { Room } from './room.js'
 import type { Card, Meld } from './types.js'
 import type { SnapshotStore } from './storage.js'
+import { registerDashboard } from './dashboard.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
 
 type Result = { ok: boolean; error?: string }
@@ -14,7 +15,7 @@ const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are pau
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
-export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean } = {}) {
+export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string } = {}) {
   const repository = new GameRepository(store, options.retentionMs)
   await repository.load()
   const app = express()
@@ -32,6 +33,13 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const httpServer = createServer(app)
   const io = new Server(httpServer, { cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024 })
   const activeSockets = new Map<string, string>()
+  registerDashboard(app, {
+    key: options.dashboardKey, repository, isHealthy,
+    isOnline: playerId => {
+      const socketId = activeSockets.get(playerId)
+      return !!socketId && io.sockets.sockets.get(socketId)?.connected === true
+    },
+  })
   const timers = new Map<string, NodeJS.Timeout>()
   let queue = Promise.resolve()
   let closing = false

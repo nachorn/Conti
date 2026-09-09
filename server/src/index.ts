@@ -5,6 +5,7 @@ const store = await createSnapshotStore()
 const server = await createGameServer(store, {
   origins: (process.env.CLIENT_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean),
   debug: process.env.ENABLE_DEBUG_ACTIONS === 'true',
+  dashboardKey: process.env.ADMIN_DASHBOARD_KEY,
 })
 const port = await server.listen(Number(process.env.PORT) || 3001)
 console.log(`Continental Rummy server listening on port ${port}; game recovery enabled`)
