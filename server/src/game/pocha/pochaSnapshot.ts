@@ -21,8 +21,10 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
   const trick = (v: unknown): TrickCard[] => list(v, members.length).map(v => ({ playerId: id(obj(v).playerId), card: card(obj(v).card) }))
   const settingsRaw = obj(s.settings)
   if (!['normal', 'subastada'].includes(settingsRaw.mode)) fail()
+  if (settingsRaw.auctionWithRemainder !== undefined && typeof settingsRaw.auctionWithRemainder !== 'boolean') fail()
   const settings: PochaSettings = { mode: settingsRaw.mode, maxCards: num(settingsRaw.maxCards, 1, 24),
-    oneCardRounds: num(settingsRaw.oneCardRounds, 1, 10), peakRounds: num(settingsRaw.peakRounds, 1, 10) }
+    oneCardRounds: num(settingsRaw.oneCardRounds, 1, 10), peakRounds: num(settingsRaw.peakRounds, 1, 10),
+    ...(settingsRaw.auctionWithRemainder === undefined ? {} : { auctionWithRemainder: settingsRaw.auctionWithRemainder }) }
   const expected = roundSchedule(settings, Math.max(2, members.length), s.deckSize)
   if (!['lobby', 'auction', 'choosing_trump', 'bidding', 'playing', 'hand_end', 'game_end'].includes(s.phase)) fail()
   const schedule = list(s.schedule, 80).map(n => num(n, 1, 24))

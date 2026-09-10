@@ -1,7 +1,7 @@
 import type { PochaAction, PochaDeckSize, PochaGameState, PochaPlayer, PochaSettings, SpanishSuit, TrickCard } from './pochaTypes.js'
 import { createPochaDeck } from './spanishDeck.js'
 import { POCHA_TRICK_REVIEW_MS } from './pochaTypes.js'
-import { defaultPochaSettings, legalCards, roundSchedule, scoreHand, winningCard } from './pochaRules.js'
+import { defaultPochaSettings, isPochaAuctionRound, legalCards, roundSchedule, scoreHand, winningCard } from './pochaRules.js'
 export { scoreHand } from './pochaRules.js'
 
 export function getCardsPerHand(handNumber: number, playerCount: number, deckSize: PochaDeckSize = 40): number {
@@ -44,7 +44,7 @@ export function dealHand(state: PochaGameState): void {
   const deck = createPochaDeck(state.deckSize)
   const dealt = n * state.cardsPerHand
   for (let i = 0; i < dealt; i++) state.players[(state.originalLeadPlayerIndex + i) % n].hand.push(deck[i])
-  const auction = state.settings.mode === 'subastada' && dealt === state.deckSize
+  const auction = isPochaAuctionRound(state.settings, state.cardsPerHand, n, state.deckSize)
   state.trumpCard = auction ? null : deck[dealt] ?? deck[dealt - 1]
   state.trump = state.trumpCard?.suit ?? null
   state.phase = auction ? 'auction' : 'bidding'

@@ -98,6 +98,11 @@
 .pocha-last-trick { display: flex; flex-wrap: wrap; gap: .65rem; }
 .pocha-last-trick > div { display: grid; justify-items: center; gap: .4rem; }
 .pocha-last-trick small { font-size: .65rem; max-width: 50px; overflow: hidden; text-overflow: ellipsis; }
+.pocha-auction-option { display: flex; align-items: flex-start; gap: .75rem; padding: .9rem; margin: .8rem 0; border: 1px solid var(--pocha-line); border-radius: 12px; cursor: pointer; }
+.pocha-auction-option input { flex: 0 0 auto; width: 1.25rem; height: 1.25rem; margin: .1rem 0 0; accent-color: var(--pocha-gold); }
+.pocha-auction-option span { min-width: 0; }
+.pocha-auction-option strong { display: block; font-size: .9rem; }
+.pocha-auction-option small { display: block; margin-top: .25rem; color: #c4d3c8; line-height: 1.45; }
 .pocha-auction { text-align: center; padding: 2rem 1rem; min-height: 270px; }
 .pocha-auction h2 { font-size: 3rem; margin: .65rem 0 0; }
 .pocha-auction p { margin: .5rem 0; }

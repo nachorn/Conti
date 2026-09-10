@@ -635,6 +635,40 @@ test('startup rejects corrupt room/session snapshots without overwriting existin
   assert.equal(inaccessible.saveAttempts, 0)
 })
 
+test('Pocha auction with undealt cards is host-controlled and survives a server restart', async t => {
+  const h = await harness(t)
+  const host = await peer(h)
+  const hj = await host.request<Joined>('create', { gameType: 'pocha', name: 'Ana', pochaDeckSize: 48 }, 'joined')
+  const guest = await peer(h)
+  const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Luis' }, 'joined')
+  const setup = { pochaSettings: { mode: 'subastada', maxCards: 1, oneCardRounds: 1, peakRounds: 1, auctionWithRemainder: true } }
+  assert.equal((await guest.acknowledge<{ok:boolean}>('start', setup)).ok, false)
+  const started = await host.request<GameState>('start', setup, 'state', s => s.pocha?.phase === 'auction')
+  assert.equal(started.pocha!.settings.auctionWithRemainder, true)
+  assert.equal(started.pocha!.trumpCard, null)
+  assert.equal(started.pocha!.trump, null)
+  assert.deepEqual(await host.acknowledge('pocha_action', { type: 'auction', value: 0 }), { ok: true })
+  await h.close()
+  const restarted = await harness(t, new MemoryStore(h.store.value))
+  const host2 = await peer(restarted, credential(hj))
+  const recovered = await host2.wait<Joined>('joined')
+  const guest2 = await peer(restarted, credential(gj))
+  await guest2.wait<Joined>('joined')
+  assert.equal(recovered.state.pocha!.settings.auctionWithRemainder, true)
+  assert.equal(recovered.state.pocha!.phase, 'auction')
+  assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'auction', value: 1 }), { ok: true })
+  assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'trump', suit: 'copas' }), { ok: true })
+  // The auction winner's bid is fixed, and the final bid cannot equal the trick count.
+  assert.equal((await host2.acknowledge<{ok:boolean}>('pocha_action', { type: 'bid', value: 0 })).ok, false)
+  assert.deepEqual(await host2.acknowledge('pocha_action', { type: 'bid', value: 1 }), { ok: true })
+  const room = restarted.server.repository.get(hj.roomId)!.room
+  assert.equal(room.pocha!.phase, 'playing')
+  assert.equal(room.pocha!.players[room.pocha!.currentPlayerIndex].id, gj.playerId)
+  assert.equal(room.pocha!.trump, 'copas')
+  assert.equal(room.pocha!.trumpCard, null)
+  for (const player of room.pocha!.players) assert.equal(player.hand.length, 1)
+})
+
 test('Pocha rooms enforce host settings, isolate actions, recover after restart and complete a game', async t => {
   const h = await harness(t)
   const host = await peer(h)

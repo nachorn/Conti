@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { PochaAction, PochaGameState, PochaSettings, SpanishSuit } from '@shared/pochaTypes'
 import { POCHA_TRICK_ORDER, POCHA_TRICK_REVIEW_MS } from '@shared/pochaTypes'
-import { defaultPochaSettings, legalCards, roundSchedule, winningCard } from '@shared/pochaRules'
+import { defaultPochaSettings, isPochaAuctionRound, legalCards, roundSchedule, winningCard } from '@shared/pochaRules'
 import type { Lang } from '../i18n'
 import type { ActionResult } from '../types'
 import { GameShell } from './GameShell'
@@ -248,15 +248,21 @@ function PochaSetup({ state, isHost, available, lang, onStart }: { state: PochaG
   const defaults = defaultPochaSettings(n, state.deckSize)
   const settings: PochaSettings = { ...defaults, ...overrides, maxCards: Math.min(overrides.maxCards ?? defaults.maxCards, Math.floor(state.deckSize / n)), oneCardRounds: Math.min(overrides.oneCardRounds ?? n, n), peakRounds: Math.min(overrides.peakRounds ?? n, n) }
   const schedule = roundSchedule(settings, n, state.deckSize)
-  const auctionCount = settings.mode === 'subastada' ? schedule.filter(c => c * n === state.deckSize).length : 0
-  const update = (key: keyof PochaSettings, value: string | number) => setOverrides(s => ({ ...s, [key]: value }))
+  const auctionCount = schedule.filter(c => isPochaAuctionRound(settings, c, n, state.deckSize)).length
+  const update = (key: keyof PochaSettings, value: string | number | boolean) => setOverrides(s => ({ ...s, [key]: value }))
   return <section className="pocha-panel pocha-setup"><h2>{L('A vuestro ritmo', 'At your own pace')}</h2>
     <p>{isHost ? L('Tú decides la modalidad y la duración.', 'You choose the mode and length.') : L('El administrador elegirá las rondas y la modalidad antes de empezar.', 'The host chooses rounds and mode before starting.')}</p>
     {isHost && <>
       <fieldset disabled={!available}><legend>{L('Modalidad', 'Game mode')}</legend><div className="pocha-mode-options">
         <button aria-pressed={settings.mode === 'normal'} onClick={() => update('mode','normal')}><strong>Normal</strong><small>{L('El triunfo lo marca una carta.', 'A card determines trump.')}</small></button>
-        <button aria-pressed={settings.mode === 'subastada'} onClick={() => update('mode','subastada')}><strong>{L('Subastada', 'Auction')}</strong><small>{L('Sin sobrantes, se subasta el triunfo.', 'Auction trump when all cards are dealt.')}</small></button>
+        <button aria-pressed={settings.mode === 'subastada'} onClick={() => update('mode','subastada')}><strong>{L('Subastada', 'Auction')}</strong><small>{L('El ganador de la subasta elige triunfo.', 'The auction winner chooses trump.')}</small></button>
       </div></fieldset>
+      {settings.mode === 'subastada' && <label className="pocha-auction-option">
+        <input type="checkbox" checked={settings.auctionWithRemainder === true} disabled={!available}
+          onChange={e => update('auctionWithRemainder', e.target.checked)} />
+        <span><strong>{L('Subastar aunque sobren cartas', 'Auction even with undealt cards')}</strong>
+          <small>{L('Se subastan las rondas del máximo elegido. Las cartas sobrantes no se muestran.', 'Auction the rounds at your chosen maximum. Undealt cards stay hidden.')}</small></span>
+      </label>}
       <div className="pocha-setting-fields">{([
         ['maxCards', L('Máximo de cartas', 'Maximum cards'), Math.floor(state.deckSize/n)],
         ['oneCardRounds', settings.maxCards === 1 ? L('Rondas de 1 carta', 'One-card rounds') : L('Rondas de 1 al inicio y al final', 'One-card rounds at each end'), n],
@@ -265,8 +271,8 @@ function PochaSetup({ state, isHost, available, lang, onStart }: { state: PochaG
         <select value={settings[key]} disabled={!available} onChange={e => update(key, Number(e.target.value))}>{Array.from({length:max},(_,i) => <option key={i+1}>{i+1}</option>)}</select>
       </label>)}</div>
       <div className="pocha-preview"><strong>{schedule.length} {L('rondas', 'rounds')} · {state.deckSize} {L('cartas en la baraja', 'cards in deck')}</strong>
-        <div className="pocha-schedule">{schedule.map((c,i) => <span key={i} className={settings.mode === 'subastada' && c*n === state.deckSize ? 'auction-round' : ''}>{c}</span>)}</div>
-        <p>{settings.mode === 'subastada' ? auctionCount ? auctionCount + L(auctionCount === 1 ? ' ronda con subasta, marcada en dorado.' : ' rondas con subasta, marcadas en dorado.', auctionCount === 1 ? ' auction round, highlighted in gold.' : ' auction rounds, highlighted in gold.') : L('Con este máximo sobran cartas: no habrá subastas.', 'Cards remain with this maximum: no auctions will occur.') : L('Triunfo por carta levantada, o por la última repartida si no sobran cartas.', 'Trump is the turned-up card, or the last dealt card when none remain.')}</p>
+        <div className="pocha-schedule">{schedule.map((c,i) => <span key={i} className={isPochaAuctionRound(settings, c, n, state.deckSize) ? 'auction-round' : ''}>{c}</span>)}</div>
+        <p>{settings.mode === 'subastada' ? auctionCount ? auctionCount + L(auctionCount === 1 ? ' ronda con subasta, marcada en dorado.' : ' rondas con subasta, marcadas en dorado.', auctionCount === 1 ? ' auction round, highlighted in gold.' : ' auction rounds, highlighted in gold.') : L('Sobran cartas: activa la opción de arriba para subastar las rondas del máximo.', 'Cards remain: enable the option above to auction the peak rounds.') : L('Triunfo por carta levantada, o por la última repartida si no sobran cartas.', 'Trump is the turned-up card, or the last dealt card when none remain.')}</p>
         {settings.maxCards === 1 && <p>{L('Solo 1 carta: un único bloque de rondas.', 'One card only: a single block of rounds.')}</p>}
       </div>
       <button className="pocha-primary" disabled={!available || state.players.length < 2 || state.players.some(p => !p.connected)} onClick={() => onStart?.(settings)}>{state.players.length < 2 ? L('Esperando a otro jugador', 'Waiting for another player') : L('Empezar partida', 'Start game')}</button>

@@ -8,12 +8,18 @@ export function roundSchedule(settings: PochaSettings, players: number, deckSize
   const { maxCards, oneCardRounds, peakRounds, mode } = settings
   if (!Number.isInteger(players) || players < 2 || players > 10 || ![40, 48].includes(deckSize) ||
       !['normal', 'subastada'].includes(mode) ||
+      (settings.auctionWithRemainder !== undefined && typeof settings.auctionWithRemainder !== 'boolean') ||
       !Number.isInteger(maxCards) || maxCards < 1 || maxCards > Math.floor(deckSize / players) ||
       ![oneCardRounds, peakRounds].every(n => Number.isInteger(n) && n >= 1 && n <= players)) throw new Error('Configuración de rondas inválida')
   // A one-card-only game has one block, without duplicate slopes or peaks.
   if (maxCards === 1) return Array(oneCardRounds).fill(1)
   const slope = Array.from({ length: maxCards - 2 }, (_, i) => i + 2)
   return [...Array(oneCardRounds).fill(1), ...slope, ...Array(peakRounds).fill(maxCards), ...slope.reverse(), ...Array(oneCardRounds).fill(1)]
+}
+/** Only peak rounds are auctioned; legacy settings keep the full-deck rule. */
+export function isPochaAuctionRound(settings: PochaSettings, cards: number, players: number, deckSize: number): boolean {
+  return settings.mode === 'subastada' && cards === settings.maxCards &&
+    (cards * players === deckSize || settings.auctionWithRemainder === true)
 }
 export function compareInTrick(a: PochaCard, b: PochaCard, ledSuit: SpanishSuit, trump: SpanishSuit): number {
   const priority = (c: PochaCard) => c.suit === trump ? 2 : c.suit === ledSuit ? 1 : 0
