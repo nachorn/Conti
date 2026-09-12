@@ -3,6 +3,7 @@ import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
+import { SupportProject } from './SupportProject'
 import './Lobby.css'
 
 interface LobbyProps {
@@ -208,6 +209,8 @@ export function Lobby({
             </button>
           </form>
         </div>
+
+        {initialJoinRoomId === null && <SupportProject lang={lang} />}
 
         <a className="lobby-dashboard-link" href="/dashboard" target="_blank" rel="noopener noreferrer">
           {lang === 'es' ? 'Panel privado' : 'Owner dashboard'} ↗
