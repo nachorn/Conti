@@ -16,10 +16,9 @@ export function roundSchedule(settings: PochaSettings, players: number, deckSize
   const slope = Array.from({ length: maxCards - 2 }, (_, i) => i + 2)
   return [...Array(oneCardRounds).fill(1), ...slope, ...Array(peakRounds).fill(maxCards), ...slope.reverse(), ...Array(oneCardRounds).fill(1)]
 }
-/** Only peak rounds are auctioned; legacy settings keep the full-deck rule. */
-export function isPochaAuctionRound(settings: PochaSettings, cards: number, players: number, deckSize: number): boolean {
-  return settings.mode === 'subastada' && cards === settings.maxCards &&
-    (cards * players === deckSize || settings.auctionWithRemainder === true)
+/** Auction mode always auctions peak rounds, including partial deals. */
+export function isPochaAuctionRound(settings: PochaSettings, cards: number): boolean {
+  return settings.mode === 'subastada' && cards === settings.maxCards
 }
 export function compareInTrick(a: PochaCard, b: PochaCard, ledSuit: SpanishSuit, trump: SpanishSuit): number {
   const priority = (c: PochaCard) => c.suit === trump ? 2 : c.suit === ledSuit ? 1 : 0

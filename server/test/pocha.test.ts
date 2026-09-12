@@ -41,13 +41,13 @@ test('trump beats led suit; other suits cannot win; 48-card order',()=>{
 test('last prediction forbids zero when already exact; no restriction when over',()=>{
   assert.equal(dealerBidsBlocked(4,{a:4},'b'),0); assert.equal(dealerBidsBlocked(4,{a:3},'b'),1); assert.equal(dealerBidsBlocked(4,{a:5},'b'),null)
 })
-test('full deal exposes dealer last card; default auction settings require no remainder',()=>{
+test('normal full deal exposes dealer last card; auction mode also auctions partial peaks',()=>{
   const settings={mode:'normal' as const,maxCards:8,oneCardRounds:1,peakRounds:1}
   const s=createPochaHandState('1234',players(5),8,4,40,settings)
   assert.equal(s.trumpCard!.id,s.players[4].hand.at(-1)!.id); assert.equal(new Set(s.players.flatMap(p=>p.hand.map(c=>c.id))).size,40)
   const a=createPochaHandState('1234',players(5),8,4,40,{...settings,mode:'subastada'})
   assert.equal(a.phase,'auction'); assert.equal(a.trumpCard,null)
-  assert.equal(createPochaHandState('1234',players(5),6,4,40,{...settings,maxCards:6,mode:'subastada'}).phase,'bidding')
+  assert.equal(createPochaHandState('1234',players(5),6,4,40,{...settings,maxCards:6,mode:'subastada'}).phase,'auction')
 })
 test('single-pass auction binds winner and changes final prediction player',()=>{
   const s=createPochaHandState('1234',players(5),8,4,40,{mode:'subastada',maxCards:8,oneCardRounds:1,peakRounds:1})

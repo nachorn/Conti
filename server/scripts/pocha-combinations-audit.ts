@@ -28,8 +28,8 @@ const expectedSchedule = (s: PochaSettings) => {
   for (let n = s.maxCards - 1; n >= 2; n--) list.push(n)
   return [...list, ...Array(s.oneCardRounds).fill(1)]
 }
-const expectedAuction = (s: PochaSettings, cards: number, n: number, deck: number) =>
-  s.mode === 'subastada' && cards === s.maxCards && (s.auctionWithRemainder === true || cards * n === deck)
+const expectedAuction = (s: PochaSettings, cards: number) =>
+  s.mode === 'subastada' && cards === s.maxCards
 const strength = (c: PochaCard, led: SpanishSuit, trump: SpanishSuit) =>
   (c.suit === trump ? 100 : c.suit === led ? 50 : 0) + ranks.indexOf(c.rank)
 const winner = (trick: PochaGameState['currentTrick'], trump: SpanishSuit) =>
@@ -45,7 +45,7 @@ const games: any[] = []
 let context: any = {}
 
 function inspectDeal(s: PochaGameState) {
-  const n = s.players.length, auction = expectedAuction(s.settings, s.cardsPerHand, n, s.deckSize)
+  const n = s.players.length, auction = expectedAuction(s.settings, s.cardsPerHand)
   assert.equal(s.phase, auction ? 'auction' : 'bidding')
   assert.equal(s.trumpCard === null, auction)
   assert.equal(s.trump === null, auction)
@@ -63,7 +63,7 @@ function inspectDeal(s: PochaGameState) {
 }
 
 try {
-  // Every allowed setup, including absent flags from old saved games. Play is audited separately below.
+  // Every allowed setup, plus compatibility with both values of the retired flag.
   for (const deck of [40, 48] as const) for (let n = 2; n <= 10; n++) {
     const ps = members(n)
     for (const mode of ['normal', 'subastada'] as const) for (const flag of [undefined, false, true])
@@ -75,9 +75,9 @@ try {
           assert.deepEqual(roundSchedule(settings, n, deck), expected)
           assert.deepEqual(clientSchedule(settings, n, deck), expected)
           for (const cards of expected) {
-            const auction = expectedAuction(settings, cards, n, deck)
-            assert.equal(isPochaAuctionRound(settings, cards, n, deck), auction)
-            assert.equal(clientAuction(settings, cards, n, deck), auction)
+            const auction = expectedAuction(settings, cards)
+            assert.equal(isPochaAuctionRound(settings, cards), auction)
+            assert.equal(clientAuction(settings, cards), auction)
             matrix.scheduleRounds++
           }
           for (const round of new Set([1, expected.indexOf(maxCards) + 1])) {
@@ -87,7 +87,7 @@ try {
             matrix.restoredDeals++
           }
           matrix.configurations++
-          if (flag === undefined) matrix.legacy++; else matrix.current++
+          if (flag === undefined) matrix.current++; else matrix.legacy++
         }
     console.log(`Configuraciones: baraja ${deck}, ${n} jugadores comprobados (${matrix.configurations} acumuladas).`)
   }
@@ -129,7 +129,7 @@ try {
     { players: 2, deck: 48, settings: { mode: 'normal', auctionWithRemainder: true, maxCards: 24, oneCardRounds: 1, peakRounds: 2 } },
     { players: 3, deck: 40, settings: { mode: 'subastada', auctionWithRemainder: false, maxCards: 13, oneCardRounds: 3, peakRounds: 2 } },
     { players: 4, deck: 48, settings: { mode: 'subastada', auctionWithRemainder: true, maxCards: 12, oneCardRounds: 2, peakRounds: 4 } },
-    { players: 5, deck: 40, settings: { mode: 'subastada', auctionWithRemainder: true, maxCards: 6, oneCardRounds: 3, peakRounds: 3 } },
+    { players: 5, deck: 40, settings: { mode: 'subastada', maxCards: 6, oneCardRounds: 3, peakRounds: 3 } },
     { players: 6, deck: 48, settings: { mode: 'subastada', auctionWithRemainder: true, maxCards: 5, oneCardRounds: 2, peakRounds: 4 } },
     { players: 7, deck: 40, settings: { mode: 'subastada', auctionWithRemainder: true, maxCards: 5, oneCardRounds: 1, peakRounds: 7 } },
     { players: 8, deck: 48, settings: { mode: 'subastada', auctionWithRemainder: false, maxCards: 6, oneCardRounds: 8, peakRounds: 2 } },
@@ -248,7 +248,7 @@ try {
     assert.deepEqual([...playedIds].sort(), dealtIds)
     const s = room.pocha!
     assert.equal(s.history.length, expectedSchedule(setup.settings).length)
-    const expectedAuctions = s.schedule.filter(c => expectedAuction(setup.settings, c, n, setup.deck)).length
+    const expectedAuctions = s.schedule.filter(c => expectedAuction(setup.settings, c)).length
     assert.equal(totals.auctions - beforeTotals.auctions, expectedAuctions)
     for (const h of s.history) {
       assert.equal(h.players.reduce((sum, p) => sum + p.tricksWon, 0), h.cardsPerHand)
@@ -274,9 +274,9 @@ try {
 
 const report = { startedAt, errors: 0, scope: 'Local real-engine simulations; configuration/deal matrix plus ten complete games. No network, UI or exhaustive card permutations.', matrix, totals, auctionSuits, games }
 writeFileSync(resolve(output, 'results.json'), JSON.stringify(report, null, 2))
-const modeLabel = (g: any) => g.settings.mode === 'normal' ? 'Normal' : g.settings.auctionWithRemainder === true ? 'Subastada · permite sobrantes' : 'Subastada · solo reparto completo'
+const modeLabel = (g: any) => g.settings.mode === 'normal' ? 'Normal' : 'Subastada'
 const rows = games.map(g => `| ${g.game} | ${g.players} | ${g.deck} | ${modeLabel(g)} | ${g.settings.maxCards} | ${g.checks.rounds} | ${g.checks.auctions} | ${g.results.filter((r: any) => r.winner).map((r: any) => r.name + ' (' + r.score + ')').join(', ')} |`).join('\n')
-const md = `# Pocha · diez partidas y matriz de configuraciones\n\n**Errores detectados: 0.** Simulación local del motor real, barajado reproducible, bots que solo usan su mano e información pública y reloj acelerado. Esta tanda no prueba red ni interfaz.\n\n## Cobertura\n\n- ${matrix.current.toLocaleString('es-ES')} configuraciones actuales y ${matrix.legacy.toLocaleString('es-ES')} configuraciones antiguas sin el nuevo ajuste: de 2 a 10 jugadores, barajas de 40 y 48, ambas modalidades, todos los máximos y todas las repeticiones permitidas.\n- ${matrix.scheduleRounds.toLocaleString('es-ES')} posiciones de calendario verificadas en cliente y servidor. ${matrix.deals.toLocaleString('es-ES')} repartos iniciales o máximos comprobados y restaurados.\n- ${matrix.auctionPaths.toLocaleString('es-ES')} variantes de subasta con todos los asientos ganadores, los cuatro palos y ofertas de 0, 1 o el máximo donde son válidas.\n- Diez partidas completas: ${totals.rounds} rondas, ${totals.tricks} bazas y ${totals.cards} cartas. ${totals.auctions} subastas, ${totals.auctionsWithRemainder} con cartas sobrantes.\n- ${totals.forbiddenCards} intentos de jugar cartas prohibidas y ${totals.invalidActions} acciones inválidas rechazados sin cambiar la mesa. ${totals.mustBeat} ocasiones de superar obligatoriamente, ${totals.overtrump} de sobretriunfar.\n- ${totals.snapshots} restauraciones durante las partidas; ganadores, puntuaciones, predicciones, cartas privadas y conservación de cartas verificados.\n\nLa matriz comprueba configuraciones y repartos; las diez partidas comprueban el desarrollo completo. No se han agotado todas las posibles permutaciones de cartas y decisiones.\n\n## Resultados\n\n| # | Jugadores | Baraja | Modalidad | Máximo | Rondas | Subastas | Ganador y puntos |\n|---|---:|---:|---|---:|---:|---:|---|\n${rows}\n\nLos puntos no son comparables entre partidas de distinta duración y número de jugadores. Los empates cuentan como victorias compartidas.\n\n${games.map(g => `### Partida ${g.game}\n\n${g.results.map((r: any) => `- ${r.name}: ${r.score} puntos; ${r.exact}/${g.checks.rounds} predicciones exactas; ${r.tricks} bazas.`).join('\n')}`).join('\n\n')}\n\nTodos los resultados por ronda y semillas están en results.json. Ejecución: ${startedAt}.\n`
+const md = `# Pocha · diez partidas y matriz de configuraciones\n\n**Errores detectados: 0.** Simulación local del motor real, barajado reproducible, bots que solo usan su mano e información pública y reloj acelerado. Esta tanda no prueba red ni interfaz.\n\n## Cobertura\n\n- ${matrix.current.toLocaleString('es-ES')} configuraciones actuales y ${matrix.legacy.toLocaleString('es-ES')} configuraciones antiguas con el ajuste retirado: de 2 a 10 jugadores, barajas de 40 y 48, ambas modalidades, todos los máximos y todas las repeticiones permitidas.\n- ${matrix.scheduleRounds.toLocaleString('es-ES')} posiciones de calendario verificadas en cliente y servidor. ${matrix.deals.toLocaleString('es-ES')} repartos iniciales o máximos comprobados y restaurados.\n- ${matrix.auctionPaths.toLocaleString('es-ES')} variantes de subasta con todos los asientos ganadores, los cuatro palos y ofertas de 0, 1 o el máximo donde son válidas.\n- Diez partidas completas: ${totals.rounds} rondas, ${totals.tricks} bazas y ${totals.cards} cartas. ${totals.auctions} subastas, ${totals.auctionsWithRemainder} con cartas sobrantes.\n- ${totals.forbiddenCards} intentos de jugar cartas prohibidas y ${totals.invalidActions} acciones inválidas rechazados sin cambiar la mesa. ${totals.mustBeat} ocasiones de superar obligatoriamente, ${totals.overtrump} de sobretriunfar.\n- ${totals.snapshots} restauraciones durante las partidas; ganadores, puntuaciones, predicciones, cartas privadas y conservación de cartas verificados.\n\nLa matriz comprueba configuraciones y repartos; las diez partidas comprueban el desarrollo completo. No se han agotado todas las posibles permutaciones de cartas y decisiones.\n\n## Resultados\n\n| # | Jugadores | Baraja | Modalidad | Máximo | Rondas | Subastas | Ganador y puntos |\n|---|---:|---:|---|---:|---:|---:|---|\n${rows}\n\nLos puntos no son comparables entre partidas de distinta duración y número de jugadores. Los empates cuentan como victorias compartidas.\n\n${games.map(g => `### Partida ${g.game}\n\n${g.results.map((r: any) => `- ${r.name}: ${r.score} puntos; ${r.exact}/${g.checks.rounds} predicciones exactas; ${r.tricks} bazas.`).join('\n')}`).join('\n\n')}\n\nTodos los resultados por ronda y semillas están en results.json. Ejecución: ${startedAt}.\n`
 writeFileSync(resolve(output, 'report.md'), md)
 const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pocha · 10 partidas y combinaciones</title><style>body{margin:0;background:#f6f3eb;color:#183c30;font:16px/1.5 system-ui}main{max-width:1120px;margin:auto;padding:30px 20px}h1{font-size:clamp(30px,5vw,48px);line-height:1.1}h2{margin-top:32px}.muted{color:#5a6e62}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{background:#174734;color:white;padding:20px;border-radius:14px}.metric strong{display:block;font-size:30px}.metric span{font-size:13px}.panel{background:white;border:1px solid #d8e0d7;border-radius:14px;padding:18px;margin:15px 0}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}th,td{text-align:left;border-bottom:1px solid #e5eae2;padding:12px}th{color:#597163;font-size:12px}.win{font-weight:750;color:#1c6340}summary{cursor:pointer;font-weight:700;min-height:32px}.small{font-size:13px}a{color:#266245}@media(max-width:700px){.metrics{grid-template-columns:1fr 1fr}.panel{padding:12px}main{padding:22px 14px}}</style><main><p class="muted">LA POCHA · REVISIÓN DE SUBASTAS</p><h1>Diez partidas.<br>Todas las configuraciones.</h1><p class="muted">De 2 a 10 jugadores · Barajas de 40 y 48 · Subastas con y sin cartas sobrantes.</p><section class="metrics"><div class="metric"><strong>0</strong><span>Errores detectados</span></div><div class="metric"><strong>${matrix.configurations.toLocaleString('es-ES')}</strong><span>Configuraciones comprobadas*</span></div><div class="metric"><strong>${totals.tricks.toLocaleString('es-ES')}</strong><span>Bazas jugadas y verificadas</span></div><div class="metric"><strong>${totals.auctionsWithRemainder}</strong><span>Subastas con sobrantes</span></div></section><p class="small muted">*${matrix.current.toLocaleString('es-ES')} configuraciones actuales y ${matrix.legacy.toLocaleString('es-ES')} antiguas. La matriz comprueba calendarios, repartos iniciales y máximos, y recuperación. Las diez partidas comprueban el desarrollo completo.</p><h2>Resultados de las diez partidas</h2><div class="panel scroll"><table><thead><tr><th>#</th><th>Jugadores / baraja</th><th>Modalidad</th><th>Máximo</th><th>Rondas</th><th>Subastas</th><th>Ganador · puntos</th></tr></thead><tbody>${games.map(g => `<tr><td>${g.game}</td><td>${g.players} / ${g.deck}</td><td>${modeLabel(g)}</td><td>${g.settings.maxCards}</td><td>${g.checks.rounds}</td><td>${g.checks.auctions}</td><td class="win">${g.results.filter((r: any) => r.winner).map((r: any) => r.name + ' · ' + r.score).join(', ')}</td></tr>`).join('')}</tbody></table></div><p class="small muted">Los puntos no son comparables entre partidas de distinta duración y número de jugadores.</p><h2>Qué se ha comprobado</h2><div class="panel"><p><b>${matrix.auctionPaths.toLocaleString('es-ES')} variantes de subasta:</b> distintos ganadores, los cuatro palos, apertura a cero, ofertas máximas y última persona ganadora.</p><p><b>${totals.cards.toLocaleString('es-ES')} cartas jugadas:</b> ganador independiente, obligación de asistir, triunfar y superar, sin cartas perdidas ni duplicadas.</p><p><b>${totals.forbiddenCards.toLocaleString('es-ES')} cartas prohibidas intentadas:</b> todas rechazadas sin cambiar la mesa. ${totals.mustBeat} decisiones con obligación de superar; ${totals.overtrump} de sobretriunfar.</p><p><b>${totals.snapshots.toLocaleString('es-ES')} restauraciones:</b> se conserva la opción de subasta, manos, turnos, resultados y orden original de la mano.</p><p>Además: predicción del último jugador, puntuación exacta y penalizaciones, privacidad de cartas y pausa para leer el ganador de cada baza.</p></div><h2>Puntuaciones por jugador</h2>${games.map(g => `<details class="panel"><summary>Partida ${g.game} · ${g.players} jugadores · ${g.checks.rounds} rondas</summary><p class="small muted">Máximo ${g.settings.maxCards} · Repeticiones de 1 carta ${g.settings.oneCardRounds} · Repeticiones del máximo ${g.settings.peakRounds}${g.settings.maxCards === 1 ? ' (ignoradas: un solo bloque de 1 carta)' : ''} · ${g.remainderAtPeak} cartas sobrantes en el máximo.</p><div class="scroll"><table><thead><tr><th>Bot</th><th>Puntos</th><th>Aciertos</th><th>Bazas ganadas</th></tr></thead><tbody>${g.results.map((r: any) => `<tr class="${r.winner ? 'win' : ''}"><td>${r.name}${r.winner ? ' ★' : ''}</td><td>${r.score}</td><td>${r.exact}/${g.checks.rounds}</td><td>${r.tricks}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}<p class="small muted">Simulación local del motor real, con reloj acelerado y bots que usan solo su mano e información pública. No es una prueba de red, navegador ni de todas las permutaciones posibles de cartas y jugadas.</p><p><a href="report.md">Informe completo</a> · <a href="results.json" download>Datos de todas las rondas (JSON)</a></p><p class="small muted">Ejecución: ${startedAt}</p></main></html>`
 writeFileSync(resolve(output, 'index.html'), html)

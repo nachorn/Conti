@@ -641,10 +641,10 @@ test('Pocha auction with undealt cards is host-controlled and survives a server 
   const hj = await host.request<Joined>('create', { gameType: 'pocha', name: 'Ana', pochaDeckSize: 48 }, 'joined')
   const guest = await peer(h)
   const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Luis' }, 'joined')
-  const setup = { pochaSettings: { mode: 'subastada', maxCards: 1, oneCardRounds: 1, peakRounds: 1, auctionWithRemainder: true } }
+  const setup = { pochaSettings: { mode: 'subastada', maxCards: 1, oneCardRounds: 1, peakRounds: 1 } }
   assert.equal((await guest.acknowledge<{ok:boolean}>('start', setup)).ok, false)
   const started = await host.request<GameState>('start', setup, 'state', s => s.pocha?.phase === 'auction')
-  assert.equal(started.pocha!.settings.auctionWithRemainder, true)
+  assert.deepEqual(started.pocha!.settings, setup.pochaSettings)
   assert.equal(started.pocha!.trumpCard, null)
   assert.equal(started.pocha!.trump, null)
   assert.deepEqual(await host.acknowledge('pocha_action', { type: 'auction', value: 0 }), { ok: true })
@@ -654,7 +654,7 @@ test('Pocha auction with undealt cards is host-controlled and survives a server 
   const recovered = await host2.wait<Joined>('joined')
   const guest2 = await peer(restarted, credential(gj))
   await guest2.wait<Joined>('joined')
-  assert.equal(recovered.state.pocha!.settings.auctionWithRemainder, true)
+  assert.deepEqual(recovered.state.pocha!.settings, setup.pochaSettings)
   assert.equal(recovered.state.pocha!.phase, 'auction')
   assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'auction', value: 1 }), { ok: true })
   assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'trump', suit: 'copas' }), { ok: true })
@@ -676,7 +676,7 @@ test('Pocha rooms enforce host settings, isolate actions, recover after restart 
   assert.equal(hj.state.pocha!.deckSize, 48)
   const guest = await peer(h)
   const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Luis' }, 'joined')
-  const setup = { pochaSettings: { mode: 'subastada', maxCards: 1, oneCardRounds: 1, peakRounds: 1 } }
+  const setup = { pochaSettings: { mode: 'normal', maxCards: 1, oneCardRounds: 1, peakRounds: 1 } }
   assert.equal((await guest.acknowledge<{ok:boolean}>('start', setup)).ok, false)
   await host.request<GameState>('start', setup, 'state', s => s.pocha?.phase === 'bidding')
   assert.equal((await host.acknowledge<{ok:boolean}>('draw', {fromDiscard:false})).ok, false)

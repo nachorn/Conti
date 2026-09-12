@@ -79,6 +79,7 @@ export function SpanishCardFace({
         />
         {/* Large rank stays legible when the card is scaled down on phones. */}
         <text
+          className="pocha-card-rank"
           x={CARD_W / 2}
           y="11"
           textAnchor="middle"

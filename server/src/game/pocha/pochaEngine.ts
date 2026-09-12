@@ -44,7 +44,7 @@ export function dealHand(state: PochaGameState): void {
   const deck = createPochaDeck(state.deckSize)
   const dealt = n * state.cardsPerHand
   for (let i = 0; i < dealt; i++) state.players[(state.originalLeadPlayerIndex + i) % n].hand.push(deck[i])
-  const auction = isPochaAuctionRound(state.settings, state.cardsPerHand, n, state.deckSize)
+  const auction = isPochaAuctionRound(state.settings, state.cardsPerHand)
   state.trumpCard = auction ? null : deck[dealt] ?? deck[dealt - 1]
   state.trump = state.trumpCard?.suit ?? null
   state.phase = auction ? 'auction' : 'bidding'

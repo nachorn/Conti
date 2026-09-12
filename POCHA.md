@@ -4,7 +4,7 @@
 
 El administrador elige Normal o Subastada. La baraja es de 40 o 48 cartas. Puede ajustar el máximo de cartas y las repeticiones de las rondas de 1 carta y del máximo, entre 1 y el número de jugadores. La pirámide sube y baja de una en una. Si el máximo es 1, se juega un solo bloque de rondas de 1 carta.
 
-En Subastada, el administrador puede activar «Subastar aunque sobren cartas»: se subastan todas las rondas del máximo elegido, aunque no se reparta toda la baraja. Las cartas sobrantes quedan ocultas y no se levanta carta de triunfo. Con la opción desactivada, solo hay subastas cuando se reparte toda la baraja, como antes. Las demás rondas siguen siendo normales. La vista previa marca y cuenta las rondas subastadas; si el máximo es 1 y la opción está activada, se subastan todas esas rondas.
+En Subastada se subastan todas las rondas del máximo elegido, aunque no se reparta toda la baraja. Basta con elegir la modalidad, sin casillas adicionales. Las cartas sobrantes quedan ocultas y no se levanta carta de triunfo. Las demás rondas siguen siendo normales. La vista previa marca y cuenta las rondas subastadas; si el máximo es 1, se subastan todas esas rondas. En Normal no hay subastas. El antiguo ajuste `auctionWithRemainder` se acepta para poder leer partidas guardadas y clientes anteriores, pero ya no modifica la modalidad.
 
 ## Reglas implementadas
 

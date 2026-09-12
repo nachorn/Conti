@@ -44,7 +44,7 @@ export type PochaPhase = 'lobby' | 'auction' | 'choosing_trump' | 'bidding' | 'p
 
 export interface PochaSettings {
   mode: 'normal' | 'subastada'
-  /** Opt in to auctions at the configured maximum even when cards remain undealt. */
+  /** @deprecated Retained for old saves/clients; mode alone determines auctions. */
   auctionWithRemainder?: boolean
   maxCards: number
   oneCardRounds: number

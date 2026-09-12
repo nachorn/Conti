@@ -8,15 +8,15 @@ import type { PochaAction, PochaSettings } from '../src/game/pocha/pochaTypes.js
 const players = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, name: `Jugador ${i}`, seatIndex: i, score: 0, connected: true }))
 const settings: PochaSettings = { mode: 'subastada', maxCards: 6, oneCardRounds: 3, peakRounds: 3 }
 
-test('auction opt-in applies only to the configured peak; legacy and normal deals keep their trump card', () => {
+test('mode alone auctions the configured peak; old flags cannot disable it or enable normal-mode auctions', () => {
   for (const option of [undefined, false, true]) {
     for (const mode of ['normal', 'subastada'] as const) {
       const setup = { ...settings, mode, auctionWithRemainder: option }
       const schedule = roundSchedule(setup, 5, 40)
       for (let round = 1; round <= schedule.length; round++) {
-        const auction = mode === 'subastada' && option === true && schedule[round - 1] === 6
+        const auction = mode === 'subastada' && schedule[round - 1] === 6
         const state = createPochaHandState('1234', players, round, 4, 40, setup)
-        assert.equal(isPochaAuctionRound(setup, schedule[round - 1], 5, 40), auction)
+        assert.equal(isPochaAuctionRound(setup, schedule[round - 1]), auction)
         assert.equal(state.phase, auction ? 'auction' : 'bidding')
         assert.equal(state.trumpCard === null, auction)
         assert.equal(state.trump === null, auction)
@@ -30,14 +30,14 @@ test('auction opt-in applies only to the configured peak; legacy and normal deal
   }
 })
 
-test('five complete games preserve the option, auction winner, original rotation and scores through recovery', t => {
+test('five complete games preserve mode, auction winner, original rotation and scores through recovery', t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const cases = [
-    { deck: 40, setup: { ...settings, auctionWithRemainder: true }, auctions: 3 },
+    { deck: 40, setup: { ...settings }, auctions: 3 },
     { deck: 48, setup: { ...settings, maxCards: 9, auctionWithRemainder: true }, auctions: 3 },
-    { deck: 40, setup: { ...settings, auctionWithRemainder: false }, auctions: 0 },
+    { deck: 40, setup: { ...settings, auctionWithRemainder: false }, auctions: 3 },
     { deck: 40, setup: { ...settings, mode: 'normal', auctionWithRemainder: true }, auctions: 0 },
-    { deck: 48, setup: { ...settings, maxCards: 1, auctionWithRemainder: true }, auctions: 3 },
+    { deck: 48, setup: { ...settings, maxCards: 1 }, auctions: 3 },
   ] as const
   for (const { deck, setup, auctions } of cases) {
     let room = new Room({ roomId: '1234', gameType: 'pocha', pochaDeckSize: deck })
