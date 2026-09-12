@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
+import { RoomInvite } from './components/RoomInvite'
 import { GameBoard } from './components/GameBoard'
 import { ConnectionNotice } from './components/ConnectionNotice'
 import { PochaBoard } from './components/PochaBoard'
@@ -13,6 +14,9 @@ import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
 import type { ActionResult } from './types'
 import { Dashboard } from './components/Dashboard'
+import { useMembership } from './useMembership'
+import { Membership } from './components/Membership'
+import { AdGate } from './components/AdGate'
 
 export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
@@ -25,6 +29,9 @@ export default function App() {
 
 /** Game routes and socket state. Syncs URL with in-game state. */
 function GameApp() {
+  const membership = useMembership()
+  const [membershipOpen, setMembershipOpen] = useState(false)
+  const [adGateOpen, setAdGateOpen] = useState(false)
   const [lang, setLang] = useState<Lang>(() => {
     try {
       const saved = window.localStorage.getItem('conti-language')
@@ -42,6 +49,10 @@ function GameApp() {
   const continentalMock = useContinentalMockState()
   const {
     state,
+    adGate,
+    adGateRequested,
+    beginAd,
+    completeAd,
     pochaAction,
     roomId,
     error,
@@ -65,7 +76,15 @@ function GameApp() {
     recoveryRoomId,
     sessionStorageAvailable,
     reconnect,
-  } = useSocket()
+  } = useSocket(membership.token, membership.refresh)
+
+  useEffect(() => {
+    if (adGateRequested) { setMembershipOpen(false); setAdGateOpen(true) }
+  }, [adGateRequested])
+
+  useEffect(() => {
+    if (!adGate?.required) setAdGateOpen(false)
+  }, [adGate?.required])
 
   useEffect(() => {
     document.documentElement.lang = lang
@@ -106,6 +125,13 @@ function GameApp() {
 
   return (
     <>
+      {!showPochaDev && !showContinentalDev && <>
+        {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen}
+          onOpen={() => { setAdGateOpen(false); setMembershipOpen(true) }} onClose={() => setMembershipOpen(false)} />}
+        <AdGate gate={adGate} state={state} playerId={socketId} lang={lang} connected={isConnected}
+          open={adGateOpen} onOpen={() => { setMembershipOpen(false); setAdGateOpen(true) }} onClose={() => setAdGateOpen(false)}
+          onAccount={() => setMembershipOpen(true)} begin={beginAd} complete={completeAd} />
+      </>}
       {!showPochaDev && !showContinentalDev && (
         <ConnectionNotice
           status={connectionStatus}
@@ -140,16 +166,12 @@ function GameApp() {
         <Route
           path="/room/:roomId"
           element={
-            <LobbyWithRoomId
-              onCreateContinental={handleCreateContinental}
-              onCreatePocha={handleCreatePocha}
+            <RoomInvite
               onJoin={join}
               error={error}
               isConnected={isConnected}
               lang={lang}
               setLang={setLang}
-              onOpenPochaDev={openPochaPreview}
-              onOpenContinentalDev={() => { setShowContinentalDev(true); navigate('/game') }}
             />
           }
         />
@@ -179,7 +201,10 @@ function GameApp() {
                 setShowContinentalDev(false)
                 navigate('/')
               }}
-              start={start}
+              start={(opts) => {
+                if (adGate?.required && !adGate.canStart) setAdGateOpen(true)
+                start(opts)
+              }}
               draw={draw}
               playMelds={playMelds}
               addToMeld={addToMeld}
@@ -188,7 +213,10 @@ function GameApp() {
               takeDiscard={takeDiscard}
               passDiscard={passDiscard}
               nextRound={nextRound}
-              rematch={rematch}
+              rematch={() => {
+                if (adGate?.required && !adGate.canStart) setAdGateOpen(true)
+                rematch()
+              }}
               setSeat={setSeat}
             />
           }
@@ -198,12 +226,6 @@ function GameApp() {
       <SpeedInsights />
     </>
   )
-}
-
-/** Lobby when navigating to /room/:roomId; pre-fills the room code for join. */
-function LobbyWithRoomId(props: Omit<React.ComponentProps<typeof Lobby>, 'initialJoinRoomId'>) {
-  const { roomId } = useParams<{ roomId: string }>()
-  return <Lobby {...props} initialJoinRoomId={roomId ?? null} />
 }
 
 /** Renders the correct board for /game; redirects to / if not in a game. */

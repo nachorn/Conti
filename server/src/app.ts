@@ -6,22 +6,31 @@ import { Room } from './room.js'
 import type { Card, Meld } from './types.js'
 import type { SnapshotStore } from './storage.js'
 import { registerDashboard } from './dashboard.js'
+import { registerRoomInvites } from './roomInvite.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
+import { AdGate, type AdConfig } from './adGate.js'
+import type { MembershipService } from './membership.js'
 
-type Result = { ok: boolean; error?: string }
+type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
 const ACTION_QUEUE_FULL = 'Too many pending actions. Please wait before trying again.'
 const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are paused; please reconnect after the server recovers.'
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
-export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string } = {}) {
+export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; adConfig?: AdConfig } = {}) {
   const repository = new GameRepository(store, options.retentionMs)
   await repository.load()
   const app = express()
   const isHealthy = () => !repository.failed && store.isHealthy?.() !== false
   const corsOrigin = options.origins?.length ? options.origins : true
   app.use(cors({ origin: corsOrigin }))
+  registerRoomInvites(app, repository, isHealthy)
+  options.membership?.registerRoutes(app)
+  if (!options.membership) app.get('/api/membership/config', (_req, res) => res.set('Cache-Control', 'no-store').json({
+    enabled: false, loginEnabled: false, checkoutEnabled: false, price: null,
+    ads: options.adConfig ?? { provider: 'disabled', publisherId: null },
+  }))
   // Render uses liveness here. An idle database may close its connection; do not
   // repeatedly wake it through health-check restarts before anyone needs to play.
   // The first failed work item still fails closed and triggers the supervisor.
@@ -33,6 +42,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const httpServer = createServer(app)
   const io = new Server(httpServer, { cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024 })
   const activeSockets = new Map<string, string>()
+  const adGate = new AdGate(options.adConfig)
   registerDashboard(app, {
     key: options.dashboardKey, repository, isHealthy,
     isOnline: playerId => {
@@ -45,6 +55,47 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   let closing = false
   let pending = 0
   const pendingBySocket = new Map<string, number>()
+  const removeMembershipListener = options.membership?.onChange(() => {
+    enqueue(async () => {
+      for (const roomId of repository.records.keys()) broadcastGate(roomId)
+      for (const socket of io.sockets.sockets.values()) socket.emit('membership_state', { account: membershipAccount(socket) })
+    })
+  })
+
+  function membershipAccount(socket: Socket) {
+    if (!options.membership?.isHealthy() || typeof socket.data.membershipToken !== 'string') return null
+    const account = options.membership.authenticate(socket.data.membershipToken)
+    if (!account) return null
+    // These fields are private to this socket; never put the account in room state.
+    return { id: account.id, email: account.email, adFree: account.adFree, source: account.source, expiresAt: account.expiresAt }
+  }
+
+  function roomExempt(room: Room) {
+    return room.players.some(player => {
+      const socketId = activeSockets.get(player.id)
+      const socket = socketId && io.sockets.sockets.get(socketId)
+      return !!socket && socket.connected && socket.data.roomId === room.roomId && membershipAccount(socket)?.adFree === true
+    })
+  }
+
+  function gateRoom(room: Room) {
+    return {
+      roomId: room.roomId, phase: room.phase,
+      players: room.players.map(player => {
+        const socketId = activeSockets.get(player.id)
+        return { id: player.id, connected: player.connected && !!socketId && io.sockets.sockets.get(socketId)?.connected === true }
+      }),
+    }
+  }
+
+  function broadcastGate(roomId: string) {
+    const room = repository.get(roomId)?.room
+    if (!room) { adGate.forget(roomId); return }
+    const state = adGate.snapshot(gateRoom(room), roomExempt(room))
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) socket.emit('ad_gate', state)
+    }
+  }
 
   function enqueue(task: () => Promise<void>, socket?: Socket) {
     // Cleanup and clock work cannot be dropped: that would leave ghost online players.
@@ -79,12 +130,14 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
   function broadcast(roomId: string) {
     const room = repository.get(roomId)?.room
-    if (!room) return
+    adGate.prune(repository.records.keys())
+    if (!room) { adGate.forget(roomId); return }
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
         socket.emit('state', room.getState(socket.data.playerId))
       }
     }
+    broadcastGate(roomId)
     schedule(roomId)
   }
 
@@ -125,6 +178,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
     socket.data.roomId = credential.roomId
     socket.data.playerId = credential.playerId
+    adGate.interrupt(credential.roomId, credential.playerId)
     activeSockets.set(credential.playerId, socket.id)
     if (oldSocketId && oldSocketId !== socket.id) {
       const oldSocket = io.sockets.sockets.get(oldSocketId)
@@ -140,6 +194,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   }
 
   io.on('connection', socket => {
+    socket.data.membershipToken = typeof socket.handshake.auth?.membershipToken === 'string' && socket.handshake.auth.membershipToken.length <= 2048 ? socket.handshake.auth.membershipToken : null
+    socket.emit('membership_state', { account: membershipAccount(socket) })
     // Register events immediately; the queue ensures handshake recovery finishes first.
     if (socket.handshake.auth?.resume !== undefined) enqueue(async () => {
       const credential = parseCredential(socket.handshake.auth.resume)
@@ -158,16 +214,41 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       }, socket)
       if (!queued) ack?.({ ok: false, error: ACTION_QUEUE_FULL })
     })
-    const reject = (message: string, ack?: ActionAck) => {
-      socket.emit('error', { message })
-      ack?.({ ok: false, error: message })
+    const reject = (message: string, ack?: ActionAck, code?: string) => {
+      socket.emit('error', { message, ...(code ? { code } : {}) })
+      ack?.({ ok: false, error: message, ...(code ? { code } : {}) })
     }
+    on('membership_auth', async (payload, ack) => {
+      socket.data.membershipToken = typeof payload?.token === 'string' && payload.token.length <= 2048 ? payload.token : null
+      const account = membershipAccount(socket)
+      socket.emit('membership_state', { account })
+      if (socket.data.roomId) broadcastGate(socket.data.roomId)
+      ack?.({ ok: payload?.token == null || account !== null, account })
+    })
+
+    for (const event of ['ad_begin', 'ad_complete'] as const) on(event, async (payload, ack) => {
+      const { roomId, playerId } = socket.data
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
+      const room = repository.get(roomId)?.room
+      if (!room) { reject('Room not found', ack); return }
+      const result = event === 'ad_begin'
+        ? adGate.begin(gateRoom(room), playerId, roomExempt(room))
+        : adGate.complete(gateRoom(room), playerId, payload, roomExempt(room))
+      broadcastGate(roomId)
+      ack?.(result)
+    })
     const action = (event: string, apply: (room: Room, playerId: string, payload: any) => Result, hostOnly = false) => on(event, async (payload, ack) => {
       const { roomId, playerId } = socket.data
       if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
       const current = repository.get(roomId)
       if (!current) { reject('Room not found', ack); return }
       if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that', ack); return }
+      if ((event === 'start' || event === 'rematch') && !adGate.snapshot(gateRoom(current.room), roomExempt(current.room)).canStart) {
+        broadcastGate(roomId)
+        io.to(roomId).emit('ad_gate_prompt', { roomId })
+        reject('Everyone must complete the short ad break before the game can start.', ack, 'ad_pending')
+        return
+      }
       const next = cloneRecord(current)
       const common = ['set_seat', 'start', 'next_round', 'rematch']
       if (next.room.gameType === 'pocha' ? !common.includes(event) && event !== 'pocha_action' : event === 'pocha_action') {
@@ -181,6 +262,9 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
         ack?.({ ok: false, error: ACTION_SAVE_FAILED })
         throw error
       }
+      // Pocha's rematch opens its setup lobby; keep the completed break until the
+      // following start actually deals, so the same new game never asks twice.
+      if ((event === 'start' || event === 'rematch') && next.room.phase === 'playing') adGate.consume(roomId)
       broadcast(roomId)
       ack?.({ ok: true })
     })
@@ -240,6 +324,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     on('leave', async () => {
       const { roomId, playerId } = socket.data
       if (!roomId || activeSockets.get(playerId) !== socket.id) return
+      adGate.interrupt(roomId, playerId)
       const record = repository.get(roomId)
       if (record) {
         const next = cloneRecord(record)
@@ -259,6 +344,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     socket.on('disconnect', () => enqueue(async () => {
       const { roomId, playerId } = socket.data
       if (!roomId || activeSockets.get(playerId) !== socket.id) return
+      adGate.interrupt(roomId, playerId)
       const record = repository.get(roomId)
       if (!record) return
       const next = cloneRecord(record)
@@ -281,6 +367,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     },
     async close() {
       closing = true
+      removeMembershipListener?.()
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
       await queue

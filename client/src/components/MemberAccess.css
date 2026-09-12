@@ -1,0 +1,23 @@
+.member-access { margin-top: 28px; padding: 24px; border: 1px solid #d6dfd8; border-radius: 18px; background: #fffdf7; color: #173e32; }
+.member-access-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.member-access-heading h2 { margin: 0 0 8px; font-size: 1.35rem; }
+.member-access-heading p { margin: 0 0 18px; max-width: 65ch; line-height: 1.5; }
+.member-access-form { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(160px, 1fr) auto; align-items: end; gap: 14px; }
+.member-access label { display: flex; flex-direction: column; gap: 7px; font-size: .88rem; font-weight: 600; }
+.member-access input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #9aada2; border-radius: 8px; background: white; color: #173e32; font: inherit; }
+.member-access input:focus-visible { outline: 3px solid #b6cfba; outline-offset: 2px; }
+.member-access input:disabled { background: #edf0eb; }
+.member-access-hint { font-size: .82rem; line-height: 1.5; color: #53665b; }
+.member-access-search { max-width: 380px; margin: 20px 0 12px; }
+.member-access-list { list-style: none; margin: 12px 0; padding: 0; }
+.member-access-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-bottom: 1px solid #e0e6df; }
+.member-access-list li div { min-width: 0; display: grid; gap: 5px; }
+.member-access-list strong { overflow-wrap: anywhere; }
+.member-access-list span { color: #52645a; font-size: .85rem; }
+.member-access-notice { padding: 10px 14px; background: #fff1e5; border-radius: 8px; line-height: 1.5; }
+.member-access .dashboard-button { color: #173e32; background: #edf2e9; border: 1px solid #9aada2; min-height: 44px; }
+.member-access .dashboard-button:hover:not(:disabled) { background: #dee8da; }
+.member-access .dashboard-primary { color: #fffdf7; background: #245d45; min-height: 44px; }
+.member-access .dashboard-primary:hover:not(:disabled) { background: #194833; }
+.member-access button:focus-visible { outline: 3px solid #6c926b; outline-offset: 3px; }
+@media (max-width: 650px) { .member-access { padding: 18px; } .member-access-form { grid-template-columns: 1fr; } .member-access-heading { flex-wrap: wrap; } .member-access-list li { flex-wrap: wrap; } }

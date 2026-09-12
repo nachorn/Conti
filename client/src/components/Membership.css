@@ -1,0 +1,40 @@
+.membership-toolbar { display: flex; justify-content: flex-end; padding: .35rem max(.8rem, env(safe-area-inset-right, 0px)) .1rem; background: var(--felt-dark); }
+.membership-account-button { display: inline-flex; align-items: center; gap: .45rem; color: var(--cream-muted); border: 1px solid rgba(245,240,225,.14); background: transparent; font-size: .78rem; min-height: 36px; padding: .35rem .65rem; }
+.membership-badge { color: var(--gold-bright); font-size: .7rem; }
+.membership-dialog { width: min(480px, calc(100% - 1.5rem)); max-height: calc(100dvh - 2rem); padding: clamp(1.2rem, 4vw, 2rem); color: var(--cream); background: #0a2b1c; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 90px #0009; overflow-y: auto; }
+.membership-dialog::backdrop { background: #00180ed9; backdrop-filter: blur(5px); }
+.membership-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.membership-eyebrow { color: var(--gold-bright); text-transform: uppercase; letter-spacing: .14em; font-size: .7rem; }
+.membership-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin: -.5rem -.6rem -.5rem 0; padding: .4rem; background: transparent; color: var(--cream-muted); font-size: 1.7rem; }
+.membership-dialog h2 { font-size: 2rem; line-height: 1.12; margin: 1rem 0 .7rem; }
+.membership-description, .membership-dialog p { font-size: .9rem; line-height: 1.6; }
+.membership-description { color: var(--cream-muted); }
+.membership-benefit { margin: 1.2rem 0; padding: .85rem 1rem; border-left: 2px solid var(--gold); border-radius: 0 8px 8px 0; background: #c9a2270c; line-height: 1.5; font-size: .85rem; }
+.membership-form { display: flex; flex-direction: column; gap: .65rem; margin-top: 1.4rem; }
+.membership-form label { font-size: .84rem; }
+.membership-form input { width: 100%; min-height: 46px; }
+.membership-form input[name=code] { letter-spacing: .25em; font-size: 1.2rem; }
+.membership-primary { min-height: 44px; background: var(--gold); color: #142217; }
+.membership-secondary { min-height: 42px; border: 1px solid var(--line); background: #ffffff08; color: var(--cream); font-size: .85rem; }
+.membership-text { min-height: 40px; background: none; color: var(--cream-muted); font-size: .8rem; padding-inline: .3rem; text-decoration: underline; text-underline-offset: 4px; }
+.membership-notice { color: var(--cream-muted); }
+.membership-email { overflow-wrap: anywhere; color: var(--cream); }
+.membership-access { padding: 1rem; border: 1px solid var(--line); border-radius: 10px; line-height: 1.5; }
+.membership-access.active { background: #34532955; }
+.membership-access p { margin: .3rem 0 0; color: var(--cream-muted); }
+.membership-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .8rem; }
+.membership-offer { margin-top: 1rem; }
+.membership-offer > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }
+.membership-offer strong { font-size: 1.6rem; color: var(--gold-bright); }
+.membership-offer span, .membership-offer p { color: var(--cream-muted); font-size: .8rem; }
+.membership-offer > button { width: 100%; }
+.membership-currencies { display: flex; flex-wrap: wrap; gap: .6rem; margin: 0; padding: 0; border: 0; }
+.membership-currencies legend { margin-bottom: .6rem; color: var(--cream); font-size: .84rem; }
+.membership-currencies label { position: relative; flex: 1; min-width: 110px; }
+.membership-currencies input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.membership-currencies label > span { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: .55rem .8rem; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; color: var(--cream); font-size: .9rem; }
+.membership-currencies input:checked + span { color: var(--gold-bright); border-color: var(--gold); background: #c9a22716; }
+.membership-currencies input:focus-visible + span { outline: 2px solid var(--gold-bright); outline-offset: 3px; }
+.membership-currencies input:disabled + span { opacity: .5; cursor: not-allowed; }
+.membership-dialog .membership-error { padding: .8rem; border-radius: 8px; background: #72292966; border: 1px solid #e6a6a640; color: #ffd9d9; }
+.membership-dialog .membership-footnote { margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid #ffffff12; color: var(--cream-muted); font-size: .76rem; }

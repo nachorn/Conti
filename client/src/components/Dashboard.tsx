@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { DashboardRoom, DashboardSnapshot } from '@shared/dashboard'
 import type { Lang } from '../i18n'
 import './Dashboard.css'
+import { MemberAccess } from './MemberAccess'
 
 const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
 const copy = {
@@ -207,6 +208,7 @@ export function Dashboard() {
             ['onlinePlayers', c.online], ['activeRooms', c.active], ['waitingRooms', c.waiting], ['offlineRooms', c.offlineRooms],
           ] as const).map(([field, label]) => <div className={`dashboard-stat ${field === 'onlinePlayers' ? 'is-highlighted' : ''}`} key={field}><span>{label}</span><strong>{snapshot.summary[field]}</strong></div>)}
         </section>
+        <MemberAccess accessKey={key} lang={lang} />
         <section className="dashboard-tables" aria-labelledby="dashboard-tables-title">
           <div className="dashboard-section-heading"><h2 id="dashboard-tables-title">{c.tables} <span>{rooms.length}</span></h2>
             <div className="dashboard-tabs" role="group" aria-label={c.tables}>

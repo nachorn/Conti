@@ -1,0 +1,232 @@
+/* Continental shares Pocha's palette and surfaces. TableReview owns the card,
+   scrolling and compact-hand geometry so the theme does not alter game controls. */
+.game-board, .conti-scoreboard, .conti-meld-dialog {
+  --gold: #efd18b;
+  --gold-bright: #fff3d1;
+  --cream: #faf4e5;
+  --cream-muted: #bfcdc3;
+  --conti-line: #ffffff21;
+  --conti-panel: #091f1bcc;
+  color: var(--cream);
+}
+.game-board {
+  background: radial-gradient(ellipse at 45% 15%, #23584b 0, #102e28 48%, #091e1a 100%);
+}
+/* Account and connection notices take their real height; the table fills the rest. */
+#root:has(> .continental-game.is-playing) {
+  display: flex; flex-direction: column; height: 100dvh; min-height: 0;
+}
+#root:has(> .continental-game.is-playing) > * { flex-shrink: 0; }
+#root > .continental-game.is-playing { flex: 1 1 0; min-height: 0; }
+.continental-game.is-playing > .game-board-playing { height: 100%; min-height: 0; }
+.game-board button { touch-action: manipulation; }
+.game-board button:focus-visible, .game-board [role="button"]:focus-visible,
+.game-board summary:focus-visible, .conti-scoreboard button:focus-visible {
+  outline: 3px solid var(--gold); outline-offset: 3px;
+}
+.game-board .game-shell { width: min(100%, 1360px); margin-inline: auto; }
+.game-board .game-shell-toolbar {
+  border-color: var(--conti-line); background: #091f1b99; box-shadow: none;
+}
+.game-board .game-shell-brand { color: var(--gold); }
+.game-board .options-menu-btn, .game-board .scoreboard-btn,
+.game-board .game-copy-room-link-btn, .game-board .game-shell-back,
+.game-board .hand-sort-btn, .game-board .hand-arrange-btn,
+.game-board .hand-layout-btn {
+  min-height: 44px; border: 1px solid #ffffff30; border-radius: 10px;
+  background: #ffffff0b; color: var(--cream);
+}
+.game-board .options-menu-panel {
+  background: #102f27; border: 1px solid #ffffff30; border-radius: 14px;
+  box-shadow: 0 16px 40px #0005;
+}
+.game-board .options-menu-panel button { min-height: 44px; color: var(--cream); }
+.game-board .game-actions button, .game-board .game-next-round-btn,
+.game-board .game-lobby-box > button {
+  min-height: 44px; background: var(--gold); color: #18241c;
+  border: 1px solid #fff3d1; border-radius: 10px; font-weight: 700;
+}
+.game-board .game-actions .game-discard-action {
+  background: #f3ded8; color: #6f1d1b; border-color: #fff0eb;
+}
+.game-board .hand-arrange-btn[aria-pressed="true"],
+.game-board .hand-layout-btn[aria-pressed="true"] {
+  background: var(--gold); border-color: #fff3d1; color: #18241c;
+}
+.conti-eyebrow {
+  color: var(--gold); font-size: .67rem; font-weight: 700;
+  letter-spacing: .16em; text-transform: uppercase;
+}
+
+/* Room setup */
+.game-board .game-lobby-header { text-align: center; margin: 1.6rem 0 1.8rem; padding-inline: 1rem; }
+.game-lobby-header .conti-eyebrow { margin: 0 0 .5rem; }
+.game-lobby-header h1 { margin: 0; font-size: clamp(3rem, 8vw, 5rem); line-height: 1.15; }
+.game-board .game-lobby-sub { margin: .65rem 0 1rem; color: #c4d3c8; font-size: .95rem; }
+.game-lobby-sub strong { color: var(--gold); letter-spacing: .12em; }
+.game-lobby-sub > span { margin-inline: .4rem; }
+.game-board .game-copy-room-link-btn { padding: .65rem 1.1rem; font-size: .88rem; }
+.conti-lobby-grid {
+  display: grid; grid-template-columns: 1.15fr 1fr; gap: 1.25rem; align-items: start;
+  width: min(1100px, calc(100% - 2rem)); margin: 0 auto; padding-bottom: 2rem;
+}
+.conti-lobby-seats, .game-board .game-lobby-options {
+  min-width: 0; width: 100%; max-width: none; margin: 0; padding: 1.25rem;
+  border: 1px solid var(--conti-line); border-radius: 16px; background: var(--conti-panel);
+}
+.conti-lobby-seats h2, .game-board .game-lobby-options h2 {
+  margin: 0; color: var(--cream); font-size: 1.85rem;
+}
+.conti-panel-description { margin: .55rem 0 1.25rem; color: #c4d3c8; font-size: .9rem; line-height: 1.55; }
+.conti-seat-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.conti-lobby-seat {
+  display: flex; align-items: center; gap: .6rem; min-width: 0; min-height: 64px;
+  border: 1px solid var(--conti-line); border-radius: 10px; padding: .6rem;
+  background: #ffffff05; font-size: .88rem;
+}
+.conti-seat-number {
+  display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
+  background: #ffffff0c; border-radius: 50%; color: var(--gold); font-variant-numeric: tabular-nums;
+}
+.conti-seat-person { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.conti-seat-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conti-seat-person > span { font-size: .7rem; color: #bfcdc3; }
+.conti-lobby-seat.is-me { border-color: #efd18b80; background: #efd18b0d; }
+.conti-lobby-seat.is-me strong { color: var(--gold); }
+.conti-lobby-seat.is-empty { border-style: dashed; color: #bfcdc3; }
+.conti-lobby-seat.is-empty:not([aria-disabled="true"]) { cursor: pointer; }
+.conti-lobby-seat.is-empty:hover:not([aria-disabled="true"]) { border-color: var(--gold); background: #ffffff0d; }
+.game-board .game-lobby-options .lobby-deck-label {
+  display: flex; justify-content: space-between; gap: 1rem; margin: 1rem 0; font-size: .88rem;
+}
+.game-board .game-lobby-options select {
+  min-height: 44px; width: 140px; max-width: 50%; flex-shrink: 0;
+  border: 1px solid #ffffff30; border-radius: 8px; background: #173c31;
+}
+.game-board .game-lobby-options > button { margin-top: .75rem; }
+.game-board .game-wait-host-msg {
+  padding: 1rem; border: 1px solid var(--conti-line); border-radius: 10px;
+  background: #ffffff05; color: #c4d3c8; line-height: 1.55; font-size: .9rem;
+}
+
+/* Round heading, turn and table */
+.game-board-playing > .game-info {
+  width: min(100%, 1360px); margin: 0 auto; padding: .8rem 1.5rem;
+  background: transparent; gap: .65rem 1rem;
+}
+.game-board .game-info-main { display: flex; flex: 1 1 auto; flex-direction: row; align-items: center; gap: 1.5rem; }
+.conti-round-heading h1 { margin: 0; font-size: 2.4rem; line-height: 1.15; white-space: nowrap; }
+.conti-round-heading h1 span { font-size: 1.25rem; color: #bfcdc3; font-weight: 400; }
+.conti-round-heading > span { display: block; margin-top: .2rem; font-size: .75rem; color: #bfcdc3; }
+.game-board .game-contract-text {
+  display: flex; flex-direction: column; gap: .4rem; border-left: 1px solid var(--conti-line);
+  padding-left: 1.5rem; max-width: 100%;
+}
+.game-contract-text > strong { font-size: .95rem; font-weight: 500; }
+.game-board .game-turn-status {
+  padding: .7rem .85rem; border: 1px solid var(--conti-line); border-radius: 12px; background: #071e18bb;
+}
+.game-board .turn-badge { color: #d7e3d9; background: transparent; padding: 0; font-size: .88rem; }
+.game-board .turn-badge-you { color: var(--gold); }
+.game-board .game-turn-status:has(.turn-badge-you) { border-color: #efd18b65; }
+.game-board .discard-delay-badge, .game-board .priority-badge { color: #c7dbf6; }
+.game-board .game-table-scroll { width: min(100%, 1360px); min-height: 0; margin-inline: auto; scrollbar-color: #ffffff30 transparent; }
+.game-board .poker-table-oval {
+  background: radial-gradient(ellipse at 50% 40%, #306655, #174637);
+  border: 1px solid #ffffff1b; border-radius: 28px;
+  box-shadow: inset 0 0 60px #06201944;
+}
+.game-board .poker-seat-playing {
+  border-width: 1px; border-color: var(--conti-line); background: #0a251fee;
+  border-radius: 10px; box-shadow: none;
+}
+.game-board .poker-seat-me { border-color: #efd18b70; }
+.game-board .poker-seat-me .poker-seat-name { color: var(--gold); }
+.game-board .poker-seat-current { border-color: var(--gold); background: #294338; box-shadow: 0 0 0 2px #efd18b18; }
+.game-board .game-table-scroll .table-many-players { height: auto; min-height: 0; }
+.game-board .table-many-players .poker-seat { min-height: 54px; justify-content: center; }
+.game-board .table-many-players .poker-seat-me { transform: none !important; }
+.game-board .opponent-cards-label { background: #ffffff08; border-color: var(--conti-line); color: #d7e3d9; }
+.game-board .game-discard-zone { border: 1px dashed #ffffff5c; border-radius: 12px; background: #ffffff06; color: #d7e3d9; }
+.game-board .public-melds, .game-board .public-activity {
+  background: var(--conti-panel); border-color: var(--conti-line); border-radius: 12px;
+}
+.game-board .public-player-melds, .game-board .public-activity li { border-color: var(--conti-line); }
+.game-board .public-player-melds h3 { color: var(--gold); font-weight: 500; }
+.game-board .public-meld { background: #ffffff05; border: 1px solid #ffffff0d; border-radius: 9px; }
+.game-board .public-table summary { font-size: .88rem; }
+.game-board .public-meld summary { color: #d7e3d9; font-size: .82rem; }
+
+/* Hand and actions keep their existing responsive arrangement. */
+.game-board-playing .game-hand-area {
+  width: min(100%, 1328px); margin-inline: auto; border: 1px solid var(--conti-line); border-bottom: 0;
+  border-radius: 18px 18px 0 0; background: #0a231eed; box-shadow: 0 -12px 30px #06161124;
+}
+.game-board .card-activity-discard, .game-board .card-receipt {
+  border-color: var(--conti-line); background: #ffffff05; border-radius: 10px;
+}
+.game-board .card-receipt-penalty { border-color: #e5b56280; background: #44371c; }
+.game-board .card-activity-label, .game-board .card-activity-copy strong { color: var(--gold); }
+.game-board .card-activity-empty, .game-board .hand-toolbar-label { color: #bfcdc3; }
+.game-board .hand-new-badge { background: var(--gold); color: #18241c; }
+
+/* Results and the portalled score dialog. */
+.game-board .game-round-end-box, .game-board .game-round-end-box.game-final-scoreboard {
+  width: min(calc(100% - 2rem), 860px); max-width: 860px; padding: 1.5rem;
+  border: 1px solid var(--conti-line); border-radius: 18px; background: #102f27;
+  margin-block: 1.5rem;
+}
+.game-board .game-round-end-box h2 { color: var(--cream); font-size: 2.4rem; }
+.game-board .round-recap { background: #ffffff05; border-color: var(--conti-line); }
+.game-board .score-history th, .game-board .score-history td { border-color: var(--conti-line); }
+.game-board .score-history th:first-child, .game-board .score-history th:last-child,
+.game-board .score-history td:last-child { background: #102f27; }
+.game-board .score-history td:last-child { color: var(--gold); font-weight: 700; }
+.game-board .game-final-winner { color: var(--gold); border-color: #efd18b60; background: #efd18b0d; }
+.conti-scoreboard .scoreboard-panel { max-width: 480px; border: 1px solid #ffffff30; border-radius: 18px; background: #102f27; }
+.conti-scoreboard .scoreboard-panel-header { border-color: var(--conti-line); background: transparent; }
+.conti-scoreboard .scoreboard-panel-title { font-size: 2rem; color: var(--cream); }
+.conti-scoreboard .scoreboard-panel-row { padding: .75rem; background: #ffffff05; border-radius: 10px; }
+.conti-scoreboard .scoreboard-score { color: var(--gold); }
+.conti-scoreboard .scoreboard-close { min-width: 44px; min-height: 44px; }
+.conti-meld-dialog .meld-target-dialog { background: #102f27; border-color: #ffffff30; }
+.conti-meld-dialog .meld-target-header, .conti-meld-dialog .meld-target-footer { background: #0a231e; }
+.conti-meld-dialog .meld-target-header h2 { color: var(--cream); }
+.conti-meld-dialog .meld-target-confirm { background: var(--gold); color: #18241c; border: 1px solid #fff3d1; border-radius: 10px; }
+.conti-meld-dialog .meld-target-cancel { border: 1px solid #ffffff30; border-radius: 10px; background: #ffffff0b; }
+
+@media (max-width: 700px) {
+  .game-board .game-lobby-header { margin: 1rem 0 1.25rem; }
+  .conti-lobby-grid { grid-template-columns: 1fr; gap: .8rem; width: calc(100% - 1.3rem); }
+  .conti-lobby-seats, .game-board .game-lobby-options { padding: 1rem; }
+  .conti-lobby-seat { padding: .5rem; gap: .45rem; font-size: .83rem; }
+  .game-board-playing > .game-info { padding: .6rem .75rem; gap: .5rem; }
+  .game-board .game-info-main { gap: .8rem; flex-wrap: nowrap; width: 100%; }
+  .conti-round-heading h1 { font-size: 1.95rem; }
+  .conti-round-heading h1 span { font-size: 1rem; }
+  .game-board .game-contract-text { padding-left: .8rem; gap: .25rem; }
+  .game-contract-text > strong { font-size: .8rem; }
+  .game-board .game-turn-status { width: 100%; justify-content: flex-start; padding: .55rem .75rem; }
+  .game-board .turn-badge { font-size: .8rem; }
+  .game-board-playing .game-hand-area { border-radius: 14px 14px 0 0; }
+  .game-board .game-round-end-box, .game-board .game-round-end-box.game-final-scoreboard { width: calc(100% - 1.3rem); padding: 1rem; }
+  .game-board .game-round-end-box h2 { font-size: 2rem; }
+}
+@media (max-height: 600px) and (orientation: landscape) {
+  .game-board-playing > .game-info { padding: .2rem .75rem; flex-wrap: nowrap; }
+  .game-board .game-info-main { width: auto; flex-wrap: nowrap; gap: 1rem; }
+  .conti-round-heading h1 { font-size: 1.5rem; }
+  .conti-round-heading > span, .game-contract-text .conti-eyebrow { display: none; }
+  .game-board .game-contract-text { padding-left: .75rem; }
+  .game-board .game-turn-status { width: auto; padding: .4rem .7rem; }
+  .game-board-playing .game-hand-area { border-radius: 12px 12px 0 0; }
+}
+@media (max-width: 700px) and (max-height: 740px) and (orientation: portrait) {
+  .game-board-playing > .game-info { padding-block: .3rem; gap: .3rem; }
+  .conti-round-heading h1 { font-size: 1.7rem; }
+  .game-board .game-turn-status { padding-block: .35rem; }
+  .game-board .card-activity .card { width: 32px; height: 44px; }
+  .game-board .card-activity .card-rank { font-size: 1.2rem; }
+  .game-board .card-activity .card-rank-joker { font-size: .35rem; }
+  .game-board .card-activity .card-suit-mark { font-size: 1rem; }
+}

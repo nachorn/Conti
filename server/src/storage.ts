@@ -209,7 +209,7 @@ export class FileSnapshotStore extends SerialSnapshotStore {
  * Keep a single server replica; rolling overlap must be disabled for this model.
  */
 export class PostgresSnapshotStore extends SerialSnapshotStore {
-  private constructor(private readonly client: Client) {
+  private constructor(private readonly client: Client, private readonly table = 'conti_game_state') {
     super()
     client.on('error', () => {
       this.unavailable = new Error('Game database connection was lost; restart this server')
@@ -219,7 +219,7 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
     })
   }
 
-  static async open(connectionString: string): Promise<PostgresSnapshotStore> {
+  static async open(connectionString: string, namespace: 'game' | 'membership' = 'game'): Promise<PostgresSnapshotStore> {
     let client: Client | undefined
     try {
       const parsed = new URL(connectionString)
@@ -241,13 +241,15 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
         // TLS is controlled by the supplied URL / pg settings. Do not disable
         // certificate verification to work around deployment configuration.
       })
-      const store = new PostgresSnapshotStore(client)
+      // The table name is chosen from literals, never from configuration or input.
+      const table = namespace === 'membership' ? 'conti_membership_state' : 'conti_game_state'
+      const store = new PostgresSnapshotStore(client, table)
       await client.connect()
       // A bounded wait accommodates a graceful predecessor shutting down. Fixed
       // lock IDs isolate Conti's singleton writer within this database.
-      await client.query('SELECT pg_advisory_lock($1, $2)', [0x434f4e54, 1])
+      await client.query('SELECT pg_advisory_lock($1, $2)', [0x434f4e54, namespace === 'membership' ? 2 : 1])
       await client.query(`
-        CREATE TABLE IF NOT EXISTS conti_game_state (
+        CREATE TABLE IF NOT EXISTS ${table} (
           id smallint PRIMARY KEY CHECK (id = 1),
           snapshot jsonb NOT NULL,
           updated_at timestamptz NOT NULL DEFAULT now()
@@ -269,7 +271,7 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
       const result = await this.client.query<{ bytes: number; encoded: string | null }>(`
         SELECT octet_length(snapshot::text) AS bytes,
           CASE WHEN octet_length(snapshot::text) <= $1 THEN snapshot::text ELSE NULL END AS encoded
-        FROM conti_game_state WHERE id = 1
+        FROM ${this.table} WHERE id = 1
       `, [MAX_SNAPSHOT_BYTES])
       const row = result.rows[0]
       if (!row) return null
@@ -289,7 +291,7 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
       // saved turn before PostgreSQL has flushed its write-ahead log.
       await this.client.query('SET LOCAL synchronous_commit = on')
       await this.client.query(`
-        INSERT INTO conti_game_state (id, snapshot, updated_at) VALUES (1, $1::jsonb, now())
+        INSERT INTO ${this.table} (id, snapshot, updated_at) VALUES (1, $1::jsonb, now())
         ON CONFLICT (id) DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = EXCLUDED.updated_at
       `, [encoded])
       await this.client.query('COMMIT')

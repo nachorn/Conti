@@ -1,0 +1,53 @@
+.room-invite {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  background: radial-gradient(ellipse at 50% 20%, #195943 0%, #0b3025 45%, #061b15 100%);
+  display: grid;
+  place-items: center;
+}
+.room-invite-shell { width: min(100%, 480px); }
+.room-invite-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+.room-invite-toolbar > span { font-family: 'Cormorant Garamond', serif; font-size: 21px; font-weight: 600; }
+.room-invite-toolbar > span span { color: #e8ca83; }
+.room-invite-toolbar > div { display: flex; padding: 3px; border: 1px solid #ffffff24; border-radius: 10px; }
+.room-invite-toolbar button { min-height: 38px; padding: 8px 10px; background: transparent; color: #dedfd2; font-size: 12px; }
+.room-invite-toolbar button[aria-pressed=true] { background: #eed38d; color: #183326; }
+.room-invite-card { padding: clamp(24px, 6vw, 40px); background: linear-gradient(145deg, #153e30e8, #0a251deb); border: 1px solid #e9cf8e4a; border-radius: 24px; box-shadow: 0 24px 80px #0005, inset 0 1px #ffffff0f; text-align: center; }
+.room-invite-emblem { height: 65px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+.room-invite-emblem span { display: grid; place-items: center; width: 42px; height: 57px; border-radius: 6px; background: #f5efda; color: #215137; font-size: 30px; border: 2px solid #d5c79e; transform: rotate(-13deg); }
+.room-invite-emblem span + span { margin-left: -12px; transform: translateY(-3px) rotate(12deg); color: #a44236; box-shadow: -3px 2px 6px #0003; }
+.room-invite-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .19em; color: #ebd28e; margin: 0 0 10px; }
+.room-invite-card h1 { font-size: clamp(34px, 7vw, 43px); line-height: 1.08; margin: 0 0 12px; }
+.room-invite-intro { font-size: 14px; line-height: 1.6; color: #c2d2c8; margin: 0 auto 25px; max-width: 280px; }
+.room-invite-details { border: 1px solid #ffffff19; border-radius: 14px; background: #061e1870; padding: 18px 20px; text-align: left; margin-bottom: 25px; }
+.room-invite-game { display: inline-block; font-size: 11px; letter-spacing: .05em; color: #e9cf89; margin-bottom: 14px; }
+.room-invite-host { display: grid; gap: 5px; }
+.room-invite-host > span, .room-invite-meta > div > span { color: #b8cbc1; font-size: 12px; }
+.room-invite-host strong { font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+.room-invite-meta { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.room-invite-host + .room-invite-meta { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff14; }
+.room-invite-meta > div { display: grid; gap: 5px; }
+.room-invite-meta > span { color: #b8cbc1; font-size: 12px; padding-bottom: 3px; }
+.room-invite-code { font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .13em; }
+.room-invite-details p { margin: 14px 0 0; color: #b8cbc1; font-size: 14px; }
+.room-invite-card form { text-align: left; }
+.room-invite-card label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 9px; }
+.room-invite-card input { width: 100%; min-height: 52px; border: 1px solid #c4d5c34f; border-radius: 11px; padding: 13px 15px; background: #041c1566; font-size: 17px; }
+.room-invite-card input:focus { border-color: #ebd28e; box-shadow: 0 0 0 3px #ebd28e1c; }
+.room-invite-card input::placeholder { color: #aec4b7a6; }
+.room-invite-join { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 52px; padding: 12px; background: #eed38d; color: #1a3225; border-radius: 11px; margin-top: 14px; font-size: 16px; font-weight: 700; }
+.room-invite-join:disabled { opacity: .55; }
+.room-invite-join > span { font-size: 21px; line-height: 1; }
+.room-invite-hint { text-align: center; color: #a4bcb0; font-size: 11px; margin: 12px 0 0; }
+.room-invite-notice, .room-invite-error { padding: 13px 15px; border: 1px solid #efd48b3d; background: #efd48b0b; color: #ecdfb8; border-radius: 10px; font-size: 14px; line-height: 1.5; text-align: left; }
+.room-invite-error { border-color: #d9897955; color: #ffcbbf; }
+.room-invite-refresh { margin-top: 12px; background: #ffffff0a; color: #ecd28e; border: 1px solid #ffffff25; min-height: 44px; }
+.room-invite-home { display: block; width: fit-content; margin: 24px auto 0; padding: 9px; color: #b8cbc1; text-decoration-thickness: 1px; text-underline-offset: 4px; font-size: 12px; }
+@media (max-width: 420px) {
+  .room-invite-toolbar { margin-bottom: 20px; }
+  .room-invite-card { padding: 24px; border-radius: 20px; }
+  .room-invite-emblem { margin-bottom: 14px; }
+  .room-invite-details { padding: 16px; margin-bottom: 21px; }
+  .room-invite-home { margin-top: 16px; }
+}

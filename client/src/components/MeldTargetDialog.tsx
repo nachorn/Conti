@@ -572,7 +572,7 @@ export function MeldTargetDialog({
 
   return createPortal(
     <div
-      className="meld-target-overlay"
+      className="meld-target-overlay conti-meld-dialog"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) close()
       }}

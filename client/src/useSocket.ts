@@ -4,6 +4,7 @@ import { pushLog } from './lib/reportBug'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
 import type { PochaAction, PochaDeckSize, PochaSettings } from '@shared/pochaTypes'
+import type { AdBeginResult, AdCompletePayload, AdGateState } from '@shared/adGate'
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
@@ -19,12 +20,18 @@ function tabStorage(): Storage | null {
   }
 }
 
-export function useSocket() {
+export function useSocket(membershipToken: string | null = null, onMembershipChange?: () => void) {
+  const membershipTokenRef = useRef(membershipToken)
+  const membershipChangeRef = useRef(onMembershipChange)
+  membershipTokenRef.current = membershipToken
+  membershipChangeRef.current = onMembershipChange
   const [initialSession] = useState(() => readRoomSession(tabStorage()))
   const sessionRef = useRef<RoomSession | null>(initialSession)
   const [state, setState] = useState<GameState | null>(null)
   const [roomId, setRoomId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [adGate, setAdGate] = useState<AdGateState | null>(null)
+  const [adGateRequested, setAdGateRequested] = useState(0)
   // This is a stable player ID, not a transport ID; keep the prop name for existing boards.
   const [socketId, setSocketId] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
@@ -49,7 +56,7 @@ export function useSocket() {
       autoConnect: false,
       transports: ['websocket', 'polling'],
       // Read at each handshake, not just mount: joined can issue fresh credentials.
-      auth: (callback) => callback(sessionRef.current ? { resume: sessionRef.current } : {}),
+      auth: (callback) => callback({ ...(sessionRef.current ? { resume: sessionRef.current } : {}), membershipToken: membershipTokenRef.current }),
       reconnectionDelayMax: 5000,
     })
     socketRef.current = socket
@@ -74,6 +81,15 @@ export function useSocket() {
       updateStatus('connected')
     })
 
+    socket.on('ad_gate', (gate: AdGateState) => {
+      if (gate?.roomId !== sessionRef.current?.roomId) return
+      setAdGate(gate)
+    })
+    socket.on('ad_gate_prompt', (payload: { roomId: string }) => {
+      if (payload?.roomId === sessionRef.current?.roomId) setAdGateRequested(value => value + 1)
+    })
+    socket.on('membership_state', () => { membershipChangeRef.current?.() })
+
     socket.on('state', (newState: GameState) => {
       // Until joined authenticates the saved seat, do not accept a room broadcast.
       if (statusRef.current !== 'connected' || !sessionRef.current) return
@@ -86,6 +102,7 @@ export function useSocket() {
       setRoomId(null)
       setState(null)
       setSocketId(null)
+      setAdGate(null)
       setError(null)
     })
 
@@ -95,6 +112,7 @@ export function useSocket() {
       setRoomId(null)
       setState(null)
       setSocketId(null)
+      setAdGate(null)
       setError(payload?.message || 'Your saved game is no longer available. You can create or join a room.')
       updateStatus(socket.connected ? 'connected' : 'reconnecting')
     })
@@ -116,7 +134,11 @@ export function useSocket() {
       // Keep the last board and credentials while the network or server recovers.
     })
 
-    socket.on('error', (payload: { message: string }) => {
+    socket.on('error', (payload: { message: string; code?: string }) => {
+      if (payload?.code === 'ad_pending') {
+        setAdGateRequested(value => value + 1)
+        return
+      }
       const msg = typeof payload?.message === 'string' ? payload.message : 'The action could not be completed.'
       setError(msg)
       pushLog('error', 'Socket action failed', msg)
@@ -136,6 +158,11 @@ export function useSocket() {
       // StrictMode cleanup and page reload must not erase recovery credentials.
     }
   }, [])
+
+  useEffect(() => {
+    const socket = socketRef.current
+    if (socket?.connected) socket.emit('membership_auth', { token: membershipToken })
+  }, [membershipToken])
 
   const send = (event: string, ...args: unknown[]) => {
     const sent = emitWhenReady(socketRef.current, statusRef.current === 'connected', event, ...args)
@@ -243,9 +270,23 @@ export function useSocket() {
     send('debug_skip_round')
   }
 
+  const adRequest = <T extends { ok: boolean; error?: string }>(event: string, payload: unknown): Promise<T> => {
+    const socket = socketRef.current
+    if (!socket?.connected || statusRef.current !== 'connected') return Promise.resolve({ ok: false, error: 'disconnected' } as T)
+    return new Promise(resolve => {
+      socket.timeout(10_000).emit(event, payload, (failure: Error | null, result?: T) => {
+        resolve(failure || !result ? { ok: false, error: 'unconfirmed' } as T : result)
+      })
+    })
+  }
+
   return {
     pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),
     state,
+    adGate,
+    adGateRequested,
+    beginAd: () => adRequest<AdBeginResult>('ad_begin', {}),
+    completeAd: (payload: AdCompletePayload) => adRequest<ActionResult>('ad_complete', payload),
     roomId,
     error,
     create,

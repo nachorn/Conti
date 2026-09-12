@@ -17,6 +17,7 @@ import { ActionPopup } from './ActionPopup'
 import { discardExplanation, shortCard } from '../lib/tableSummary'
 import './GameBoard.css'
 import './TableReview.css'
+import './ContinentalTheme.css'
 
 const CARDS_ROUND_1 = 7
 const POKER_SEAT_COUNT = 10
@@ -109,7 +110,7 @@ interface GameBoardProps {
 
 export function GameBoard(props: GameBoardProps) {
   const boardRef = useRef<HTMLDivElement>(null)
-  return <div ref={boardRef}>
+  return <div ref={boardRef} className={`continental-game${props.state.phase === 'playing' ? ' is-playing' : ''}`}>
     <GameBoardContent {...props} />
     <ActionPopup state={props.state} lang={props.lang} connected={props.isConnected ?? true} boardRef={boardRef} />
   </div>
@@ -596,8 +597,9 @@ function GameBoardContent({
           }
         />
         <div className="game-lobby-header">
-          <h2>{t(lang, 'room')} {state.roomId}</h2>
-          <p className="game-lobby-sub">{t(lang, 'chooseSeat')} · {state.players.length}/10 {t(lang, 'players')}</p>
+          <p className="conti-eyebrow">{lang === 'es' ? 'Una mesa entre amigos' : 'A table with friends'}</p>
+          <h1>Continental</h1>
+          <p className="game-lobby-sub">{t(lang, 'room')} <strong>{state.roomId}</strong> <span aria-hidden="true">·</span> {state.players.length}/10 {t(lang, 'players')}</p>
           <button
             type="button"
             className="game-copy-room-link-btn"
@@ -612,97 +614,105 @@ function GameBoardContent({
             {roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
           </button>
         </div>
-        <div className="poker-table-wrap poker-table-lobby">
-          <div className="poker-table-oval" />
-          {lobbySeats.map((player, d) => {
-            const pos = seatPosition(d)
-            const seatIndex = ((me?.seatIndex ?? 0) + d) % POKER_SEAT_COUNT
-            const isMe = player?.id === socketId
-            const isEmpty = !player
-            return (
-              <div
-                key={d}
-                className={`poker-seat ${isEmpty ? 'poker-seat-empty' : ''} ${isMe ? 'poker-seat-me' : ''}`}
-                style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-                onClick={() => {
-                  if (isConnected && isEmpty && onSetSeat) onSetSeat(seatIndex)
-                }}
-                role={isEmpty && onSetSeat ? 'button' : undefined}
-                tabIndex={isConnected && isEmpty && onSetSeat ? 0 : undefined}
-                aria-disabled={isEmpty && onSetSeat ? !isConnected : undefined}
-                aria-label={isEmpty ? `${t(lang, 'sitHere')} ${seatIndex + 1}` : undefined}
-                onKeyDown={(event) => {
-                  if (isConnected && isEmpty && onSetSeat && (event.key === 'Enter' || event.key === ' ')) {
-                    event.preventDefault()
-                    onSetSeat(seatIndex)
-                  }
-                }}
-              >
-                {player ? (
-                <>
-                  <span className="poker-seat-name">{player.name}</span>
-                  {isMe && <span className="poker-seat-you">{t(lang, 'you')}</span>}
-                </>
-              ) : (
-                <span className="poker-seat-sit">{t(lang, 'sitHere')}</span>
-              )}
-              </div>
-            )
-          })}
-        </div>
-        <div className="game-lobby-box game-lobby-options">
-          {showDeckWarning && (
-            <div className="game-deck-warning" role="alert">
-              <span className="game-deck-warning-icon" aria-hidden="true">!</span>
-              <span>{t(lang, 'twoDeckPlayerWarning')}</span>
+        <div className="conti-lobby-grid">
+          <section className="conti-lobby-seats" aria-labelledby="conti-seats-title">
+            <h2 id="conti-seats-title">{t(lang, 'chooseSeat')}</h2>
+            <p className="conti-panel-description">{lang === 'es' ? 'Invita a tus amigos y elegid vuestro sitio.' : 'Invite your friends and choose your seats.'}</p>
+            <div className="conti-seat-list">
+              {lobbySeats.map((player, d) => {
+                const seatIndex = ((me?.seatIndex ?? 0) + d) % POKER_SEAT_COUNT
+                const isMe = player?.id === socketId
+                const isEmpty = !player
+                return (
+                  <div
+                    key={d}
+                    className={`conti-lobby-seat ${isEmpty ? 'is-empty' : ''} ${isMe ? 'is-me' : ''}`}
+                    onClick={() => {
+                      if (isConnected && isEmpty && onSetSeat) onSetSeat(seatIndex)
+                    }}
+                    role={isEmpty && onSetSeat ? 'button' : undefined}
+                    tabIndex={isConnected && isEmpty && onSetSeat ? 0 : undefined}
+                    aria-disabled={isEmpty && onSetSeat ? !isConnected : undefined}
+                    aria-label={isEmpty ? `${t(lang, 'sitHere')} ${seatIndex + 1}` : undefined}
+                    onKeyDown={(event) => {
+                      if (isConnected && isEmpty && onSetSeat && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault()
+                        onSetSeat(seatIndex)
+                      }
+                    }}
+                  >
+                    <span className="conti-seat-number" aria-hidden="true">{seatIndex + 1}</span>
+                    {player ? (
+                      <span className="conti-seat-person">
+                        <strong title={player.name}>{player.name}</strong>
+                        <span>{player.id === state.players[0]?.id ? (lang === 'es' ? 'Anfitrión' : 'Host') : (lang === 'es' ? 'En la mesa' : 'At the table')}{isMe ? ` · ${t(lang, 'you')}` : ''}</span>
+                      </span>
+                    ) : (
+                      <span>{t(lang, 'sitHere')}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          )}
-          {isHost && (
-            <>
-              <label className="lobby-deck-label">
-                {t(lang, 'decks')}
-                <select value={lobbyDeckCount} onChange={(e) => setLobbyDeckCount(Number(e.target.value) as 2 | 3)}>
-                  <option value={2}>2 {t(lang, 'decks').toLowerCase()}</option>
-                  <option value={3}>3 {t(lang, 'decks').toLowerCase()}</option>
-                </select>
-              </label>
-              <label className="lobby-deck-label">
-                {t(lang, 'discardDelay')}
-                <select value={lobbyDiscardDelay} onChange={(e) => setLobbyDiscardDelay(Number(e.target.value))}>
-                  <option value={0}>0</option>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                </select>
-              </label>
-              <label className="lobby-deck-label">
-                {t(lang, 'turnTime')}
-                <select value={lobbyTurnSecs} onChange={(e) => setLobbyTurnSecs(Number(e.target.value))}>
-                  <option value={0}>{t(lang, 'noLimit')}</option>
-                  <option value={30}>30</option>
-                  <option value={60}>60</option>
-                  <option value={90}>90</option>
-                </select>
-              </label>
-              <button
-                onClick={() =>
-                  onStart({
-                    deckCount: lobbyDeckCount,
-                    discardOptionDelaySeconds: lobbyDiscardDelay,
-                    secondsPerTurn: lobbyTurnSecs,
-                  })
-                }
-                disabled={!isConnected || state.players.length < 2}
-              >
-                {t(lang, 'startGame')} ({state.players.length} {t(lang, 'players')})
-              </button>
-            </>
-          )}
-          {(!isHost || state.players.length < 2) && (
-            <p className="game-wait-host-msg" role="status">
-              {t(lang, isHost ? 'waitingForPlayers' : 'waitingForGameStart')}
-            </p>
-          )}
+          </section>
+          <div className="game-lobby-box game-lobby-options">
+            <h2>{lang === 'es' ? 'A vuestro ritmo' : 'At your own pace'}</h2>
+            <p className="conti-panel-description">{isHost
+              ? (lang === 'es' ? 'Prepara la partida y empieza cuando estéis todos.' : 'Set up the game and start when everyone is here.')
+              : (lang === 'es' ? `${state.players[0]?.name ?? ''} está preparando la partida.` : `${state.players[0]?.name ?? ''} is setting up the game.`)}</p>
+            {showDeckWarning && (
+              <div className="game-deck-warning" role="alert">
+                <span className="game-deck-warning-icon" aria-hidden="true">!</span>
+                <span>{t(lang, 'twoDeckPlayerWarning')}</span>
+              </div>
+            )}
+            {isHost && (
+              <>
+                <label className="lobby-deck-label">
+                  {t(lang, 'decks')}
+                  <select value={lobbyDeckCount} onChange={(e) => setLobbyDeckCount(Number(e.target.value) as 2 | 3)}>
+                    <option value={2}>2 {t(lang, 'decks').toLowerCase()}</option>
+                    <option value={3}>3 {t(lang, 'decks').toLowerCase()}</option>
+                  </select>
+                </label>
+                <label className="lobby-deck-label">
+                  {t(lang, 'discardDelay')}
+                  <select value={lobbyDiscardDelay} onChange={(e) => setLobbyDiscardDelay(Number(e.target.value))}>
+                    <option value={0}>0</option>
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={15}>15</option>
+                  </select>
+                </label>
+                <label className="lobby-deck-label">
+                  {t(lang, 'turnTime')}
+                  <select value={lobbyTurnSecs} onChange={(e) => setLobbyTurnSecs(Number(e.target.value))}>
+                    <option value={0}>{t(lang, 'noLimit')}</option>
+                    <option value={30}>30</option>
+                    <option value={60}>60</option>
+                    <option value={90}>90</option>
+                  </select>
+                </label>
+                <button
+                  onClick={() =>
+                    onStart({
+                      deckCount: lobbyDeckCount,
+                      discardOptionDelaySeconds: lobbyDiscardDelay,
+                      secondsPerTurn: lobbyTurnSecs,
+                    })
+                  }
+                  disabled={!isConnected || state.players.length < 2}
+                >
+                  {t(lang, 'startGame')} ({state.players.length} {t(lang, 'players')})
+                </button>
+              </>
+            )}
+            {(!isHost || state.players.length < 2) && (
+              <p className="game-wait-host-msg" role="status">
+                {t(lang, isHost ? 'waitingForPlayers' : 'waitingForGameStart')}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -817,12 +827,14 @@ function GameBoardContent({
       />
       <div className="game-info">
         <div className="game-info-main">
-          <span className="game-meta-pill">{t(lang, 'room')} {state.roomId}</span>
-          <span className="game-meta-pill">{t(lang, 'round')} {state.round}</span>
-          <span className="game-contract-text">
-            <strong>{t(lang, 'contract')}:</strong>{' '}
-            {state.contract.requirements.map((r) => `${r.minLength}+ ${r.type === 'trio' ? t(lang, 'trioNum') : t(lang, 'straightNum')}`).join(', ')}
-          </span>
+          <div className="conti-round-heading">
+            <h1>{t(lang, 'round')} {state.round} <span>/ 7</span></h1>
+            <span>{t(lang, 'room')} {state.roomId}</span>
+          </div>
+          <div className="game-contract-text">
+            <span className="conti-eyebrow">{t(lang, 'contract')}</span>
+            <strong>{state.contract.requirements.map((r) => `${r.minLength}+ ${r.type === 'trio' ? t(lang, 'trioNum') : t(lang, 'straightNum')}`).join(' · ')}</strong>
+          </div>
         </div>
         <div className="game-turn-status" role="status" aria-live="polite">
           {!isConnected && <span className="turn-badge">{lang === 'es' ? 'Sin conexión' : 'Offline'}</span>}
@@ -1286,7 +1298,7 @@ function Scoreboard({ state, lang }: { state: GameState; lang: Lang }) {
         <span className="scoreboard-expand-hint">{t(lang, 'viewAll')}</span>
       </button>
       {open && createPortal(
-        <div className="scoreboard-overlay" role="dialog" aria-modal="true" aria-label={t(lang, 'scoreboard')}>
+        <div className="scoreboard-overlay conti-scoreboard" role="dialog" aria-modal="true" aria-label={t(lang, 'scoreboard')}>
           <div className="scoreboard-backdrop" onClick={() => setOpen(false)} aria-hidden />
           <div ref={panelRef} className="scoreboard-panel" tabIndex={-1}>
             <div className="scoreboard-panel-header">

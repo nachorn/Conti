@@ -43,6 +43,12 @@ Use **Owner dashboard** in the lobby, or open `/dashboard`, to see who is online
 
 Pocha multiplayer supports 40- and 48-card Spanish decks, configurable pyramid rounds, and host-selected normal or single-pass auction mode. Exact predictions score 5 + 2 per trick; misses lose 2 per trick of difference. Server-validated moves enforce following suit, trumping, and beating when possible. Rooms share the authenticated recovery and durable save system. The responsive table includes private hands, legal-card guidance, round results, score history, and a shareable room link. Closing a tab preserves the seat; explicitly leaving returns the remaining players to the lobby.
 
+## Accounts and ad-free access
+
+The first monetization step is optional support through the owner's existing [Buy Me a Coffee page](https://buymeacoffee.com/footballchampion), linked from the English and Spanish lobby. Contributions do not automatically unlock ad-free access.
+
+Optional email accounts, one-time ad-free purchases, owner-granted access and multiplayer ad readiness are prepared behind configuration. They are disabled until payment, email and advertising providers are connected. Any authenticated ad-free player covers their whole table. See [monetization setup and activation limits](MONETIZATION.md).
+
 ## Custom rules
 
 The round contracts and deck sizes are in `server/src/types.ts` and `server/src/room.ts`. You can change number of cards per round, contracts, or scoring there to match your house rules.
