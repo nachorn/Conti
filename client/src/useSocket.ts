@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
+import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGame } from './lib/savedGames'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
 import type { PochaAction, PochaDeckSize, PochaSettings } from '@shared/pochaTypes'
@@ -18,6 +19,10 @@ function tabStorage(): Storage | null {
   } catch {
     return null
   }
+}
+
+function deviceStorage(): Storage | null {
+  try { return window.localStorage } catch { return null }
 }
 
 export function useSocket(membershipToken: string | null = null, onMembershipChange?: () => void) {
@@ -39,6 +44,28 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   const [recoveryRoomId, setRecoveryRoomId] = useState(initialSession?.roomId ?? null)
   const [sessionStorageAvailable, setSessionStorageAvailable] = useState(true)
   const socketRef = useRef<Socket | null>(null)
+  const latestState = useRef<GameState | null>(null)
+  const [savedGames, setSavedGames] = useState(() => readSavedGames(deviceStorage()))
+  const [deviceStorageAvailable, setDeviceStorageAvailable] = useState(true)
+  const refreshSavedGames = () => setSavedGames(readSavedGames(deviceStorage()))
+  const archiveState = (session: RoomSession, value: GameState) => {
+    latestState.current = value
+    const ok = rememberGame(deviceStorage(), session, value)
+    setDeviceStorageAvailable(ok)
+    refreshSavedGames()
+    return ok
+  }
+  const removeSavedGame = (session: RoomSession) => {
+    const ok = forgetGame(deviceStorage(), session)
+    if (!ok) setError('El navegador no permite actualizar las partidas guardadas.')
+    refreshSavedGames()
+  }
+
+  useEffect(() => {
+    const refresh = (event: StorageEvent) => { if (event.key?.startsWith(`${SAVED_GAMES_KEY}:`) || event.key === null) refreshSavedGames() }
+    window.addEventListener('storage', refresh)
+    return () => window.removeEventListener('storage', refresh)
+  }, [])
 
   const updateStatus = (status: ConnectionStatus) => {
     statusRef.current = status
@@ -74,6 +101,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
         return
       }
       rememberSession(session)
+      archiveState(session, payload.state)
       setRoomId(payload.roomId)
       setSocketId(payload.playerId)
       setState(payload.state)
@@ -94,11 +122,24 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       // Until joined authenticates the saved seat, do not accept a room broadcast.
       if (statusRef.current !== 'connected' || !sessionRef.current) return
       setState(newState)
+      archiveState(sessionRef.current, newState)
       setError(null)
     })
 
     socket.on('left', () => {
+      if (sessionRef.current) removeSavedGame(sessionRef.current)
       rememberSession(null)
+      setRoomId(null)
+      setState(null)
+      setSocketId(null)
+      setAdGate(null)
+      setError(null)
+    })
+
+    socket.on('saved_exit', (savedState: GameState) => {
+      if (sessionRef.current) archiveState(sessionRef.current, savedState)
+      rememberSession(null)
+      latestState.current = null
       setRoomId(null)
       setState(null)
       setSocketId(null)
@@ -108,6 +149,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
 
     socket.on('resume_failed', (payload: { message?: string }) => {
       // An authoritative rejection differs from a temporary connection failure.
+      if (sessionRef.current) removeSavedGame(sessionRef.current)
       rememberSession(null)
       setRoomId(null)
       setState(null)
@@ -221,6 +263,25 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize })
   }
 
+  const resumeSavedGame = (game: SavedGame) => {
+    if (sessionRef.current || statusRef.current !== 'connected') return
+    const { roomId, playerId, token } = game
+    rememberSession({ roomId, playerId, token })
+    socketRef.current?.disconnect()
+    updateStatus('resuming')
+    setError(null)
+    socketRef.current?.connect()
+  }
+
+  const saveAndExit = (): Promise<ActionResult> => {
+    if (!sessionRef.current || !latestState.current || !archiveState(sessionRef.current, latestState.current)) {
+      const error = 'Este navegador no permite guardar tu acceso. Mantén la pestaña abierta y permite el almacenamiento para poder guardar y salir.'
+      setError(error)
+      return Promise.resolve({ ok: false, error })
+    }
+    return sendWithAck('save_and_exit', {})
+  }
+
   const join = (id: string, name: string) => {
     send('join', { roomId: id.trim(), name })
   }
@@ -281,6 +342,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   }
 
   return {
+    savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
+    continueSavedGame: () => sendWithAck('continue_saved', {}),
     pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),
     state,
     adGate,

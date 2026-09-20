@@ -128,13 +128,20 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     return true
   }
 
+  function playerState(record: RoomRecord, playerId: string) {
+    return { ...record.room.getState(playerId), savedGame: {
+      paused: record.manualPaused === true, updatedAt: record.updatedAt,
+      expiresAt: record.updatedAt + repository.retentionMs,
+    } }
+  }
+
   function broadcast(roomId: string) {
     const room = repository.get(roomId)?.room
     adGate.prune(repository.records.keys())
     if (!room) { adGate.forget(roomId); return }
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
-        socket.emit('state', room.getState(socket.data.playerId))
+        socket.emit('state', playerState(repository.get(roomId)!, socket.data.playerId))
       }
     }
     broadcastGate(roomId)
@@ -164,7 +171,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   async function attach(socket: Socket, credential: ResumeCredential, next: RoomRecord, newSeat = false) {
     const oldSocketId = activeSockets.get(credential.playerId)
     next.room.setConnected(credential.playerId, true)
-    resumeRoom(next)
+    if (!next.manualPaused) resumeRoom(next)
     await repository.commit(credential.roomId, next)
     // If a first join never reached a live connection, avoid an inaccessible seat.
     if (newSeat && !socket.connected) {
@@ -188,7 +195,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     await socket.join(credential.roomId)
     if (socket.connected) socket.emit('joined', {
       roomId: credential.roomId, playerId: credential.playerId, resumeToken: credential.token,
-      state: next.room.getState(credential.playerId),
+      state: playerState(next, credential.playerId),
     })
     broadcast(credential.roomId)
   }
@@ -242,6 +249,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
       const current = repository.get(roomId)
       if (!current) { reject('Room not found', ack); return }
+      if (current.manualPaused) { reject('La partida está guardada. El anfitrión debe continuarla cuando estéis todos.', ack); return }
       if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that', ack); return }
       if ((event === 'start' || event === 'rematch') && !adGate.snapshot(gateRoom(current.room), roomExempt(current.room)).canStart) {
         broadcastGate(roomId)
@@ -320,6 +328,43 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       return advanced || !room.pocha ? { ok: true } : { ok: false, error: 'Espera a que termine el resultado de la baza' }
     }, true)
     action('debug_skip_round', room => options.debug ? { ok: room.debugSkipRound() } : { ok: false, error: 'Debug actions are disabled' }, true)
+
+    on('continue_saved', async (_payload, ack) => {
+      const { roomId, playerId } = socket.data
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
+      const record = repository.get(roomId)
+      if (!record || record.room.players[0]?.id !== playerId) { reject('Solo el anfitrión puede continuar la partida.', ack); return }
+      if (!record.manualPaused) { ack?.({ ok: true }); return }
+      if (record.room.players.some(p => !p.connected)) { reject('Faltan jugadores por volver a la sala.', ack); return }
+      const next = cloneRecord(record)
+      next.manualPaused = false
+      resumeRoom(next)
+      try { await repository.commit(roomId, next) }
+      catch (error) { ack?.({ ok: false, error: ACTION_SAVE_FAILED }); throw error }
+      broadcast(roomId)
+      ack?.({ ok: true })
+    })
+
+    on('save_and_exit', async (_payload, ack) => {
+      const { roomId, playerId } = socket.data
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
+      const record = repository.get(roomId)
+      if (!record) { reject('Room not found', ack); return }
+      const next = cloneRecord(record)
+      if (next.room.players[0]?.id === playerId) next.manualPaused = true
+      next.room.setConnected(playerId, false)
+      if (next.manualPaused || !next.room.players.some(p => p.connected)) pauseRoom(next)
+      try { await repository.commit(roomId, next) }
+      catch (error) { ack?.({ ok: false, error: ACTION_SAVE_FAILED }); throw error }
+      adGate.interrupt(roomId, playerId)
+      activeSockets.delete(playerId)
+      delete socket.data.roomId
+      delete socket.data.playerId
+      await socket.leave(roomId)
+      socket.emit('saved_exit', playerState(next, playerId))
+      broadcast(roomId)
+      ack?.({ ok: true })
+    })
 
     on('leave', async () => {
       const { roomId, playerId } = socket.data

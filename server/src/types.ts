@@ -80,6 +80,7 @@ export interface RoundResult {
 }
 
 export interface GameState {
+  savedGame?: { paused: boolean; updatedAt: number; expiresAt: number }
   pocha?: import('./game/pocha/pochaTypes.js').PochaGameState
   activity?: PublicAction[]
   roundHistory?: RoundResult[]

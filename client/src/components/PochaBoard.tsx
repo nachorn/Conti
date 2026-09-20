@@ -32,7 +32,6 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
   const [selected, setSelected] = useState<string | null>(null)
   const [bid, setBid] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
-  const [leaving, setLeaving] = useState(false)
   const [copied, setCopied] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [, refreshClock] = useState(0)
@@ -90,13 +89,8 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
     : reviewing ? L('Baza terminada', 'Trick complete') : mine ? L('Te toca', 'Your turn') : L('Turno de ', 'Waiting for ') + current?.name
 
   return <div className="pocha-board">
-    <GameShell backLabel={L('Salir', 'Leave')} onBack={() => setLeaving(true)} lang={lang} setLang={setLang}
+    <GameShell backLabel={L('Salir', 'Leave')} onBack={onLeave} lang={lang} setLang={setLang}
       rightSlot={<span className="pocha-room-code">{L('Sala', 'Room')} <strong>{state.roomId}</strong></span>} />
-    {leaving && <div className="pocha-notice" role="alert">
-      <span>{L('Si abandonas, la mesa vuelve a la sala y se reinicia la partida. Para volver más tarde, cierra la pestaña sin abandonar.', 'Leaving returns everyone to the lobby and resets the game. To return later, close the tab without leaving.')}</span>
-      <button onClick={() => setLeaving(false)}>{L('Seguir jugando', 'Keep playing')}</button>
-      <button disabled={!available} onClick={onLeave}>{L('Abandonar partida', 'Leave game')}</button>
-    </div>}
     {(error || localError) && <p className="pocha-notice" role="alert">{localError || error}</p>}
     {state.phase === 'lobby' ? <main className="pocha-lobby">
       <header className="pocha-title"><span className="pocha-eyebrow">{L('LA MESA ESTÁ ABIERTA', 'THE TABLE IS OPEN')}</span>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type ReactNode, type FormEvent } from 'react'
 import type { PochaDeckSize } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
@@ -7,6 +7,7 @@ import { SupportProject } from './SupportProject'
 import './Lobby.css'
 
 interface LobbyProps {
+  savedGames?: ReactNode
   onCreateContinental: (name: string, deckCount?: 2 | 3) => void
   onCreatePocha: (deckSize: PochaDeckSize, name: string) => void
   onJoin: (roomId: string, name: string) => void
@@ -23,6 +24,7 @@ interface LobbyProps {
 }
 
 export function Lobby({
+  savedGames,
   onCreateContinental,
   onCreatePocha,
   onJoin,
@@ -96,6 +98,8 @@ export function Lobby({
           <h1>{t(lang, 'appTitle')}</h1>
           <p className="lobby-subtitle">{t(lang, 'appSubtitle')}</p>
         </header>
+
+        {savedGames}
 
         <div className="lobby-cards">
           <form

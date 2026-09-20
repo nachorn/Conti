@@ -1,0 +1,42 @@
+.saved-games { margin: 0 0 24px; text-align: left; }
+.saved-games h2 { font-size: 1.2rem; margin: 0 0 8px; }
+.saved-games > p { font-size: .85rem; color: #aebeb5; line-height: 1.5; margin: 8px 0 14px; }
+.saved-empty { padding: 14px; border: 1px dashed #466353; border-radius: 14px; }
+.saved-game-list { display: grid; gap: 10px; max-height: 440px; overflow-y: auto; }
+.saved-game { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 18px; border: 1px solid #41614e; border-radius: 16px; background: #132e23; color: #f5f0df; }
+.saved-game-copy { min-width: 0; overflow-wrap: anywhere; }
+.saved-game-copy strong { font-size: 1rem; }
+.saved-game-copy strong span { color: #c9d5cd; font-weight: 400; }
+.saved-game-copy p { margin: 6px 0; font-size: .86rem; }
+.saved-game-copy small, .saved-roster { color: #b4c8b9; }
+.saved-game-buttons { display: flex; flex-direction: column; flex-shrink: 0; gap: 5px; }
+.save-primary, .save-subtle, .save-danger { min-height: 44px; padding: 10px 16px; border-radius: 10px; font: inherit; cursor: pointer; }
+.save-primary { background: #edca78; color: #182c20; border: 1px solid #edca78; font-weight: 700; }
+.save-subtle { background: transparent; color: #e4ecdf; border: 1px solid #4c6657; }
+.save-danger { background: transparent; border: 0; color: #f4aaa0; font-size: .85rem; }
+.save-primary:disabled, .save-subtle:disabled, .save-danger:disabled { opacity: .5; cursor: default; }
+.save-primary:focus-visible, .save-subtle:focus-visible, .save-danger:focus-visible { outline: 3px solid #fff4ca; outline-offset: 3px; }
+.saved-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 3px 12px; background: #122a20; color: #bdcbbf; font-size: .78rem; }
+.saved-toolbar button { min-height: 38px; padding: 6px 12px; }
+.saved-pause { min-height: 85dvh; display: grid; place-items: center; padding: 24px 16px; }
+.saved-pause-card { width: min(100%, 500px); padding: 28px; box-sizing: border-box; border: 1px solid #46634e; border-radius: 24px; background: #132e23; color: #f5f0df; }
+.saved-eyebrow { color: #edca78; font-size: .85rem; }
+.saved-pause-card h1 { margin: 12px 0; font-size: 2rem; }
+.saved-pause-card p, .save-dialog p { line-height: 1.6; color: #c3d0c6; }
+.saved-pause-card ul { padding: 0; margin: 24px 0; list-style: none; }
+.saved-pause-card li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #3e5747; overflow-wrap: anywhere; }
+.saved-pause-card li strong { font-size: .85rem; color: #b3bcb3; flex-shrink: 0; }
+.saved-pause-card li .save-online { color: #a4db9b; }
+.saved-pause-card > button { display: block; width: 100%; margin-top: 10px; }
+.save-dialog { box-sizing: border-box; width: min(460px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 1px solid #59765a; border-radius: 22px; background: #163125; color: #f5f0df; padding: 26px; }
+.save-dialog::backdrop { background: #0009; backdrop-filter: blur(4px); }
+.save-dialog h2 { margin-top: 0; }
+.save-dialog > button { display: block; width: 100%; margin-top: 10px; }
+.save-error { color: #ffb9a8 !important; }
+@media (max-width: 540px) {
+  .saved-game { align-items: stretch; flex-direction: column; gap: 12px; padding: 15px; }
+  .saved-game-buttons { flex-direction: row; }
+  .saved-game-buttons .save-primary { flex: 1; }
+  .saved-toolbar { justify-content: space-between; gap: 8px; }
+  .saved-pause-card { padding: 22px; }
+}

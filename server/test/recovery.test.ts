@@ -708,3 +708,109 @@ test('Pocha rooms enforce host settings, isolate actions, recover after restart 
   assert.deepEqual(await host2.acknowledge('rematch',{}),{ok:true})
   assert.equal(restarted.server.repository.get(hj.roomId)!.room.pocha!.phase,'lobby')
 })
+
+
+for (const gameType of ['continental', 'pocha'] as const) {
+  test(`${gameType}: save-and-exit survives restart, keeps private hands, and requires host plus every player to continue`, async t => {
+    const first = await harness(t)
+    const host = await peer(first)
+    const hj = await host.request<Joined>('create', { gameType, name: 'Ana' }, 'joined')
+    const guest = await peer(first)
+    const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Pablo' }, 'joined')
+    await host.acknowledge('start', { secondsPerTurn: 120, pochaSettings: { mode: 'normal', maxCards: 2, oneCardRounds: 1, peakRounds: 1 } })
+    if (gameType === 'pocha') {
+      assert.deepEqual(await host.acknowledge('pocha_action', { type: 'bid', value: 0 }), { ok: true })
+      assert.deepEqual(await guest.acknowledge('pocha_action', { type: 'bid', value: 0 }), { ok: true })
+    }
+    const before = first.server.repository.get(hj.roomId)!.room.toSnapshot()
+    assert.deepEqual(await host.acknowledge('save_and_exit', {}), { ok: true })
+    await host.wait('saved_exit')
+    const paused = await guest.wait<GameState>('state', s => s.savedGame?.paused === true)
+    assert.equal(paused.players.find(p => p.id === hj.playerId)!.connected, false)
+    const saved = first.server.repository.get(hj.roomId)!
+    assert.equal(saved.room.turnDeadline, null)
+    assert.ok(saved.paused)
+    assert.equal(saved.sessions.length, 2)
+    assert.equal(saved.manualPaused, true)
+    for (const event of ['start', 'set_seat', 'next_round', 'rematch', 'draw', 'pocha_action']) {
+      assert.equal((await guest.acknowledge<{ ok: boolean }>(event, {})).ok, false)
+    }
+    assert.equal((await guest.acknowledge<{ok:boolean}>('continue_saved', {})).ok, false)
+    assert.deepEqual(await guest.acknowledge('save_and_exit', {}), { ok: true })
+    await first.close()
+    const second = await harness(t, new MemoryStore(first.store.value))
+    assert.equal(second.server.repository.retentionMs, 30 * 24 * 60 * 60 * 1000)
+    const host2 = await peer(second, credential(hj))
+    const resumed = await host2.wait<Joined>('joined')
+    assert.equal(resumed.state.savedGame!.paused, true)
+    assert.equal(second.server.repository.get(hj.roomId)!.room.turnDeadline, null)
+    assert.equal((await host2.acknowledge<{ok:boolean}>('continue_saved', {})).ok, false)
+    const guest2 = await peer(second, credential(gj))
+    await guest2.wait('joined')
+    const restored = second.server.repository.get(hj.roomId)!.room.toSnapshot()
+    assert.deepEqual(restored.players.map(p => p.hand), before.players.map(p => p.hand))
+    assert.equal(restored.currentPlayerIndex, before.currentPlayerIndex)
+    assert.deepEqual(restored.roundScores, before.roundScores)
+    if (gameType === 'pocha') assert.deepEqual(restored.pocha, before.pocha)
+    const publicState = second.server.repository.get(hj.roomId)!.room.getState(hj.playerId)
+    const publicPlayers = publicState.pocha?.players ?? publicState.players
+    assert.ok(publicPlayers.find(p => p.id === gj.playerId)!.hand.every(card => card.id === 'hidden'))
+    assert.deepEqual(await host2.acknowledge('continue_saved', {}), { ok: true })
+    const continued = second.server.repository.get(hj.roomId)!
+    assert.equal(continued.manualPaused, false)
+    assert.equal(continued.paused, null)
+    if (gameType === 'continental') assert.ok(continued.room.turnDeadline! > Date.now())
+    else {
+      const activeId = continued.room.pocha!.players[continued.room.pocha!.currentPlayerIndex].id
+      const cardId = continued.room.getState(activeId).pocha!.legalCardIds![0]
+      assert.deepEqual(await (activeId === hj.playerId ? host2 : guest2).acknowledge('pocha_action', { type: 'play', cardId }), { ok: true })
+    }
+  })
+}
+
+test('guest save-and-exit preserves the seat without pausing others; definitive leave revokes it', async t => {
+  const h = await harness(t)
+  const { host, guest, hostJoined, guestJoined, roomId } = await twoPlayers(h)
+  assert.deepEqual(await guest.acknowledge('save_and_exit', {}), { ok: true })
+  const record = h.server.repository.get(roomId)!
+  assert.equal(record.manualPaused, false)
+  assert.equal(record.sessions.length, 2)
+  assert.equal(record.room.players[1].connected, false)
+  // The detached socket cannot control its previous room, or another player's seat.
+  assert.equal((await guest.acknowledge<{ok:boolean}>('continue_saved', { playerId: hostJoined.playerId })).ok, false)
+  const back = await peer(h, credential(guestJoined))
+  await back.wait('joined')
+  await back.request('leave', {}, 'left')
+  const rejected = await peer(h, credential(guestJoined))
+  await rejected.wait('resume_failed')
+  assert.equal(h.server.repository.get(roomId)!.sessions.length, 1)
+  assert.deepEqual(await host.acknowledge('save_and_exit', {}), { ok: true })
+})
+
+test('save failure never reports success or detaches a recoverable seat', async t => {
+  const h = await harness(t)
+  const players = await twoPlayers(h)
+  h.store.failSaves = true
+  const result = await players.host.acknowledge<{ok:boolean}>('save_and_exit', {})
+  assert.equal(result.ok, false)
+  await h.server.idle()
+  assert.equal(players.host.received.some(item => item.event === 'saved_exit'), false)
+  assert.equal(h.server.repository.get(players.roomId)!.room.players[0].connected, true)
+  assert.equal(h.server.repository.get(players.roomId)!.sessions.length, 2)
+})
+
+test('legacy snapshots remain recoverable for 30 days and then expire', async t => {
+  const first = await harness(t)
+  const players = await twoPlayers(first)
+  const snapshot = structuredClone(first.store.value) as SavedGamesFixture
+  snapshot.rooms[0].updatedAt = Date.now() - 10 * 24 * 60 * 60 * 1000
+  const restored = await harness(t, new MemoryStore(snapshot))
+  const host = await peer(restored, credential(players.hostJoined))
+  const joined = await host.wait<Joined>('joined')
+  assert.equal(joined.state.savedGame!.paused, false)
+  snapshot.rooms[0].updatedAt = Date.now() - 31 * 24 * 60 * 60 * 1000
+  const expired = await harness(t, new MemoryStore(snapshot))
+  const rejected = await peer(expired, credential(players.hostJoined))
+  await rejected.wait('resume_failed')
+  assert.equal(expired.server.repository.records.size, 0)
+})

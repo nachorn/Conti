@@ -10,6 +10,7 @@ export interface RoomRecord {
   sessions: SavedSession[]
   updatedAt: number
   paused: PausedTimers | null
+  manualPaused?: boolean
 }
 interface SavedRecord extends Omit<RoomRecord, 'room'> { room: RoomSnapshot }
 interface SavedGames { version: 1; savedAt: number; rooms: SavedRecord[] }
@@ -59,6 +60,7 @@ export function cloneRecord(record: RoomRecord): RoomRecord {
     room: Room.fromSnapshot(record.room.toSnapshot(), { disconnectPlayers: false }),
     sessions: record.sessions.map(s => ({ ...s })), updatedAt: record.updatedAt,
     paused: record.paused && { ...record.paused },
+    manualPaused: record.manualPaused === true,
   }
 }
 
@@ -66,7 +68,7 @@ export function cloneRecord(record: RoomRecord): RoomRecord {
 export class GameRepository {
   records = new Map<string, RoomRecord>()
   failed = false
-  constructor(readonly store: SnapshotStore, readonly retentionMs = 72 * 60 * 60 * 1000) {}
+  constructor(readonly store: SnapshotStore, readonly retentionMs = 30 * 24 * 60 * 60 * 1000) {}
 
   async load(now = Date.now()): Promise<void> {
     const saved = await this.store.load()
@@ -80,6 +82,7 @@ export class GameRepository {
     for (const raw of saved.rooms) {
       if (!isObject(raw) || typeof raw.updatedAt !== 'number' || !Number.isFinite(raw.updatedAt) || raw.updatedAt < 0 ||
         !Array.isArray(raw.sessions) || raw.sessions.length > 10 ||
+        (raw.manualPaused !== undefined && typeof raw.manualPaused !== 'boolean') ||
         !(raw.paused === null || (isObject(raw.paused) && validDuration(raw.paused.turnRemainingMs) && validDuration(raw.paused.discardRemainingMs)))) {
         throw new Error('Invalid saved room metadata')
       }
@@ -94,7 +97,7 @@ export class GameRepository {
         sessions.push({ playerId: session.playerId, tokenHash: session.tokenHash })
       }
       if (sessions.length !== room.players.length) throw new Error('Saved room is missing player sessions')
-      const record: RoomRecord = { room, sessions, updatedAt: raw.updatedAt, paused: raw.paused as PausedTimers | null }
+      const record: RoomRecord = { room, sessions, updatedAt: raw.updatedAt, paused: raw.paused as PausedTimers | null, manualPaused: raw.manualPaused === true }
       // Freeze remaining time at the last committed action, not at startup.
       pauseRoom(record, saved.savedAt)
       if (now - record.updatedAt < this.retentionMs && room.players.length) records.set(room.roomId, record)

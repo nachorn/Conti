@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
+import { SavedGames, PausedGame, SaveExitDialog } from './components/SavedGames'
 import { RoomInvite } from './components/RoomInvite'
 import { GameBoard } from './components/GameBoard'
 import { ConnectionNotice } from './components/ConnectionNotice'
@@ -30,6 +31,7 @@ export default function App() {
 /** Game routes and socket state. Syncs URL with in-game state. */
 function GameApp() {
   const membership = useMembership()
+  const [exitOpen, setExitOpen] = useState(false)
   const [membershipOpen, setMembershipOpen] = useState(false)
   const [adGateOpen, setAdGateOpen] = useState(false)
   const [lang, setLang] = useState<Lang>(() => {
@@ -49,6 +51,7 @@ function GameApp() {
   const continentalMock = useContinentalMockState()
   const {
     state,
+    savedGames, resumeSavedGame, removeSavedGame, saveAndExit, continueSavedGame, deviceStorageAvailable,
     adGate,
     adGateRequested,
     beginAd,
@@ -102,8 +105,10 @@ function GameApp() {
     }
   }, [state, roomId, location.pathname, navigate])
 
+  useEffect(() => { if (!state) setExitOpen(false) }, [state])
+
   const leaveAndGoHome = () => {
-    leave()
+    setExitOpen(true)
     setShowPochaDev(false)
     setShowContinentalDev(false)
     // GamePage redirects only after the server confirms left. An offline click
@@ -142,11 +147,20 @@ function GameApp() {
           onReconnect={reconnect}
         />
       )}
+      {!showPochaDev && !showContinentalDev && state && roomId && <>
+        {!state.savedGame?.paused && <div className="saved-toolbar">
+          <span>{deviceStorageAvailable ? (lang === 'es' ? 'Guardado automático' : 'Autosaved') : (lang === 'es' ? 'Acceso sin guardar: permite el almacenamiento' : 'Access not saved: allow browser storage')}</span>
+          <button className="save-subtle" disabled={!isConnected} onClick={() => setExitOpen(true)}>{lang === 'es' ? 'Guardar y salir' : 'Save and exit'}</button>
+        </div>}
+        {exitOpen && <SaveExitDialog host={state.players[0]?.id === socketId} paused={state.savedGame?.paused ?? false}
+          lang={lang} connected={isConnected} onSave={saveAndExit} onAbandon={leave} onClose={() => setExitOpen(false)} />}
+      </>}
       <Routes>
         <Route
           path="/"
           element={
             <Lobby
+              savedGames={<SavedGames games={savedGames} lang={lang} connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} />}
               onCreateContinental={handleCreateContinental}
               onCreatePocha={handleCreatePocha}
               onJoin={join}
@@ -179,6 +193,7 @@ function GameApp() {
           path="/game"
           element={
             <GamePage
+              onContinueSaved={continueSavedGame}
               pochaAction={pochaAction}
               state={state}
               roomId={roomId}
@@ -230,6 +245,7 @@ function GameApp() {
 
 /** Renders the correct board for /game; redirects to / if not in a game. */
 function GamePage({
+  onContinueSaved,
   pochaAction,
   state,
   roomId,
@@ -258,6 +274,7 @@ function GamePage({
   rematch,
   setSeat,
 }: {
+  onContinueSaved: () => Promise<ActionResult>
   pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
   state: import('./types').GameState | null
   roomId: string | null
@@ -332,6 +349,8 @@ function GamePage({
   }
 
   if (state && roomId) {
+    if (state.savedGame?.paused) return <PausedGame state={state} playerId={socketId} lang={lang}
+      connected={isConnected} onContinue={onContinueSaved} onExit={onLeave} error={error} />
     const gameType = state.gameType ?? 'continental'
     if (gameType === 'pocha') {
       return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
