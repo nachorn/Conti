@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Room, type RoomSnapshot } from './room.js'
 import type { SnapshotStore } from './storage.js'
+import { restoreChat, type ChatMessage } from './roomChat.js'
 
 export interface ResumeCredential { roomId: string; playerId: string; token: string }
 interface SavedSession { playerId: string; tokenHash: string }
@@ -11,6 +12,7 @@ export interface RoomRecord {
   updatedAt: number
   paused: PausedTimers | null
   manualPaused?: boolean
+  chat?: ChatMessage[]
 }
 interface SavedRecord extends Omit<RoomRecord, 'room'> { room: RoomSnapshot }
 interface SavedGames { version: 1; savedAt: number; rooms: SavedRecord[] }
@@ -61,6 +63,7 @@ export function cloneRecord(record: RoomRecord): RoomRecord {
     sessions: record.sessions.map(s => ({ ...s })), updatedAt: record.updatedAt,
     paused: record.paused && { ...record.paused },
     manualPaused: record.manualPaused === true,
+    chat: record.chat?.map(message => ({ ...message })) ?? [],
   }
 }
 
@@ -98,6 +101,7 @@ export class GameRepository {
       }
       if (sessions.length !== room.players.length) throw new Error('Saved room is missing player sessions')
       const record: RoomRecord = { room, sessions, updatedAt: raw.updatedAt, paused: raw.paused as PausedTimers | null, manualPaused: raw.manualPaused === true }
+      record.chat = restoreChat(raw.chat)
       // Freeze remaining time at the last committed action, not at startup.
       pauseRoom(record, saved.savedAt)
       if (now - record.updatedAt < this.retentionMs && room.players.length) records.set(room.roomId, record)

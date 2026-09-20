@@ -7,6 +7,7 @@ import { cloneRecord, type ResumeCredential } from '../src/recovery.js'
 import type { RoomSnapshot } from '../src/room.js'
 import type { SnapshotStore } from '../src/storage.js'
 import type { GameState } from '../src/types.js'
+import type { ChatMessage } from '../src/roomChat.js'
 
 class MemoryStore implements SnapshotStore {
   value: unknown | null
@@ -56,11 +57,66 @@ interface SavedGamesFixture {
 }
 
 interface Joined {
+  chat: ChatMessage[]
   roomId: string
   playerId: string
   resumeToken: string
   state: GameState
 }
+
+for (const gameType of ['continental', 'pocha'] as const) {
+  test(`${gameType}: chat is private, durable, idempotent and independent of game actions`, async t => {
+    const h = await harness(t)
+    const host = await peer(h)
+    const hj = await host.request<Joined>('create', { gameType, name: 'Ana' }, 'joined')
+    const guest = await peer(h)
+    const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Pablo' }, 'joined')
+    const outsider = await peer(h)
+    await outsider.request('create', { gameType, name: 'Outside' }, 'joined')
+    const anonymous = await peer(h)
+    assert.deepEqual(await anonymous.acknowledge('chat_send', { roomId: hj.roomId, playerId: hj.playerId, clientId: 'hack', text: 'hi' }), { ok: false, error: 'not_in_room' })
+    assert.deepEqual(hj.chat, [])
+    const guestMark = guest.mark(), outsideMark = outsider.mark()
+    const payload = { clientId: 'hello', text: 'Hola 👋', playerId: gj.playerId, name: 'Fake', roomId: 'fake' }
+    assert.deepEqual(await host.acknowledge('chat_send', payload), { ok: true })
+    const update = await guest.wait<{roomId: string; messages: ChatMessage[]}>('room_chat', () => true, guestMark)
+    assert.equal(update.roomId, hj.roomId)
+    assert.equal(update.messages[0].playerId, hj.playerId)
+    assert.equal(update.messages[0].name, 'Ana')
+    assert.equal(guest.received.slice(guestMark).some(e => e.event === 'state'), false)
+    assert.equal(outsider.received.slice(outsideMark).some(e => e.event === 'room_chat'), false)
+    const writes = h.store.saveAttempts
+    assert.deepEqual(await host.acknowledge('chat_send', payload), { ok: true })
+    assert.equal(h.store.saveAttempts, writes)
+    assert.equal(h.server.repository.get(hj.roomId)!.chat!.length, 1)
+    assert.deepEqual(await host.acknowledge('start', { secondsPerTurn: 0, pochaSettings: { mode: 'normal', maxCards: 2, oneCardRounds: 1, peakRounds: 1 } }), { ok: true })
+    const before = h.server.repository.get(hj.roomId)!.room.toSnapshot()
+    assert.deepEqual(await guest.acknowledge('chat_send', { clientId: 'playing', text: 'Buena suerte' }), { ok: true })
+    assert.deepEqual(h.server.repository.get(hj.roomId)!.room.toSnapshot(), before)
+    assert.deepEqual(await host.acknowledge('save_and_exit', {}), { ok: true })
+    assert.deepEqual(await guest.acknowledge('chat_send', { clientId: 'paused', text: 'Hasta luego' }), { ok: true })
+    assert.equal(h.server.repository.get(hj.roomId)!.manualPaused, true)
+    const chat = structuredClone(h.server.repository.get(hj.roomId)!.chat)
+    await h.close()
+    const resumed = await harness(t, new MemoryStore(h.store.value))
+    const host2 = await peer(resumed, credential(hj))
+    const recovered = await host2.wait<Joined>('joined')
+    assert.deepEqual(recovered.chat, chat)
+    assert.equal(recovered.state.savedGame?.paused, true)
+    assert.equal('chat' in recovered.state, false)
+  })
+}
+
+test('chat is not published when persistence fails', async t => {
+  const h = await harness(t)
+  const { host, guest, roomId } = await twoPlayers(h)
+  const mark = guest.mark()
+  h.store.failSaves = true
+  assert.deepEqual(await host.acknowledge('chat_send', { clientId: 'fail', text: 'hello' }), { ok: false, error: 'save_failed' })
+  await h.server.idle()
+  assert.equal(guest.received.slice(mark).some(e => e.event === 'room_chat'), false)
+  assert.equal(h.server.repository.get(roomId)!.chat?.length ?? 0, 0)
+})
 
 interface Received { event: string; payload: unknown }
 

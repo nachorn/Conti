@@ -4,6 +4,7 @@ import { pushLog } from './lib/reportBug'
 import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGame } from './lib/savedGames'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
+import type { ChatMessage } from '@shared/roomChat'
 import type { PochaAction, PochaDeckSize, PochaSettings } from '@shared/pochaTypes'
 import type { AdBeginResult, AdCompletePayload, AdGateState } from '@shared/adGate'
 
@@ -33,6 +34,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   const [initialSession] = useState(() => readRoomSession(tabStorage()))
   const sessionRef = useRef<RoomSession | null>(initialSession)
   const [state, setState] = useState<GameState | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adGate, setAdGate] = useState<AdGateState | null>(null)
@@ -92,7 +94,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       updateStatus(sessionRef.current ? 'resuming' : 'connected')
       setError(null)
     })
-    socket.on('joined', (payload: { roomId: string; state: GameState; playerId: string; resumeToken: string }) => {
+    socket.on('joined', (payload: { roomId: string; state: GameState; playerId: string; resumeToken: string; chat?: ChatMessage[] }) => {
       const session = { roomId: payload.roomId, playerId: payload.playerId, token: payload.resumeToken }
       if (!isRoomSession(session)) {
         setError('The server could not provide a recoverable seat. Please try reconnecting.')
@@ -105,8 +107,13 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       setRoomId(payload.roomId)
       setSocketId(payload.playerId)
       setState(payload.state)
+      setChatMessages(payload.chat ?? [])
       setError(null)
       updateStatus('connected')
+    })
+
+    socket.on('room_chat', (payload: { roomId: string; messages: ChatMessage[] }) => {
+      if (statusRef.current === 'connected' && payload.roomId === sessionRef.current?.roomId) setChatMessages(payload.messages)
     })
 
     socket.on('ad_gate', (gate: AdGateState) => {
@@ -131,6 +138,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       rememberSession(null)
       setRoomId(null)
       setState(null)
+      setChatMessages([])
       setSocketId(null)
       setAdGate(null)
       setError(null)
@@ -142,6 +150,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       latestState.current = null
       setRoomId(null)
       setState(null)
+      setChatMessages([])
       setSocketId(null)
       setAdGate(null)
       setError(null)
@@ -153,6 +162,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       rememberSession(null)
       setRoomId(null)
       setState(null)
+      setChatMessages([])
       setSocketId(null)
       setAdGate(null)
       setError(payload?.message || 'Your saved game is no longer available. You can create or join a room.')
@@ -341,7 +351,18 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     })
   }
 
+  const sendChat = (text: string, clientId: string): Promise<ActionResult> => {
+    const socket = socketRef.current
+    if (!socket?.connected || statusRef.current !== 'connected' || !sessionRef.current) return Promise.resolve({ ok: false, error: 'disconnected' })
+    return new Promise(resolve => {
+      socket.timeout(10_000).emit('chat_send', { text, clientId }, (failure: Error | null, result?: ActionResult) => {
+        resolve(failure || !result ? { ok: false, error: 'unconfirmed' } : result)
+      })
+    })
+  }
+
   return {
+    chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
     continueSavedGame: () => sendWithAck('continue_saved', {}),
     pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),

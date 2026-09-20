@@ -10,6 +10,7 @@ import { registerRoomInvites } from './roomInvite.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
 import { AdGate, type AdConfig } from './adGate.js'
 import type { MembershipService } from './membership.js'
+import { appendChat } from './roomChat.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -196,6 +197,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     if (socket.connected) socket.emit('joined', {
       roomId: credential.roomId, playerId: credential.playerId, resumeToken: credential.token,
       state: playerState(next, credential.playerId),
+      chat: next.chat ?? [],
     })
     broadcast(credential.roomId)
   }
@@ -328,6 +330,27 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       return advanced || !room.pocha ? { ok: true } : { ok: false, error: 'Espera a que termine el resultado de la baza' }
     }, true)
     action('debug_skip_round', room => options.debug ? { ok: room.debugSkipRound() } : { ok: false, error: 'Debug actions are disabled' }, true)
+
+    on('chat_send', async (payload, ack) => {
+      const { roomId, playerId } = socket.data
+      const record = roomId && activeSockets.get(playerId) === socket.id ? repository.get(roomId) : undefined
+      const player = record?.room.players.find(p => p.id === playerId)
+      if (!record || !player) { ack?.({ ok: false, error: 'not_in_room' }); return }
+      const result = appendChat(record.chat ?? [], player, payload)
+      if (!result.ok) { ack?.(result); return }
+      if (!result.duplicate) {
+        const next = cloneRecord(record)
+        next.chat = result.messages
+        try { await repository.commit(roomId, next) }
+        catch (error) { ack?.({ ok: false, error: 'save_failed' }); throw error }
+        for (const member of io.sockets.sockets.values()) {
+          if (member.data.roomId === roomId && activeSockets.get(member.data.playerId) === member.id) {
+            member.emit('room_chat', { roomId, messages: next.chat })
+          }
+        }
+      }
+      ack?.({ ok: true })
+    })
 
     on('continue_saved', async (_payload, ack) => {
       const { roomId, playerId } = socket.data

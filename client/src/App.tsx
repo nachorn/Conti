@@ -18,6 +18,8 @@ import { Dashboard } from './components/Dashboard'
 import { useMembership } from './useMembership'
 import { Membership } from './components/Membership'
 import { AdGate } from './components/AdGate'
+import { RoomChat } from './components/RoomChat'
+import { useTurnSound } from './useTurnSound'
 
 export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
@@ -51,6 +53,7 @@ function GameApp() {
   const continentalMock = useContinentalMockState()
   const {
     state,
+    chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, continueSavedGame, deviceStorageAvailable,
     adGate,
     adGateRequested,
@@ -80,6 +83,7 @@ function GameApp() {
     sessionStorageAvailable,
     reconnect,
   } = useSocket(membership.token, membership.refresh)
+  const turnSound = useTurnSound(state, socketId, isConnected && !showPochaDev && !showContinentalDev)
 
   useEffect(() => {
     if (adGateRequested) { setMembershipOpen(false); setAdGateOpen(true) }
@@ -148,10 +152,19 @@ function GameApp() {
         />
       )}
       {!showPochaDev && !showContinentalDev && state && roomId && <>
-        {!state.savedGame?.paused && <div className="saved-toolbar">
-          <span>{deviceStorageAvailable ? (lang === 'es' ? 'Guardado automático' : 'Autosaved') : (lang === 'es' ? 'Acceso sin guardar: permite el almacenamiento' : 'Access not saved: allow browser storage')}</span>
+        <div className="saved-toolbar">
+          <span className="save-status">{deviceStorageAvailable ? (lang === 'es' ? 'Guardado automático' : 'Autosaved') : (lang === 'es' ? 'Acceso sin guardar: permite el almacenamiento' : 'Access not saved: allow browser storage')}</span>
+          <button className="save-subtle sound-toggle" type="button" aria-pressed={turnSound.enabled}
+            aria-label={lang === 'es' ? (turnSound.enabled ? 'Silenciar aviso de turno' : 'Activar aviso de turno') : (turnSound.enabled ? 'Mute turn sound' : 'Enable turn sound')}
+            title={lang === 'es' ? 'Sonido al llegar tu turno' : 'Sound when your turn starts'} onClick={turnSound.toggle}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4Z" />
+              {turnSound.enabled ? <path d="M16 8c2 2 2 6 0 8m3-11c4 4 4 10 0 14" /> : <path d="m17 9 5 6m0-6-5 6" />}
+            </svg>
+          </button>
+          {socketId && <RoomChat key={`${roomId}:${socketId}`} messages={chatMessages} playerId={socketId} lang={lang} connected={isConnected} send={sendChat} />}
           <button className="save-subtle" disabled={!isConnected} onClick={() => setExitOpen(true)}>{lang === 'es' ? 'Guardar y salir' : 'Save and exit'}</button>
-        </div>}
+        </div>
         {exitOpen && <SaveExitDialog host={state.players[0]?.id === socketId} paused={state.savedGame?.paused ?? false}
           lang={lang} connected={isConnected} onSave={saveAndExit} onAbandon={leave} onClose={() => setExitOpen(false)} />}
       </>}
