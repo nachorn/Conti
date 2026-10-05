@@ -49,12 +49,13 @@ export function dealHand(state: PochaGameState): void {
   state.trump = state.trumpCard?.suit ?? null
   state.phase = auction ? 'auction' : 'bidding'
 }
-export function startPocha(state: PochaGameState, settings: PochaSettings): void {
+export function startPocha(state: PochaGameState, settings: PochaSettings, random = Math.random): void {
   const schedule = roundSchedule(settings, state.players.length, state.deckSize)
   state.settings = { ...settings }; state.schedule = schedule; state.history = []; state.handNumber = 1
   state.players.sort((a, b) => a.seatIndex - b.seatIndex)
   state.players.forEach(p => { p.score = 0 })
-  state.dealerIndex = state.players.length - 1
+  // Draw once per game; later rounds rotate from this dealer without moving seats.
+  state.dealerIndex = Math.floor(random() * state.players.length)
   dealHand(state)
 }
 export function isPochaTrickReview(state: PochaGameState, now = Date.now()): boolean {
@@ -102,7 +103,7 @@ export function applyPochaAction(state: PochaGameState, playerId: string, action
   }
   if (action.type === 'play' && state.phase === 'playing' && state.trump) {
     const card = legalCards(player.hand, state.currentTrick, state.trump).find(c => c.id === action.cardId)
-    if (!card) return fail('Debes asistir al palo, jugar triunfo si no tienes, y superar si puedes')
+    if (!card) return fail('Debes asistir al palo y superar si puedes. Sin ese palo, juega un triunfo que gane si puedes; si no, cualquier carta.')
     player.hand = player.hand.filter(c => c.id !== card.id)
     state.currentTrick.push({ playerId, card })
     if (state.currentTrick.length < n) state.currentPlayerIndex = (state.currentPlayerIndex + 1) % n

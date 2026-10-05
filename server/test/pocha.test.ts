@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Room } from '../src/room.js'
-import { createPochaHandState, applyPochaAction, dealerBidsBlocked, publicPochaState } from '../src/game/pocha/pochaEngine.js'
+import { createPochaHandState, applyPochaAction, dealerBidsBlocked, publicPochaState, startPocha, nextPochaRound } from '../src/game/pocha/pochaEngine.js'
 import { legalCards, roundSchedule, scoreHand, winningCard, defaultPochaSettings } from '../src/game/pocha/pochaRules.js'
 import type { PochaCard, PochaGameState, PochaAction, SpanishSuit } from '../src/game/pocha/pochaTypes.js'
 const card=(suit:SpanishSuit,rank:number):PochaCard=>({id:suit+rank,suit,rank})
@@ -26,11 +26,94 @@ test('follow suit and beat if possible, without forcing the highest card',()=>{
   assert.deepEqual(values(legalCards(hand,trick(card('espadas',10)),'oros')),['espadas1','espadas11'])
   assert.deepEqual(values(legalCards(hand,trick(card('espadas',10),card('oros',2)),'oros')),['espadas1','espadas11','espadas5'])
 })
-test('must undertrump when unable to overtrump, discard only without either suit',()=>{
+test('may discard when unable to overtrump, but must overtrump when possible',()=>{
   const played=trick(card('espadas',10),card('oros',12))
-  assert.deepEqual(values(legalCards([card('oros',5),card('oros',7),card('copas',1)],played,'oros')),['oros5','oros7'])
-  assert.deepEqual(values(legalCards([card('oros',1),card('oros',3),card('oros',7)],played,'oros')),['oros1','oros3'])
+  assert.deepEqual(values(legalCards([card('oros',5),card('oros',7),card('copas',1)],played,'oros')),['copas1','oros5','oros7'])
+  assert.deepEqual(values(legalCards([card('oros',1),card('oros',3),card('oros',7),card('copas',1)],played,'oros')),['oros1','oros3'])
   assert.deepEqual(values(legalCards([card('copas',1),card('bastos',2)],played,'oros')),['bastos2','copas1'])
+})
+test('three of coins permits discarding a cup instead of an inferior ten of coins',()=>{
+  const played=trick(card('bastos',7),card('oros',3))
+  const hand=[card('oros',10),card('copas',1)]
+  assert.deepEqual(values(legalCards(hand,played,'oros')),values(hand))
+  assert.deepEqual(values(legalCards([...hand,card('oros',1)],played,'oros')),['oros1'])
+})
+test('discard exception never removes following suit, including a trump lead',()=>{
+  const hand=[card('bastos',2),card('oros',10),card('copas',1)]
+  assert.deepEqual(values(legalCards(hand,trick(card('bastos',7),card('oros',3)),'oros')),['bastos2'])
+  assert.deepEqual(values(legalCards(hand,trick(card('oros',3)),'oros')),['oros10'])
+})
+test('without the led suit a player must trump while the winner is not a trump',()=>{
+  const hand=[card('oros',2),card('oros',10),card('copas',1)]
+  assert.deepEqual(values(legalCards(hand,trick(card('bastos',1),card('espadas',1)),'oros')),['oros10','oros2'])
+})
+test('unbeatable trump discard applies to every trump suit, including 48-card ranks',()=>{
+  const suits:SpanishSuit[]=['oros','copas','espadas','bastos']
+  for(let i=0;i<suits.length;i++){
+    const trump=suits[i],led=suits[(i+1)%4],discard=suits[(i+2)%4]
+    const hand=[card(trump,8),card(trump,9),card(discard,1)]
+    const played=trick(card(led,12),card(trump,10))
+    assert.deepEqual(values(legalCards(hand,played,trump)),values(hand))
+    assert.deepEqual(values(legalCards([...hand,card(trump,11)],played,trump)),[trump+'11'])
+  }
+})
+
+test('each seat can open a new game without moving seats or changing the host, then the lead rotates',()=>{
+  for(const n of [2,3,5,10])for(const deck of [40,48] as const)for(const mode of ['normal','subastada'] as const){
+    const settings={mode,maxCards:1,oneCardRounds:2,peakRounds:1}
+    for(let dealer=0;dealer<n;dealer++){
+      const s=createPochaHandState('random',players(n),1,n-1,deck,settings)
+      s.players.reverse()
+      s.hostId='p1'
+      s.players.forEach(p=>{p.score=99})
+      let randomCalls=0
+      startPocha(s,settings,()=>{randomCalls++;return (dealer+.5)/n})
+      const lead=(dealer+1)%n
+      assert.equal(randomCalls,1)
+      assert.equal(s.dealerIndex,dealer)
+      assert.equal(s.originalLeadPlayerIndex,lead)
+      assert.equal(s.leadPlayerIndex,lead)
+      assert.equal(s.currentPlayerIndex,lead)
+      assert.equal(s.phase,mode==='subastada'?'auction':'bidding')
+      assert.equal(s.hostId,'p1')
+      assert.deepEqual(s.players.map(p=>p.id),players(n).map(p=>p.id))
+      assert.ok(s.players.every(p=>p.score===0))
+      s.phase='hand_end'
+      nextPochaRound(s)
+      assert.equal(s.originalLeadPlayerIndex,(lead+1)%n)
+      assert.equal(s.dealerIndex,(dealer+1)%n)
+      assert.equal(s.hostId,'p1')
+    }
+  }
+})
+
+test('a rematch draws its opening lead again and restored games retain their existing lead',(t)=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.now()})
+  let random=0
+  t.mock.method(Math,'random',()=>random)
+  const room=new Room({roomId:'rematch',gameType:'pocha'})
+  players(2).forEach(p=>room.addPlayer(p.id,p.name))
+  const settings={mode:'normal' as const,maxCards:1,oneCardRounds:1,peakRounds:1}
+  assert.deepEqual(room.startPochaGame(settings),{ok:true})
+  assert.equal(room.pocha!.currentPlayerIndex,1)
+  let restored=Room.fromSnapshot(room.toSnapshot(),{disconnectPlayers:false})
+  assert.equal(restored.pocha!.currentPlayerIndex,1)
+  for(let i=0;i<2;i++)assert.deepEqual(restored.pochaAction(currentId(restored.pocha!),{type:'bid',value:0}),{ok:true})
+  for(let i=0;i<2;i++){
+    const id=currentId(restored.pocha!)
+    assert.deepEqual(restored.pochaAction(id,{type:'play',cardId:publicPochaState(restored.pocha!,id).legalCardIds![0]}),{ok:true})
+  }
+  assert.equal(restored.pocha!.phase,'game_end')
+  t.mock.timers.tick(4000)
+  assert.equal(restored.rematch(),true)
+  assert.equal(restored.pocha!.phase,'lobby')
+  random=1-Number.EPSILON
+  assert.deepEqual(restored.startPochaGame(settings),{ok:true})
+  assert.equal(restored.pocha!.currentPlayerIndex,0)
+  assert.equal(restored.pocha!.hostId,'p0')
+  assert.deepEqual(restored.pocha!.history,[])
+  restored=Room.fromSnapshot(restored.toSnapshot(),{disconnectPlayers:false})
+  assert.equal(restored.pocha!.currentPlayerIndex,0)
 })
 test('trump beats led suit; other suits cannot win; 48-card order',()=>{
   assert.equal(winningCard(trick(card('espadas',1),card('oros',2)),'oros')!.card.id,'oros2')
@@ -103,7 +186,8 @@ test('28 complete games: both decks/modes, 2–10 players, snapshot every move, 
 test('reject invalid moves without mutation, strip junk saves, reset to lobby on leaving',()=>{
   const room=new Room({roomId:'1234',gameType:'pocha'});players(3).forEach(p=>room.addPlayer(p.id,p.name))
   room.startPochaGame({mode:'normal',maxCards:2,oneCardRounds:1,peakRounds:1});const before=room.toSnapshot()
-  assert.equal(room.pochaAction('p2',{type:'bid',value:1}).ok,false);assert.equal(room.pochaAction('p0',{type:'bid',value:NaN}).ok,false);assert.deepEqual(room.toSnapshot(),before)
+  const id=currentId(room.pocha!),other=room.pocha!.players.find(p=>p.id!==id)!.id
+  assert.equal(room.pochaAction(other,{type:'bid',value:1}).ok,false);assert.equal(room.pochaAction(id,{type:'bid',value:NaN}).ok,false);assert.deepEqual(room.toSnapshot(),before)
   const raw=room.toSnapshot();(raw.pocha as any).secret='never publish';assert.equal((Room.fromSnapshot(raw).pocha as any).secret,undefined)
   raw.pocha!.players[0].hand[0].suit='bad' as any;assert.throws(()=>Room.fromSnapshot(raw))
   room.removePlayer('p0');assert.equal(room.pocha!.phase,'lobby');assert.equal(room.pocha!.hostId,'p1');assert.doesNotThrow(()=>Room.fromSnapshot(room.toSnapshot()))
@@ -136,7 +220,7 @@ test('last trick review survives snapshots and blocks early next-round/rematch a
     let room=new Room({roomId:'1234',gameType:'pocha'})
     players(2).forEach(p=>room.addPlayer(p.id,p.name))
     room.startPochaGame({mode:'normal',maxCards:single?1:2,oneCardRounds:1,peakRounds:1})
-    room.pochaAction('p0',{type:'bid',value:0});room.pochaAction('p1',{type:'bid',value:0})
+    for(let i=0;i<2;i++)assert.equal(room.pochaAction(currentId(room.pocha!),{type:'bid',value:0}).ok,true)
     for(let i=0;i<2;i++) {
       const id=currentId(room.pocha!)
       room.pochaAction(id,{type:'play',cardId:room.getState(id).pocha!.legalCardIds![0]})

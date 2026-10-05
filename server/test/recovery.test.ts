@@ -703,7 +703,8 @@ test('Pocha auction with undealt cards is host-controlled and survives a server 
   assert.deepEqual(started.pocha!.settings, setup.pochaSettings)
   assert.equal(started.pocha!.trumpCard, null)
   assert.equal(started.pocha!.trump, null)
-  assert.deepEqual(await host.acknowledge('pocha_action', { type: 'auction', value: 0 }), { ok: true })
+  const openingIsHost = started.pocha!.players[started.pocha!.currentPlayerIndex].id === hj.playerId
+  assert.deepEqual(await (openingIsHost ? host : guest).acknowledge('pocha_action', { type: 'auction', value: 0 }), { ok: true })
   await h.close()
   const restarted = await harness(t, new MemoryStore(h.store.value))
   const host2 = await peer(restarted, credential(hj))
@@ -712,14 +713,18 @@ test('Pocha auction with undealt cards is host-controlled and survives a server 
   await guest2.wait<Joined>('joined')
   assert.deepEqual(recovered.state.pocha!.settings, setup.pochaSettings)
   assert.equal(recovered.state.pocha!.phase, 'auction')
-  assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'auction', value: 1 }), { ok: true })
-  assert.deepEqual(await guest2.acknowledge('pocha_action', { type: 'trump', suit: 'copas' }), { ok: true })
+  assert.equal(recovered.state.pocha!.originalLeadPlayerIndex, started.pocha!.originalLeadPlayerIndex)
+  assert.equal(recovered.state.pocha!.dealerIndex, started.pocha!.dealerIndex)
+  const winner = openingIsHost ? guest2 : host2
+  const other = openingIsHost ? host2 : guest2
+  assert.deepEqual(await winner.acknowledge('pocha_action', { type: 'auction', value: 1 }), { ok: true })
+  assert.deepEqual(await winner.acknowledge('pocha_action', { type: 'trump', suit: 'copas' }), { ok: true })
   // The auction winner's bid is fixed, and the final bid cannot equal the trick count.
-  assert.equal((await host2.acknowledge<{ok:boolean}>('pocha_action', { type: 'bid', value: 0 })).ok, false)
-  assert.deepEqual(await host2.acknowledge('pocha_action', { type: 'bid', value: 1 }), { ok: true })
+  assert.equal((await other.acknowledge<{ok:boolean}>('pocha_action', { type: 'bid', value: 0 })).ok, false)
+  assert.deepEqual(await other.acknowledge('pocha_action', { type: 'bid', value: 1 }), { ok: true })
   const room = restarted.server.repository.get(hj.roomId)!.room
   assert.equal(room.pocha!.phase, 'playing')
-  assert.equal(room.pocha!.players[room.pocha!.currentPlayerIndex].id, gj.playerId)
+  assert.equal(room.pocha!.players[room.pocha!.currentPlayerIndex].id, openingIsHost ? gj.playerId : hj.playerId)
   assert.equal(room.pocha!.trump, 'copas')
   assert.equal(room.pocha!.trumpCard, null)
   for (const player of room.pocha!.players) assert.equal(player.hand.length, 1)
@@ -739,8 +744,11 @@ test('Pocha rooms enforce host settings, isolate actions, recover after restart 
   const room = h.server.repository.get(hj.roomId)!.room
   const ownId = room.pocha!.players.find(p => p.id === hj.playerId)!.hand[0].id
   assert.ok(!JSON.stringify(room.getState(gj.playerId)).includes(ownId))
-  assert.deepEqual(await host.acknowledge('pocha_action', {type:'bid',value:0}), {ok:true})
-  assert.deepEqual(await guest.acknowledge('pocha_action', {type:'bid',value:0}), {ok:true})
+  for (let i = 0; i < 2; i++) {
+    const s = h.server.repository.get(hj.roomId)!.room.pocha!
+    const bidder = s.players[s.currentPlayerIndex].id === hj.playerId ? host : guest
+    assert.deepEqual(await bidder.acknowledge('pocha_action', {type:'bid',value:0}), {ok:true})
+  }
   await h.close()
   const restarted = await harness(t, new MemoryStore(h.store.value))
   const host2 = await peer(restarted, credential(hj))
@@ -775,8 +783,11 @@ for (const gameType of ['continental', 'pocha'] as const) {
     const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Pablo' }, 'joined')
     await host.acknowledge('start', { secondsPerTurn: 120, pochaSettings: { mode: 'normal', maxCards: 2, oneCardRounds: 1, peakRounds: 1 } })
     if (gameType === 'pocha') {
-      assert.deepEqual(await host.acknowledge('pocha_action', { type: 'bid', value: 0 }), { ok: true })
-      assert.deepEqual(await guest.acknowledge('pocha_action', { type: 'bid', value: 0 }), { ok: true })
+      for (let i = 0; i < 2; i++) {
+        const s = first.server.repository.get(hj.roomId)!.room.pocha!
+        const bidder = s.players[s.currentPlayerIndex].id === hj.playerId ? host : guest
+        assert.deepEqual(await bidder.acknowledge('pocha_action', { type: 'bid', value: 0 }), { ok: true })
+      }
     }
     const before = first.server.repository.get(hj.roomId)!.room.toSnapshot()
     assert.deepEqual(await host.acknowledge('save_and_exit', {}), { ok: true })

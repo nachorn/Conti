@@ -31,11 +31,14 @@ export function legalCards(hand: PochaCard[], trick: TrickCard[], trump: Spanish
   if (!trick.length) return hand
   const ledSuit = trick[0]!.card.suit
   const follows = hand.filter(c => c.suit === ledSuit)
-  const trumps = hand.filter(c => c.suit === trump)
-  const candidates = follows.length ? follows : trumps.length ? trumps : hand
   const winner = winningCard(trick, trump)!
-  const beating = candidates.filter(c => compareInTrick(c, winner.card, ledSuit, trump) > 0)
-  return beating.length ? beating : candidates
+  if (follows.length) {
+    const beating = follows.filter(c => compareInTrick(c, winner.card, ledSuit, trump) > 0)
+    return beating.length ? beating : follows
+  }
+  // Without the led suit, trump only when able to win: no forced undertrump.
+  const beatingTrumps = hand.filter(c => c.suit === trump && compareInTrick(c, winner.card, ledSuit, trump) > 0)
+  return beatingTrumps.length ? beatingTrumps : hand
 }
 export function scoreHand(bid: number, tricksWon: number): number {
   return bid === tricksWon ? 5 + 2 * tricksWon : -2 * Math.abs(bid - tricksWon)

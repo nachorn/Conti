@@ -41,7 +41,7 @@ Use **Owner dashboard** in the lobby, or open `/dashboard`, to see who is online
 - **Server**: Node, Express, Socket.io, TypeScript.
 - **Game logic**: Deck, rounds, meld validation, scoring, turn order and room state on the server.
 
-Pocha multiplayer supports 40- and 48-card Spanish decks, configurable pyramid rounds, and host-selected normal or single-pass auction mode. Exact predictions score 5 + 2 per trick; misses lose 2 per trick of difference. Server-validated moves enforce following suit, trumping, and beating when possible. Rooms share the authenticated recovery and durable save system. The responsive table includes private hands, legal-card guidance, round results, score history, and a shareable room link. Closing a tab preserves the seat; explicitly leaving returns the remaining players to the lobby.
+Pocha multiplayer supports 40- and 48-card Spanish decks, configurable pyramid rounds, and host-selected normal or single-pass auction mode. The opening lead is chosen randomly each game, with subsequent rounds retaining the seat rotation. Exact predictions score 5 + 2 per trick; misses lose 2 per trick of difference. Server-validated moves enforce following suit and beating when possible. Without the led suit, a winning trump is mandatory when available; otherwise any card may be discarded. Rooms share the authenticated recovery and durable save system. The responsive table includes private hands, legal-card guidance, round results, score history, and a shareable room link. Closing a tab preserves the seat; explicitly leaving returns the remaining players to the lobby.
 
 ## Accounts and ad-free access
 

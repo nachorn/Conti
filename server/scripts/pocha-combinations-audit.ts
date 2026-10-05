@@ -209,10 +209,10 @@ try {
           const mandatory = !led ? p.hand : follows.length ? follows : trumps.length ? trumps : p.hand
           const best = led ? winner(s.currentTrick, trump) : null
           const beating = best ? mandatory.filter(c => (c.suit === trump || c.suit === led) && strength(c, led!, trump) > strength(best.card, led!, trump)) : []
-          const legal = beating.length ? beating : mandatory
+          const legal = !led ? p.hand : follows.length ? (beating.length ? beating : follows) : beating.length ? beating : p.hand
           assert.deepEqual([...view.legalCardIds!].sort(), ids(legal))
           if (led && follows.length && follows.length < p.hand.length) totals.followSuit++
-          if (led && !follows.length && trumps.length) totals.mustTrump++
+          if (led && !follows.length && trumps.length && beating.length) totals.mustTrump++
           if (beating.length && beating.length < mandatory.length) { totals.mustBeat++; if (!follows.length && trumps.length) totals.overtrump++ }
           for (const c of p.hand.filter(c => !legal.includes(c))) reject(p.id, { type: 'play', cardId: c.id }, 'forbiddenCards')
           const ordered = [...legal].sort((a, b) => ranks.indexOf(a.rank) - ranks.indexOf(b.rank))

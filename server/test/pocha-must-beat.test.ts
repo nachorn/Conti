@@ -22,15 +22,33 @@ test('five players: 10 of coins forces 11, rejects 4 without changing the table'
   }
 })
 
-test('five players: overtrump is required; an unbeatable higher coin permits either lower coin', () => {
+test('five players: overtrump is required; an unbeatable higher coin permits any card', () => {
   const s = createPochaHandState('beat', players, 2, 4, 40, {mode:'normal',maxCards:2,oneCardRounds:1,peakRounds:1})
   s.phase = 'playing'; s.trump = 'oros'; s.currentPlayerIndex = 2
-  s.players[2].hand = [card(11), card(4)]
+  s.players[2].hand = [card(11), card(4), card(1, 'copas')]
   s.currentTrick = [{playerId:'p0',card:card(10,'espadas')},{playerId:'p1',card:card(10)}]
   assert.deepEqual(publicPochaState(s,'p2').legalCardIds,['oros11'])
   assert.equal(applyPochaAction(s,'p2',{type:'play',cardId:'oros4'}).ok,false)
+  assert.equal(applyPochaAction(s,'p2',{type:'play',cardId:'copas1'}).ok,false)
   s.currentTrick[1].card = card(12)
-  assert.deepEqual(publicPochaState(s,'p2').legalCardIds,['oros11','oros4'])
+  assert.deepEqual(publicPochaState(s,'p2').legalCardIds,['oros11','oros4','copas1'])
+  assert.equal(applyPochaAction(s,'p2',{type:'play',cardId:'copas1'}).ok,true)
+  assert.deepEqual(s.players[2].hand.map(c=>c.id),['oros11','oros4'])
+  assert.equal(s.currentTrick.at(-1)!.card.id,'copas1')
+})
+
+test('five players: the reported three of coins permits either ten of coins or a discard', () => {
+  for(const choice of ['oros10','copas1']){
+    const s=createPochaHandState('example',players,2,4,40,{mode:'normal',maxCards:2,oneCardRounds:1,peakRounds:1})
+    s.phase='playing';s.trump='oros';s.currentPlayerIndex=2
+    s.currentTrick=[{playerId:'p0',card:card(7,'bastos')},{playerId:'p1',card:card(3)}]
+    s.players[2].hand=[card(10),card(1,'copas')]
+    assert.deepEqual(publicPochaState(s,'p2').legalCardIds,['oros10','copas1'])
+    assert.equal(applyPochaAction(s,'p2',{type:'play',cardId:choice}).ok,true)
+    assert.equal(s.currentTrick.at(-1)!.card.id,choice)
+    assert.equal(s.currentPlayerIndex,3)
+    assert.equal(s.players[2].hand.length,1)
+  }
 })
 
 test('two complete five-bot games: independently audit and attempt every forbidden card', t => {
@@ -58,7 +76,7 @@ test('two complete five-bot games: independently audit and attempt every forbidd
       const mandatory = !led?p.hand:follow.length?follow:trump.length?trump:p.hand
       const best = Math.max(...s.currentTrick.map(tc=>strength(tc.card)))
       const beat = mandatory.filter(c=>(c.suit===s.trump||c.suit===led)&&strength(c)>best)
-      const expected = !led?mandatory:beat.length?beat:mandatory
+      const expected = !led?p.hand:follow.length?(beat.length?beat:follow):beat.length?beat:p.hand
       assert.deepEqual([...publicPochaState(s,p.id).legalCardIds!].sort(),expected.map(c=>c.id).sort())
       if(led&&beat.length&&beat.length<mandatory.length)mustBeat++
       for(const c of p.hand.filter(c=>!expected.includes(c))) {
