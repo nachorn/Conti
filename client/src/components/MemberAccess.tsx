@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { MembershipGrant } from '@shared/membership'
 import type { Lang } from '../i18n'
 import './MemberAccess.css'
+import { adminFetch } from '../lib/adminApi'
 
-const SERVER = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
-export function MemberAccess({ accessKey, lang }: { accessKey: string; lang: Lang }) {
+export function MemberAccess({ lang, onSessionExpired }: { lang: Lang; onSessionExpired: () => void }) {
   const L = (es: string, en: string) => lang === 'es' ? es : en
   const [grants, setGrants] = useState<MembershipGrant[]>([])
   const [email, setEmail] = useState('')
@@ -14,9 +14,17 @@ export function MemberAccess({ accessKey, lang }: { accessKey: string; lang: Lan
   const [revision, setRevision] = useState(0)
   const [status, setStatus] = useState('')
   const [configured, setConfigured] = useState(true)
+  const active = useRef(false)
+  const mutation = useRef<AbortController | null>(null)
+  useEffect(() => {
+    active.current = true
+    return () => { active.current = false; mutation.current?.abort() }
+  }, [])
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`${SERVER}/api/admin/memberships`, { headers: { Authorization: `Bearer ${accessKey}` }, cache: 'no-store', signal: controller.signal }).then(async response => {
+    adminFetch('/api/admin/memberships', { signal: controller.signal }).then(async response => {
+      if (controller.signal.aborted) return
+      if (response.status === 401) { onSessionExpired(); return }
       if (response.status === 404) { setConfigured(false); setStatus('unconfigured'); return }
       const data = await response.json() as { grants?: MembershipGrant[]; error?: string }
       if (controller.signal.aborted) return
@@ -24,16 +32,23 @@ export function MemberAccess({ accessKey, lang }: { accessKey: string; lang: Lan
       setGrants(data.grants ?? []); setConfigured(true); setStatus(current => current === 'success' ? current : '')
     }).catch(() => { if (!controller.signal.aborted) setStatus('error') })
     return () => controller.abort()
-  }, [accessKey, revision])
+  }, [onSessionExpired, revision])
   async function update(action: 'grant' | 'revoke', target: string, expiresAt: number | null = null) {
-    if (busy) return
+    if (mutation.current) return
+    const controller = new AbortController()
+    mutation.current = controller
     setBusy(true); setStatus('')
     try {
-      const response = await fetch(`${SERVER}/api/admin/memberships/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${accessKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(action === 'grant' ? { email: target, expiresAt } : { email: target }) })
-      if (!response.ok) { setStatus(response.status === 401 ? 'unauthorized' : response.status === 400 ? 'invalid' : 'error'); return }
+      const response = await adminFetch(`/api/admin/memberships/${action}`, { method: 'POST', signal: controller.signal, body: JSON.stringify(action === 'grant' ? { email: target, expiresAt } : { email: target }) })
+      if (!active.current || controller.signal.aborted) return
+      if (response.status === 401) { onSessionExpired(); return }
+      if (!response.ok) { setStatus(response.status === 400 ? 'invalid' : 'error'); return }
       setStatus('success'); setRevision(value => value + 1)
       if (action === 'grant') { setEmail(''); setUntil('') }
-    } catch { setStatus('error') } finally { setBusy(false) }
+    } catch { if (active.current && !controller.signal.aborted) setStatus('error') } finally {
+      mutation.current = null
+      if (active.current) setBusy(false)
+    }
   }
   function submit(event: FormEvent) {
     event.preventDefault()

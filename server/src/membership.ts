@@ -3,6 +3,7 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeE
 import { resolve } from 'node:path'
 import { FileSnapshotStore, PostgresSnapshotStore, type SnapshotStore } from './storage.js'
 import { createMembershipEmailSender } from './membershipEmail.js'
+import { AdminAuth } from './adminAuth.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
@@ -163,11 +164,11 @@ export class MembershipService {
     return account
   }
   private token(req: Request) { const auth = req.get('authorization') ?? ''; return auth.startsWith('Bearer ') ? auth.slice(7) : '' }
-  private requireAdmin(req: Request) {
-    const key = this.options.dashboardKey?.trim()
-    if (!key || key.length < 32 || key.length > 256) throw new MembershipError('membership_not_configured', 503)
-    const supplied = this.token(req)
-    if (!supplied || supplied.length > 256 || !equal(hash(key), hash(supplied))) throw new MembershipError('unauthorized', 401)
+  private requireAdmin(req: Request, auth: AdminAuth) {
+    if (!auth.configured) throw new MembershipError('membership_not_configured', 503)
+    const method = auth.authenticate(req)
+    if (!method) throw new MembershipError('unauthorized', 401)
+    if (method === 'cookie' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !auth.allowWrite(req)) throw new MembershipError('invalid_request', 403)
   }
   private limit(data: Data, label: string, count: number, window: number): boolean {
     const key = createHmac('sha256', this.options.authSecret).update(label).digest('hex')
@@ -327,7 +328,8 @@ export class MembershipService {
       data.events = data.events.slice(-10_000)
     })
   }
-  registerRoutes(app: Express) {
+  registerRoutes(app: Express, origins: string[] = []) {
+    const admin = new AdminAuth(this.options.dashboardKey, [...origins, ...(this.appUrl ? [this.appUrl] : [])], this.now)
     const run = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store'); res.set('X-Robots-Tag', 'noindex, nofollow')
       Promise.resolve().then(() => { this.requireHealthy(); return handler(req, res) }).catch(error => {
@@ -357,9 +359,9 @@ export class MembershipService {
       const tokenHash = hash(this.token(req)); await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) }); res.json({ ok: true })
     }))
     app.post('/api/membership/checkout', json, run(async (req, res) => res.json({ url: await this.checkout(this.token(req), req.body?.currency) })))
-    app.get('/api/admin/memberships', run((req, res) => { this.requireAdmin(req); res.json({ grants: this.data.grants.map(g => ({ ...g })).sort((a, b) => b.grantedAt - a.grantedAt) }) }))
-    app.post('/api/admin/memberships/grant', json, run(async (req, res) => { this.requireAdmin(req); await this.grant(req.body?.email, req.body?.expiresAt ?? null); res.json({ ok: true }) }))
-    app.post('/api/admin/memberships/revoke', json, run(async (req, res) => { this.requireAdmin(req); await this.revokeGift(req.body?.email); res.json({ ok: true }) }))
+    app.get('/api/admin/memberships', run((req, res) => { this.requireAdmin(req, admin); res.json({ grants: this.data.grants.map(g => ({ ...g })).sort((a, b) => b.grantedAt - a.grantedAt) }) }))
+    app.post('/api/admin/memberships/grant', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.grant(req.body?.email, req.body?.expiresAt ?? null); res.json({ ok: true }) }))
+    app.post('/api/admin/memberships/revoke', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.revokeGift(req.body?.email); res.json({ ok: true }) }))
     // JSON/parser failures must not echo private input or a stack trace.
     app.use(['/api/membership', '/api/admin/memberships'], (error: unknown, _req: Request, res: Response, next: NextFunction) => {
       if (res.headersSent) { next(error); return }

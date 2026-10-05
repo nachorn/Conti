@@ -62,6 +62,9 @@
 .dashboard-login form { display: flex; flex-direction: column; gap: .75rem; margin: 1.6rem 0 1.1rem; }
 .dashboard-login label { font-size: .8rem; }
 .dashboard-login input { min-height: 48px; width: 100%; border-width: 1px; }
+.dashboard-login .dashboard-username { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; clip-path: inset(50%); overflow: hidden; }
+.dashboard-login .dashboard-remember { display: flex; align-items: center; gap: .65rem; min-height: 44px; line-height: 1.4; cursor: pointer; }
+.dashboard-login .dashboard-remember input { width: 20px; min-height: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--gold-bright); }
 .dashboard-primary { min-height: 48px; background: var(--gold-bright); color: #1a251b; }
 .dashboard-login small { display: block; color: var(--cream-muted); font-size: .7rem; line-height: 1.6; }
 .dashboard-error { padding: .9rem 1rem; border: 1px solid rgba(231,201,104,.4); border-radius: 8px; color: #f3dba1; background: rgba(201,162,39,.09); font-size: .84rem; line-height: 1.6; }

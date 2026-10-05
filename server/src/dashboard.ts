@@ -1,5 +1,5 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
 import type { Express } from 'express'
+import { AdminAuth, registerAdminSessions } from './adminAuth.js'
 import type { GameRepository } from './recovery.js'
 import type { DashboardRoom, DashboardSnapshot } from '../../shared/dashboard.js'
 
@@ -42,21 +42,19 @@ export function dashboardSnapshot(repository: GameRepository, isOnline: (playerI
 
 export function registerDashboard(app: Express, options: {
   key?: string
+  origins?: string[]
   repository: GameRepository
   isHealthy: () => boolean
   isOnline: (playerId: string) => boolean
 }) {
   // An unconfigured or weak key must never turn this into a public room listing.
-  const key = options.key?.trim()
-  const hash = (value: string) => createHash('sha256').update(value).digest()
-  const expected = key && key.length >= 32 && key.length <= 256 ? hash(key) : null
+  const auth = new AdminAuth(options.key, options.origins)
+  registerAdminSessions(app, auth, options.isHealthy)
   app.get('/api/admin/dashboard', (req, res) => {
     res.set('Cache-Control', 'no-store')
     res.set('X-Robots-Tag', 'noindex, nofollow')
-    if (!expected) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
-    const authorization = req.get('authorization') ?? ''
-    const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
-    if (!supplied || supplied.length > 256 || !timingSafeEqual(hash(supplied), expected)) {
+    if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
+    if (!auth.authenticate(req)) {
       res.status(401).json({ error: 'unauthorized' })
       return
     }

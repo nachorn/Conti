@@ -27,7 +27,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const corsOrigin = options.origins?.length ? options.origins : true
   app.use(cors({ origin: corsOrigin }))
   registerRoomInvites(app, repository, isHealthy)
-  options.membership?.registerRoutes(app)
+  options.membership?.registerRoutes(app, options.origins)
   if (!options.membership) app.get('/api/membership/config', (_req, res) => res.set('Cache-Control', 'no-store').json({
     enabled: false, loginEnabled: false, checkoutEnabled: false, price: null,
     ads: options.adConfig ?? { provider: 'disabled', publisherId: null },
@@ -45,7 +45,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const activeSockets = new Map<string, string>()
   const adGate = new AdGate(options.adConfig)
   registerDashboard(app, {
-    key: options.dashboardKey, repository, isHealthy,
+    key: options.dashboardKey, origins: options.origins, repository, isHealthy,
     isOnline: playerId => {
       const socketId = activeSockets.get(playerId)
       return !!socketId && io.sockets.sockets.get(socketId)?.connected === true

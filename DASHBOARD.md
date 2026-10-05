@@ -12,10 +12,14 @@ The page refreshes every five seconds while visible. A failed refresh keeps the 
 
 1. Generate a random access key with a password manager (32–256 characters), or run `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` locally.
 2. Set **`ADMIN_DASHBOARD_KEY`** to that key in the **game server's** environment, then restart/redeploy the server. For local development, set the environment variable in the terminal that runs the server.
-3. Deploy the updated client as well. Its existing `VITE_SOCKET_URL` points both gameplay and dashboard requests to the game server. The included Vercel rewrite supports opening `/dashboard` directly.
-4. Open `/dashboard` over HTTPS on the deployed site and enter the key. Keep the key private. **Lock dashboard**, reloading, or closing the page clears its in-memory access.
+3. Deploy the updated client as well. Admin requests use the website's own `/api/admin` path: the included Vercel rewrite proxies it to `conti-server.onrender.com`. If hosting a different server, update this destination. For local development, Vite proxies it to `VITE_SOCKET_URL` or `http://localhost:3001`. The server's allowed origins must include the website. Gameplay continues to use `VITE_SOCKET_URL` directly.
+4. Open `/dashboard` over HTTPS and enter the key. **Remember me for 30 days** is selected by default; turn it off on a shared device. Remembered access survives reloading and closing the browser for up to 30 days. Without it, the browser receives a session cookie with a maximum server lifetime of 12 hours. **Sign out** removes access from that browser.
 
 Do not put this key in any `VITE_` variable, a URL, a committed file, or client code. The endpoint is disabled when the server key is missing, shorter than 32 characters, or longer than 256 characters. Rotating the server key revokes existing dashboard access on its next refresh.
+
+The password is sent only during login and is never saved in browser storage by the app. The server issues a signed, expiring `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/admin`, with `Secure` enabled in production. Same-origin proxying avoids relying on third-party cookies in Safari. Sessions have a fixed expiry and survive server restarts while the access key stays the same. Sign-out clears the browser cookie; rotating the key invalidates every session.
+
+The form uses named username/password controls and `autocomplete="current-password"`, following [Apple's Password AutoFill guidance](https://developer.apple.com/documentation/security/enabling-password-autofill-on-an-html-input-element). For iPhone Passwords, save the credential against the game website domain (`conti-six.vercel.app`), not the Render server or a temporary preview URL. The username is `admin`; the existing access key remains the password. Actual AutoFill suggestions depend on the device's password settings.
 
 ## Data and checks
 

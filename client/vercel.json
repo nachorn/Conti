@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/admin/:path*",
+      "destination": "https://conti-server.onrender.com/api/admin/:path*"
+    },
+    {
       "source": "/dashboard",
       "destination": "/"
     },

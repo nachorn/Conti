@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { DashboardRoom, DashboardSnapshot } from '@shared/dashboard'
+import type { DashboardRoom } from '@shared/dashboard'
 import type { Lang } from '../i18n'
 import './Dashboard.css'
 import { MemberAccess } from './MemberAccess'
+import { AdminSession, adminLoginFields } from '../lib/adminApi'
 
-const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
 const copy = {
   en: {
     brand: 'Continental & Pocha', owner: 'OWNER DASHBOARD', title: 'Who’s playing?',
     subtitle: 'A live look at your tables, wherever you are.', back: 'Back to games',
     private: 'Your private view', privateInfo: 'Enter your access key to see players and tables.',
-    accessKey: 'Access key', unlock: 'Open dashboard', connecting: 'Connecting…', lock: 'Lock dashboard',
-    keyHint: 'Access stays unlocked until you reload or close this page.',
+    accessKey: 'Access key', unlock: 'Open dashboard', connecting: 'Connecting…', lock: 'Sign out',
+    remember: 'Remember me for 30 days', checking: 'Checking your saved session…', signingOut: 'Signing out…',
+    restoreError: 'Your saved session could not be checked. Try again when your connection returns.',
+    logoutError: 'Sign out could not be confirmed. Try again to remove access from this device.',
+    retry: 'Try again', retryLogout: 'Retry sign out', expired: 'Your session has expired. Please enter your access key again.',
+    keyHint: 'Only remember access on your own device. Sign out to remove it.',
     unauthorized: 'That access key is not valid. Please try again.',
     unconfigured: 'Private access has not been set up yet. Contact the app owner to enable it.',
     unavailable: 'The live update could not be loaded. Please try again.',
@@ -35,8 +39,12 @@ const copy = {
     brand: 'Continental y Pocha', owner: 'PANEL PRIVADO', title: '¿Quién está jugando?',
     subtitle: 'Tus mesas en directo, estés donde estés.', back: 'Volver a los juegos',
     private: 'Tu vista privada', privateInfo: 'Introduce tu clave de acceso para ver jugadores y mesas.',
-    accessKey: 'Clave de acceso', unlock: 'Abrir panel', connecting: 'Conectando…', lock: 'Bloquear panel',
-    keyHint: 'El acceso permanece abierto hasta que recargues o cierres esta página.',
+    accessKey: 'Clave de acceso', unlock: 'Abrir panel', connecting: 'Conectando…', lock: 'Cerrar sesión',
+    remember: 'Recordarme durante 30 días', checking: 'Comprobando tu sesión guardada…', signingOut: 'Cerrando sesión…',
+    restoreError: 'No se pudo comprobar tu sesión guardada. Inténtalo de nuevo cuando recuperes la conexión.',
+    logoutError: 'No se pudo confirmar el cierre de sesión. Inténtalo de nuevo para quitar el acceso de este dispositivo.',
+    retry: 'Reintentar', retryLogout: 'Reintentar cierre de sesión', expired: 'Tu sesión ha caducado. Introduce tu clave de acceso de nuevo.',
+    keyHint: 'Recuerda el acceso solo en tu dispositivo. Cierra sesión para quitarlo.',
     unauthorized: 'La clave de acceso no es válida. Inténtalo de nuevo.',
     unconfigured: 'El acceso privado aún no está configurado. Contacta con el propietario para activarlo.',
     unavailable: 'No se pudo cargar la actualización. Inténtalo de nuevo.',
@@ -56,7 +64,6 @@ const copy = {
     phases: { lobby: 'Esperando el inicio', playing: 'Jugando', round_end: 'Ronda terminada', game_end: 'Finalizada', auction: 'Subasta', choosing_trump: 'Eligiendo triunfo', bidding: 'Apuestas', hand_end: 'Ronda terminada' },
   },
 }
-type DashboardError = 'unauthorized' | 'unconfigured' | 'unavailable'
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 export function Dashboard() {
@@ -65,14 +72,8 @@ export function Dashboard() {
     return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
   })
   const c = copy[lang]
-  // Keep the access key only in memory, never in URLs, storage, or analytics.
-  const [key, setKey] = useState('')
-  const [input, setInput] = useState('')
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null)
-  const [error, setError] = useState<DashboardError | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [refresh, setRefresh] = useState(0)
-  const [receivedAt, setReceivedAt] = useState(0)
+  const [session] = useState(() => new AdminSession())
+  const { phase, snapshot, error, busy: loading, receivedAt } = useSyncExternalStore(session.subscribe, session.getState)
   const [clock, setClock] = useState(Date.now())
   const [showOffline, setShowOffline] = useState(false)
   const [query, setQuery] = useState('')
@@ -88,79 +89,35 @@ export function Dashboard() {
   }, [lang])
   useEffect(() => {
     if (unlocked) heading.current?.focus()
-    else keyInput.current?.focus()
-  }, [unlocked])
+    else if (phase === 'locked') keyInput.current?.focus()
+  }, [unlocked, phase])
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 5_000)
     return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
-    if (!key) return
-    let cancelled = false
-    let busy = false
-    let timer: number | undefined
-    let controller: AbortController | undefined
-    async function update() {
-      if (cancelled || busy || document.hidden) return
-      window.clearTimeout(timer)
-      busy = true
-      setLoading(true)
-      controller = new AbortController()
-      const timeout = window.setTimeout(() => controller?.abort(), 10_000)
-      try {
-        const response = await fetch(`${SERVER_URL}/api/admin/dashboard`, {
-          headers: { Authorization: `Bearer ${key}` }, cache: 'no-store',
-          credentials: 'omit', signal: controller.signal,
-        })
-        if (cancelled) return
-        if (response.status === 401) {
-          setKey(''); setSnapshot(null); setError('unauthorized')
-          return
-        }
-        if (!response.ok) {
-          const body = await response.json().catch(() => null)
-          if (cancelled) return
-          if (body?.error === 'dashboard_not_configured') {
-            setKey(''); setSnapshot(null); setError('unconfigured')
-            return
-          }
-          throw new Error('Dashboard unavailable')
-        }
-        const next = await response.json() as DashboardSnapshot
-        if (cancelled) return
-        setSnapshot(next); setReceivedAt(Date.now()); setClock(Date.now()); setError(null)
-      } catch {
-        if (!cancelled) setError('unavailable')
-      } finally {
-        window.clearTimeout(timeout)
-        busy = false
-        if (!cancelled) {
-          setLoading(false)
-          timer = window.setTimeout(update, 5_000)
-        }
-      }
-    }
-    const resume = () => { if (!document.hidden) void update() }
-    void update()
+    const resume = () => { if (!document.hidden) void session.refresh() }
+    void session.refresh()
+    const timer = window.setInterval(resume, 5_000)
     document.addEventListener('visibilitychange', resume)
     window.addEventListener('online', resume)
     return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-      controller?.abort()
+      window.clearInterval(timer)
+      session.cancel()
       document.removeEventListener('visibilitychange', resume)
       window.removeEventListener('online', resume)
     }
-  }, [key, refresh])
+  }, [session])
 
-  function unlock(event: FormEvent) {
+  async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!input.trim()) return
-    setError(null); setLoading(true); setKey(input.trim()); setInput(''); setRefresh(value => value + 1)
+    const form = event.currentTarget
+    // Read the actual control value: Safari autofill need not trigger React change events.
+    if (await session.login(adminLoginFields(new FormData(form)))) form.reset()
   }
   function lock() {
-    setKey(''); setInput(''); setSnapshot(null); setError(null); setLoading(false)
+    void session.logout()
     setQuery(''); setShowOffline(false); setGame('all')
   }
   const fresh = !!snapshot && !error && clock - receivedAt < 15_000
@@ -187,20 +144,29 @@ export function Dashboard() {
         <div><p className="dashboard-eyebrow">{c.owner}</p><h1 ref={heading} tabIndex={-1}>{c.title}</h1><p>{c.subtitle}</p></div>
         {snapshot && <div className="dashboard-live-controls">
           <span className={`dashboard-live ${fresh ? 'is-live' : ''}`} role="status"><i aria-hidden="true" />{fresh ? c.live : c.reconnecting}</span>
-          <button className="dashboard-button" disabled={loading} onClick={() => setRefresh(value => value + 1)}>{loading ? c.updating : c.refresh}</button>
+          <button className="dashboard-button" disabled={loading} onClick={() => void session.refresh()}>{loading ? c.updating : c.refresh}</button>
         </div>}
       </header>
 
       {!snapshot ? <section className="dashboard-login" aria-labelledby="dashboard-login-title">
         <div className="dashboard-lock-icon" aria-hidden="true">♠</div>
-        <h2 id="dashboard-login-title">{c.private}</h2><p>{c.privateInfo}</p>
-        <form onSubmit={unlock}>
-          <label htmlFor="dashboard-key">{c.accessKey}</label>
-          <input ref={keyInput} id="dashboard-key" type="password" autoComplete="current-password" value={input} onChange={event => setInput(event.target.value)} maxLength={256} required spellCheck={false} />
-          {error && <p className="dashboard-error" role="alert">{c[error]}</p>}
-          <button className="dashboard-primary" disabled={!input.trim() || loading}>{loading ? c.connecting : c.unlock}</button>
-        </form>
-        <small>{c.keyHint}</small>
+        <h2 id="dashboard-login-title">{c.private}</h2>
+        {phase === 'checking' || phase === 'logging-out' ? <p role="status">{phase === 'checking' ? c.checking : c.signingOut}</p>
+          : phase === 'unavailable' || phase === 'logout-error' ? <>
+            <p className="dashboard-error" role="alert">{phase === 'logout-error' ? c.logoutError : c.restoreError}</p>
+            <button className="dashboard-primary" disabled={loading} onClick={() => void (phase === 'logout-error' ? session.logout() : session.refresh())}>{loading ? c.connecting : phase === 'logout-error' ? c.retryLogout : c.retry}</button>
+          </> : <>
+            <p>{c.privateInfo}</p>
+            <form id="admin-login" name="admin-login" method="post" action="/api/admin/session" autoComplete="on" onSubmit={unlock}>
+              <input className="dashboard-username" type="text" name="username" autoComplete="username" defaultValue="admin" readOnly tabIndex={-1} aria-hidden="true" />
+              <label htmlFor="dashboard-key">{c.accessKey}</label>
+              <input ref={keyInput} id="dashboard-key" name="password" type="password" autoComplete="current-password" maxLength={256} required spellCheck={false} autoCapitalize="none" aria-describedby="dashboard-login-hint" />
+              <label className="dashboard-remember"><input type="checkbox" name="remember" defaultChecked /><span>{c.remember}</span></label>
+              {error && <p className="dashboard-error" role="alert">{c[error]}</p>}
+              <button type="submit" className="dashboard-primary" disabled={loading}>{loading ? c.connecting : c.unlock}</button>
+            </form>
+            <small id="dashboard-login-hint">{c.keyHint}</small>
+          </>}
       </section> : <>
         {!fresh && <p className="dashboard-error" role="alert">{c.stale}</p>}
         <section className="dashboard-stats" aria-label={c.title}>
@@ -208,7 +174,7 @@ export function Dashboard() {
             ['onlinePlayers', c.online], ['activeRooms', c.active], ['waitingRooms', c.waiting], ['offlineRooms', c.offlineRooms],
           ] as const).map(([field, label]) => <div className={`dashboard-stat ${field === 'onlinePlayers' ? 'is-highlighted' : ''}`} key={field}><span>{label}</span><strong>{snapshot.summary[field]}</strong></div>)}
         </section>
-        <MemberAccess accessKey={key} lang={lang} />
+        <MemberAccess lang={lang} onSessionExpired={session.expire} />
         <section className="dashboard-tables" aria-labelledby="dashboard-tables-title">
           <div className="dashboard-section-heading"><h2 id="dashboard-tables-title">{c.tables} <span>{rooms.length}</span></h2>
             <div className="dashboard-tabs" role="group" aria-label={c.tables}>
