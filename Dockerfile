@@ -18,5 +18,4 @@ COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/server/package*.json ./server/
 RUN cd server && npm install --omit=dev --ignore-scripts
 
-# Temporary deployment handover: this process never opens game storage.
-CMD ["node", "-e", "require(\"http\").createServer((req,res)=>{res.statusCode=req.url===\"/health\"?200:503;res.end(\"Deployment in progress\");}).listen(process.env.PORT||10000,\"0.0.0.0\")"]
+CMD ["node", "server/dist/index.js"]
