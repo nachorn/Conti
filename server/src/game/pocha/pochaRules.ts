@@ -1,4 +1,4 @@
-import { POCHA_TRICK_ORDER } from './pochaTypes.js'
+import { isPochaDeckSize, POCHA_TRICK_ORDER } from './pochaTypes.js'
 import type { PochaCard, PochaSettings, SpanishSuit, TrickCard } from './pochaTypes.js'
 
 export function defaultPochaSettings(players: number, deckSize: number): PochaSettings {
@@ -6,7 +6,7 @@ export function defaultPochaSettings(players: number, deckSize: number): PochaSe
 }
 export function roundSchedule(settings: PochaSettings, players: number, deckSize: number): number[] {
   const { maxCards, oneCardRounds, peakRounds, mode } = settings
-  if (!Number.isInteger(players) || players < 2 || players > 10 || ![40, 48].includes(deckSize) ||
+  if (!Number.isInteger(players) || players < 2 || players > 10 || !isPochaDeckSize(deckSize) ||
       !['normal', 'subastada'].includes(mode) ||
       (settings.auctionWithRemainder !== undefined && typeof settings.auctionWithRemainder !== 'boolean') ||
       !Number.isInteger(maxCards) || maxCards < 1 || maxCards > Math.floor(deckSize / players) ||

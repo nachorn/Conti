@@ -1,23 +1,32 @@
 /**
- * Pocha game types. Spanish 40- or 48-card deck; separate from Continental.
+ * Pocha game types. Spanish 32-, 36-, 40- or 48-card deck; separate from Continental.
  * Suits: oros (coins), copas (cups), espadas (swords), bastos (clubs).
  * Ranks: 1=As, 2-9, 10=Sota, 11=Caballo, 12=Rey.
  */
 
 export type SpanishSuit = 'oros' | 'copas' | 'espadas' | 'bastos'
-export type PochaDeckSize = 40 | 48
+export const POCHA_DECK_SIZES = [32, 36, 40, 48] as const
+export type PochaDeckSize = (typeof POCHA_DECK_SIZES)[number]
+export function isPochaDeckSize(value: unknown): value is PochaDeckSize {
+  return typeof value === 'number' && POCHA_DECK_SIZES.some(size => size === value)
+}
 /** Shared time to read a completed trick before the next move. */
 export const POCHA_TRICK_REVIEW_MS = 4000
 
 export interface PochaCard {
   id: string
   suit: SpanishSuit
-  /** 1-12; ranks 8 and 9 are present only in the 48-card deck. */
+  /** 1-12; the allowed ranks depend on the selected deck size. */
   rank: number
 }
 
+export const SPANISH_RANKS_32 = [1, 3, 5, 6, 7, 10, 11, 12] as const
+export const SPANISH_RANKS_36 = [1, 2, 3, 5, 6, 7, 10, 11, 12] as const
 export const SPANISH_RANKS_40 = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const
 export const SPANISH_RANKS_48 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
+export const SPANISH_RANKS_BY_SIZE: Record<PochaDeckSize, readonly number[]> = {
+  32: SPANISH_RANKS_32, 36: SPANISH_RANKS_36, 40: SPANISH_RANKS_40, 48: SPANISH_RANKS_48,
+}
 /** Standard 40-card ranks, retained as the default/backwards-compatible list. */
 export const SPANISH_RANKS = SPANISH_RANKS_40
 /** Trick order: As high, then 3, Rey, Caballo, Sota, 9 down to 2. */
@@ -50,6 +59,10 @@ export interface PochaSettings {
   oneCardRounds: number
   peakRounds: number
 }
+export interface PochaLobbyUpdate {
+  deckSize?: PochaDeckSize
+  settings?: Partial<PochaSettings>
+}
 export interface PochaRoundResult {
   handNumber: number
   cardsPerHand: number
@@ -70,6 +83,8 @@ export interface TrickCard {
 
 export interface PochaGameState {
   settings: PochaSettings
+  /** True once the host chooses lobby settings; absent in older saved games. */
+  lobbyConfigured?: boolean
   schedule: number[]
   hostId: string
   originalLeadPlayerIndex: number
@@ -85,7 +100,7 @@ export interface PochaGameState {
   blockedBid?: number | null
   roomId: string
   phase: PochaPhase
-  /** Whether this game uses the 40-card deck or the full 48-card deck. */
+  /** Selected Spanish deck size; 40 cards remains the default. */
   deckSize: PochaDeckSize
   /** Current hand number (1-based). */
   handNumber: number

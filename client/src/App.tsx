@@ -11,7 +11,7 @@ import { ConnectionNotice } from './components/ConnectionNotice'
 import { PochaBoard } from './components/PochaBoard'
 import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
-import type { PochaDeckSize } from '@shared/pochaTypes'
+import type { PochaDeckSize, PochaLobbyUpdate } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
 import type { ActionResult } from './types'
 import { Dashboard } from './components/Dashboard'
@@ -60,6 +60,7 @@ function GameApp() {
     beginAd,
     completeAd,
     pochaAction,
+    configurePocha,
     roomId,
     error,
     create,
@@ -208,6 +209,7 @@ function GameApp() {
             <GamePage
               onContinueSaved={continueSavedGame}
               pochaAction={pochaAction}
+              configurePocha={configurePocha}
               state={state}
               roomId={roomId}
               error={error}
@@ -260,6 +262,7 @@ function GameApp() {
 function GamePage({
   onContinueSaved,
   pochaAction,
+  configurePocha,
   state,
   roomId,
   error,
@@ -289,6 +292,7 @@ function GamePage({
 }: {
   onContinueSaved: () => Promise<ActionResult>
   pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
+  configurePocha: (update: PochaLobbyUpdate) => Promise<ActionResult>
   state: import('./types').GameState | null
   roomId: string | null
   error: string | null
@@ -367,8 +371,8 @@ function GamePage({
     const gameType = state.gameType ?? 'continental'
     if (gameType === 'pocha') {
       return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
-        isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction}
-        onStart={(settings) => start({ pochaSettings: settings })} onNextRound={nextRound} onRematch={rematch} /> : null
+        isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction} onConfigure={configurePocha}
+        onStart={() => start()} onNextRound={nextRound} onRematch={rematch} /> : null
     }
     return (
       <GameBoard

@@ -5,7 +5,7 @@ import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGa
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
 import type { ChatMessage } from '@shared/roomChat'
-import type { PochaAction, PochaDeckSize, PochaSettings } from '@shared/pochaTypes'
+import type { PochaAction, PochaDeckSize, PochaLobbyUpdate, PochaSettings } from '@shared/pochaTypes'
 import type { AdBeginResult, AdCompletePayload, AdGateState } from '@shared/adGate'
 
 const SOCKET_URL =
@@ -366,6 +366,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
     continueSavedGame: () => sendWithAck('continue_saved', {}),
     pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),
+    configurePocha: (update: PochaLobbyUpdate) => sendWithAck('pocha_configure', update),
     state,
     adGate,
     adGateRequested,

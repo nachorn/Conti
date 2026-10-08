@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { SPANISH_RANKS_40, SPANISH_RANKS_48 } from '@shared/pochaTypes'
+import { SPANISH_RANKS_BY_SIZE } from '@shared/pochaTypes'
 import type { PochaGameState, PochaCard, PochaDeckSize, PochaPlayer, SpanishSuit } from '@shared/pochaTypes'
 
 function makeId(): string {
@@ -80,7 +80,7 @@ function buildMockState(
 ): PochaGameState {
   const names = ['You', 'Maria', 'Luis', 'Ana', 'Pablo'].slice(0, playerCount)
   const suits: SpanishSuit[] = ['oros', 'copas', 'espadas', 'bastos']
-  const ranks = deckSize === 48 ? SPANISH_RANKS_48 : SPANISH_RANKS_40
+  const ranks = SPANISH_RANKS_BY_SIZE[deckSize]
   const cardsPerHand = Math.floor(deckSize / playerCount)
 
   const players: PochaPlayer[] = names.map((name, i) => {

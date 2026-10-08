@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode, type FormEvent } from 'react'
 import type { PochaDeckSize } from '@shared/pochaTypes'
+import { POCHA_DECK_SIZES } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
@@ -144,7 +145,7 @@ export function Lobby({
 
           <section className="lobby-card lobby-card-pocha" aria-labelledby="create-pocha-title">
             <h2 id="create-pocha-title">{t(lang, 'createPocha')}</h2>
-            <p>{lang === 'es' ? 'Predice tus bazas y juega con amigos. Partidas normales o subastadas, a vuestro ritmo.' : 'Predict your tricks and play with friends. Normal or auction games, at your pace.'}</p>
+            <p>{lang === 'es' ? 'Predice tus bazas y juega con amigos. Podrás cambiar la baraja y las rondas dentro de la sala.' : 'Predict your tricks and play with friends. You can change the deck and rounds inside the room.'}</p>
             <label className="lobby-field" htmlFor="pocha-player-name">
               <span>{t(lang, 'yourName')}</span>
               <input id="pocha-player-name" autoComplete="name" maxLength={24} value={pochaName} onChange={e => setPochaName(e.target.value)} />
@@ -157,8 +158,7 @@ export function Lobby({
                 value={pochaDeckSize}
                 onChange={(e) => setPochaDeckSize(Number(e.target.value) as PochaDeckSize)}
               >
-                <option value={40}>{t(lang, 'pochaDeck40')}</option>
-                <option value={48}>{t(lang, 'pochaDeck48')}</option>
+                {POCHA_DECK_SIZES.map(size => <option key={size} value={size}>{t(lang, `pochaDeck${size}`)}</option>)}
               </select>
             </label>
             <button type="button" className="lobby-create-pocha-btn" disabled={!isConnected || !pochaName.trim()} onClick={() => onCreatePocha(pochaDeckSize, pochaName.trim())}>

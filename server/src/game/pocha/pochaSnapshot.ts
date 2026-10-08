@@ -1,4 +1,5 @@
 import type { PochaCard, PochaGameState, PochaSettings, SpanishSuit, TrickCard } from './pochaTypes.js'
+import { isPochaDeckSize, SPANISH_RANKS_BY_SIZE } from './pochaTypes.js'
 import { roundSchedule } from './pochaRules.js'
 
 /** Allowlisted save parser. Private hands remain private; unknown saved fields are discarded. */
@@ -12,10 +13,12 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
   const id = (v: unknown): string => typeof v === 'string' && ids.has(v) ? v : fail()
   const suit = (v: unknown): SpanishSuit => ['oros', 'copas', 'espadas', 'bastos'].includes(v as string) ? v as SpanishSuit : fail()
   const s = obj(raw)
-  if (s.roomId !== roomId || ![40, 48].includes(s.deckSize)) fail()
+  const deckSize = s.deckSize
+  if (s.roomId !== roomId || !isPochaDeckSize(deckSize)) return fail()
+  if (s.lobbyConfigured !== undefined && typeof s.lobbyConfigured !== 'boolean') fail()
   const card = (v: unknown): PochaCard => {
     const c = obj(v); const rank = num(c.rank, 1, 12)
-    if (s.deckSize === 40 && [8, 9].includes(rank)) fail()
+    if (!SPANISH_RANKS_BY_SIZE[deckSize].includes(rank)) fail()
     return { id: str(c.id), suit: suit(c.suit), rank }
   }
   const trick = (v: unknown): TrickCard[] => list(v, members.length).map(v => ({ playerId: id(obj(v).playerId), card: card(obj(v).card) }))
@@ -25,7 +28,7 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
   const settings: PochaSettings = { mode: settingsRaw.mode, maxCards: num(settingsRaw.maxCards, 1, 24),
     oneCardRounds: num(settingsRaw.oneCardRounds, 1, 10), peakRounds: num(settingsRaw.peakRounds, 1, 10),
     ...(settingsRaw.auctionWithRemainder === undefined ? {} : { auctionWithRemainder: settingsRaw.auctionWithRemainder }) }
-  const expected = roundSchedule(settings, Math.max(2, members.length), s.deckSize)
+  const expected = roundSchedule(settings, Math.max(2, members.length), deckSize)
   if (!['lobby', 'auction', 'choosing_trump', 'bidding', 'playing', 'hand_end', 'game_end'].includes(s.phase)) fail()
   const schedule = list(s.schedule, 80).map(n => num(n, 1, 24))
   if (s.phase !== 'lobby' && JSON.stringify(schedule) !== JSON.stringify(expected)) fail()
@@ -48,7 +51,7 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
       }) }
   })
   const result: PochaGameState = {
-    roomId, deckSize: s.deckSize, phase: s.phase, settings, schedule, hostId: members.length ? id(s.hostId) : '',
+    roomId, deckSize, phase: s.phase, settings, lobbyConfigured: s.lobbyConfigured ?? false, schedule, hostId: members.length ? id(s.hostId) : '',
     players, handNumber: num(s.handNumber, 0, 80), cardsPerHand: num(s.cardsPerHand, 0, 24),
     dealerIndex: num(s.dealerIndex, 0, maxIndex), originalLeadPlayerIndex: num(s.originalLeadPlayerIndex, 0, maxIndex),
     leadPlayerIndex: num(s.leadPlayerIndex, 0, maxIndex), currentPlayerIndex: num(s.currentPlayerIndex, 0, maxIndex),

@@ -11,6 +11,7 @@ import { GameRepository, authenticate, cloneRecord, issueCredential, parseCreden
 import { AdGate, type AdConfig } from './adGate.js'
 import type { MembershipService } from './membership.js'
 import { appendChat } from './roomChat.js'
+import { isPochaDeckSize } from './game/pocha/pochaTypes.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -261,7 +262,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       }
       const next = cloneRecord(current)
       const common = ['set_seat', 'start', 'next_round', 'rematch']
-      if (next.room.gameType === 'pocha' ? !common.includes(event) && event !== 'pocha_action' : event === 'pocha_action') {
+      const pochaOnly = ['pocha_action', 'pocha_configure']
+      if (next.room.gameType === 'pocha' ? !common.includes(event) && !pochaOnly.includes(event) : pochaOnly.includes(event)) {
         reject('Esta acción no pertenece a este juego', ack); return
       }
       const result = apply(next.room, playerId, payload)
@@ -284,7 +286,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       let roomId: string
       try { roomId = repository.newRoomCode() }
       catch { reject('Server has too many saved rooms. Try again later.'); return }
-      const room = new Room({ roomId, gameType: payload?.gameType === 'pocha' ? 'pocha' : 'continental', pochaDeckSize: payload?.pochaDeckSize === 48 ? 48 : 40, maxPlayers: 10, deckCount: payload?.deckCount === 3 ? 3 : 2,
+      const room = new Room({ roomId, gameType: payload?.gameType === 'pocha' ? 'pocha' : 'continental', pochaDeckSize: isPochaDeckSize(payload?.pochaDeckSize) ? payload.pochaDeckSize : 40, maxPlayers: 10, deckCount: payload?.deckCount === 3 ? 3 : 2,
         discardOptionDelaySeconds: seconds(payload?.discardOptionDelaySeconds, 10, 30),
         secondsPerTurn: seconds(payload?.secondsPerTurn, 0, 120) })
       const { credential, session } = issueCredential(roomId)
@@ -313,6 +315,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       return { ok: room.startGame() }
     }, true)
     action('pocha_action', (room, id, p) => room.pochaAction(id, p))
+    action('pocha_configure', (room, _id, p) => room.configurePocha(p), true)
     action('draw', (room, id, p) => room.draw(id, p?.fromDiscard === true))
     action('play_melds', (room, id, p) => {
       if (!Array.isArray(p?.melds) || p.melds.some((m: any) => !m || !Array.isArray(m.cards))) return { ok: false, error: 'Invalid meld payload' }

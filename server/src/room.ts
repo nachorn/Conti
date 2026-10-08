@@ -13,8 +13,9 @@ import {
 } from './game/meld.js'
 import { handPenalty } from './game/scoring.js'
 import type { PochaAction, PochaDeckSize, PochaGameState, PochaSettings } from './game/pocha/pochaTypes.js'
+import { isPochaDeckSize } from './game/pocha/pochaTypes.js'
 import { applyPochaAction, createPochaLobby, isPochaTrickReview, nextPochaRound, publicPochaState, startPocha } from './game/pocha/pochaEngine.js'
-import { defaultPochaSettings } from './game/pocha/pochaRules.js'
+import { defaultPochaSettings, roundSchedule } from './game/pocha/pochaRules.js'
 import { parsePochaSnapshot } from './game/pocha/pochaSnapshot.js'
 
 const CARDS_ROUND_1 = 7
@@ -336,7 +337,45 @@ export class Room {
     if (!this.pocha || this.pocha.phase !== 'lobby') return
     this.pocha.players = this.players.map(p => ({ ...p, hand: [], bid: null, tricksWon: 0 }))
     this.pocha.hostId = this.players[0]?.id ?? ''
-    this.pocha.settings = defaultPochaSettings(Math.max(2, this.players.length), this.pocha.deckSize)
+    const players = Math.max(2, this.players.length)
+    this.pocha.settings = this.pocha.lobbyConfigured
+      ? { ...this.pocha.settings,
+          maxCards: Math.min(this.pocha.settings.maxCards, Math.floor(this.pocha.deckSize / players)),
+          oneCardRounds: Math.min(this.pocha.settings.oneCardRounds, players),
+          peakRounds: Math.min(this.pocha.settings.peakRounds, players) }
+      : defaultPochaSettings(players, this.pocha.deckSize)
+  }
+
+  /** Keep the host's setup when an existing room returns to its waiting lobby. */
+  private resetPochaLobby(): void {
+    if (!this.pocha) return
+    const { deckSize, settings, lobbyConfigured } = this.pocha
+    this.pocha = { ...createPochaLobby(this.roomId, deckSize), settings: { ...settings }, lobbyConfigured: lobbyConfigured ?? false }
+  }
+
+  configurePocha(payload: unknown): { ok: boolean; error?: string } {
+    const fail = () => ({ ok: false, error: 'Configuración de Pocha inválida' })
+    if (!this.pocha || this.phase !== 'lobby' || this.pocha.phase !== 'lobby') return fail()
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return fail()
+    const patch = payload as Record<string, unknown>
+    if (!Object.keys(patch).length || Object.keys(patch).some(key => key !== 'deckSize' && key !== 'settings')) return fail()
+    if ('deckSize' in patch && !isPochaDeckSize(patch.deckSize)) return fail()
+    if ('settings' in patch && (!patch.settings || typeof patch.settings !== 'object' || Array.isArray(patch.settings))) return fail()
+    const settingsPatch = (patch.settings ?? {}) as Record<string, unknown>
+    if (Object.keys(settingsPatch).some(key => !['mode', 'maxCards', 'oneCardRounds', 'peakRounds', 'auctionWithRemainder'].includes(key))) return fail()
+    const deckSize = isPochaDeckSize(patch.deckSize) ? patch.deckSize : this.pocha.deckSize
+    const players = Math.max(2, this.players.length)
+    const settings = {
+      ...this.pocha.settings,
+      maxCards: Math.min(this.pocha.settings.maxCards, Math.floor(deckSize / players)),
+      ...settingsPatch,
+    } as PochaSettings
+    try { roundSchedule(settings, players, deckSize) }
+    catch { return fail() }
+    this.pocha.deckSize = deckSize
+    this.pocha.settings = settings
+    this.pocha.lobbyConfigured = true
+    return { ok: true }
   }
 
   private syncPochaPhase(): void {
@@ -346,10 +385,15 @@ export class Room {
     for (const p of this.players) p.score = this.pocha.players.find(q => q.id === p.id)?.score ?? 0
   }
 
-  startPochaGame(settings: PochaSettings): { ok: boolean; error?: string } {
+  startPochaGame(settings?: PochaSettings): { ok: boolean; error?: string } {
     if (!this.pocha || this.phase !== 'lobby' || this.players.length < 2) return { ok: false, error: 'Se necesitan al menos 2 jugadores en la sala' }
     if (this.players.some(p => !p.connected)) return { ok: false, error: 'Espera a que todos los jugadores se reconecten' }
-    try { startPocha(this.pocha, settings); this.syncPochaPhase(); return { ok: true } }
+    try {
+      startPocha(this.pocha, settings === undefined ? this.pocha.settings : settings)
+      if (settings !== undefined) this.pocha.lobbyConfigured = true
+      this.syncPochaPhase()
+      return { ok: true }
+    }
     catch { return { ok: false, error: 'Configuración de rondas inválida' } }
   }
 
@@ -498,7 +542,7 @@ export class Room {
     if (this.pocha) {
       this.players = this.players.filter(p => p.id !== id)
       this.players.forEach(p => { p.score = 0 })
-      this.pocha = createPochaLobby(this.roomId, this.pocha.deckSize)
+      this.resetPochaLobby()
       this.phase = 'lobby'; this.currentPlayerIndex = 0; this.dealerIndex = 0; this.hasHadTurn = []
       this.syncPochaLobby()
       return
@@ -1054,7 +1098,7 @@ export class Room {
   rematch(): boolean {
     if (this.pocha) {
       if (this.phase !== 'game_end' || isPochaTrickReview(this.pocha)) return false
-      this.pocha = createPochaLobby(this.roomId, this.pocha.deckSize)
+      this.resetPochaLobby()
       this.players.forEach(p => { p.score = 0 })
       this.phase = 'lobby'; this.hasHadTurn = []; this.syncPochaLobby()
       return true

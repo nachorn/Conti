@@ -59,7 +59,7 @@ test('unbeatable trump discard applies to every trump suit, including 48-card ra
 })
 
 test('each seat can open a new game without moving seats or changing the host, then the lead rotates',()=>{
-  for(const n of [2,3,5,10])for(const deck of [40,48] as const)for(const mode of ['normal','subastada'] as const){
+  for(const n of [2,3,5,10])for(const deck of [32,36,40,48] as const)for(const mode of ['normal','subastada'] as const){
     const settings={mode,maxCards:1,oneCardRounds:2,peakRounds:1}
     for(let dealer=0;dealer<n;dealer++){
       const s=createPochaHandState('random',players(n),1,n-1,deck,settings)
@@ -157,15 +157,30 @@ test('public state has own cards and opponent counts without private cards',()=>
   assert.ok(!JSON.stringify(visible).includes(s.players[1].hand[0].id))
   visible.players[0].hand.length=0;assert.equal(s.players[0].hand.length,1)
 })
-test('28 complete games: both decks/modes, 2–10 players, snapshot every move, correct rotation and totals',(t)=>{
+test('72 complete games: four decks, both modes, every player count 2–10, snapshot every move and correct totals',(t)=>{
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
-  for(const deckSize of [40,48] as const)for(const n of [2,3,4,5,6,8,10])for(const mode of ['normal','subastada'] as const){
+  for(const deckSize of [32,36,40,48] as const)for(const n of [2,3,4,5,6,7,8,9,10])for(const mode of ['normal','subastada'] as const){
     let room=new Room({roomId:'1234',gameType:'pocha',pochaDeckSize:deckSize});players(n).forEach(p=>room.addPlayer(p.id,p.name))
     assert.ok(room.startPochaGame({mode,maxCards:Math.floor(deckSize/n),oneCardRounds:1,peakRounds:1}).ok)
-    let actions=0
+    let actions=0,observedRound=0
+    const allowedRanks=deckSize===48?[1,2,3,4,5,6,7,8,9,10,11,12]:deckSize===40?[1,2,3,4,5,6,7,10,11,12]:deckSize===36?[1,2,3,5,6,7,10,11,12]:[1,3,5,6,7,10,11,12]
     while(room.phase!=='game_end'&&actions++<4000){
       t.mock.timers.tick(4000)
       const s=room.pocha!,id=currentId(s)
+      assert.equal(s.deckSize,deckSize)
+      if(s.handNumber!==observedRound){
+        observedRound=s.handNumber
+        const all=s.players.flatMap(p=>p.hand)
+        assert.equal(all.length,n*s.cardsPerHand)
+        assert.equal(new Set(all.map(c=>c.suit+':'+c.rank)).size,all.length)
+        assert.ok(all.every(c=>allowedRanks.includes(c.rank)))
+        assert.ok(s.cardsPerHand<=Math.floor(deckSize/n))
+        if(s.trumpCard){
+          assert.ok(allowedRanks.includes(s.trumpCard.rank))
+          if(all.length===deckSize)assert.equal(s.trumpCard.id,s.players[s.dealerIndex].hand.at(-1)!.id)
+          else assert.ok(!all.some(c=>c.id===s.trumpCard!.id))
+        }
+      }
       if(s.phase==='hand_end'){const original=s.originalLeadPlayerIndex;assert.ok(room.nextRound());assert.equal(room.pocha!.originalLeadPlayerIndex,(original+1)%n)}
       else{
         let action:PochaAction
@@ -178,9 +193,16 @@ test('28 complete games: both decks/modes, 2–10 players, snapshot every move, 
       room=Room.fromSnapshot(room.toSnapshot(),{disconnectPlayers:false})
     }
     assert.equal(room.phase,'game_end');assert.equal(room.pocha!.history.length,room.pocha!.schedule.length)
-    for(const h of room.pocha!.history)assert.equal(h.players.reduce((sum,p)=>sum+p.tricksWon,0),h.cardsPerHand)
+    for(const h of room.pocha!.history){
+      assert.equal(h.players.reduce((sum,p)=>sum+p.tricksWon,0),h.cardsPerHand)
+      for(const p of h.players)assert.equal(p.points,p.bid===p.tricksWon?5+2*p.tricksWon:-2*Math.abs(p.bid-p.tricksWon))
+    }
     for(const p of room.pocha!.players)assert.equal(p.score,room.pocha!.history.reduce((sum,h)=>sum+h.players.find(q=>q.id===p.id)!.points,0))
+    const settingsBeforeRematch=structuredClone(room.pocha!.settings)
     t.mock.timers.tick(4000);assert.ok(room.rematch());assert.equal(room.pocha!.phase,'lobby')
+    assert.equal(room.pocha!.deckSize,deckSize)
+    assert.equal(room.pocha!.lobbyConfigured,true)
+    assert.deepEqual(room.pocha!.settings,settingsBeforeRematch)
   }
 })
 test('reject invalid moves without mutation, strip junk saves, reset to lobby on leaving',()=>{

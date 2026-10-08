@@ -17,7 +17,7 @@ export function trickWinner(trick: TrickCard[], lead: number, trump: SpanishSuit
   return winningCard(trick, trump)?.playerId ?? order[lead]
 }
 export function createPochaLobby(roomId: string, deckSize: PochaDeckSize = 40): PochaGameState {
-  return { roomId, deckSize, phase: 'lobby', settings: defaultPochaSettings(2, deckSize), schedule: [], hostId: '',
+  return { roomId, deckSize, phase: 'lobby', settings: defaultPochaSettings(2, deckSize), lobbyConfigured: false, schedule: [], hostId: '',
     handNumber: 0, cardsPerHand: 0, trump: null, trumpCard: null, players: [], dealerIndex: 0,
     originalLeadPlayerIndex: 0, leadPlayerIndex: 0, currentPlayerIndex: 0, currentTrick: [], bids: {},
     auction: [], auctionWinnerId: null, lastTrick: null, trickReviewUntil: null, history: [] }

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import { SPANISH_RANKS_40, SPANISH_RANKS_48 } from './pochaTypes.js'
+import { SPANISH_RANKS_32, SPANISH_RANKS_36, SPANISH_RANKS_40, SPANISH_RANKS_48, SPANISH_RANKS_BY_SIZE } from './pochaTypes.js'
 import type { PochaCard, PochaDeckSize, SpanishSuit } from './pochaTypes.js'
 
 const SUITS: SpanishSuit[] = ['oros', 'copas', 'espadas', 'bastos']
@@ -24,15 +24,19 @@ export function createSpanishDeck48(): PochaCard[] {
   return createSpanishDeck(SPANISH_RANKS_48)
 }
 
-/** For 3 players, remove all 2s to get 36 cards (12 each). */
+/** Build a 40-card Spanish deck without 4s. */
 export function createSpanishDeck36(): PochaCard[] {
-  return createSpanishDeck40().filter((c) => c.rank !== 2)
+  return createSpanishDeck(SPANISH_RANKS_36)
+}
+
+/** Build a 40-card Spanish deck without 4s or 2s. */
+export function createSpanishDeck32(): PochaCard[] {
+  return createSpanishDeck(SPANISH_RANKS_32)
 }
 
 /** Create a shuffled Pocha deck; the 40-card variant remains the default. */
 export function createPochaDeck(deckSize: PochaDeckSize = 40): PochaCard[] {
-  const deck = deckSize === 48 ? createSpanishDeck48() : createSpanishDeck40()
-  return shuffle(deck)
+  return shuffle(createSpanishDeck(SPANISH_RANKS_BY_SIZE[deckSize]))
 }
 
 export function shuffle<T>(arr: T[]): T[] {
