@@ -6,7 +6,7 @@ Open `/dashboard` on the game website, or use **Owner dashboard** at the bottom 
 - Each room's game, code, players, host, round, next player, and last update.
 - Search by player name or room code, game filters, and an option to include offline rooms.
 
-The page refreshes every five seconds while visible. A failed refresh keeps the last successful result with a clear warning. Viewing it does not join a room, reclaim a saved seat, write game data, or extend a room's lifetime. Names are the names players entered, not verified identities. Offline rooms expire after 72 hours of inactivity; this is not a permanent player history.
+The page refreshes every five seconds while visible. A failed refresh keeps the last successful result with a clear warning. Viewing it does not join a room, reclaim a saved seat, write game data, or extend a room's lifetime. Names are the names players entered, not verified identities. Offline rooms expire after 30 days of inactivity; this is not a permanent player history.
 
 ## Enable access
 
@@ -26,3 +26,11 @@ The form uses named username/password controls and `autocomplete="current-passwo
 The authenticated `GET /api/admin/dashboard` endpoint returns only an allowlist of room and player metadata. It never includes cards, decks, scores, recovery tokens, session hashes, or saved snapshots. Online status comes from live player connections, not open dashboard tabs or stale saved connection flags. Responses, including errors, use `Cache-Control: no-store`.
 
 Server tests cover access control, field redaction, real joins and departures, recovery, both game types, expiry, and storage failure. Run the existing server and client tests and production builds before deploying.
+
+## Selected-room cleanup
+
+The private `POST /api/admin/rooms/cleanup` endpoint removes an explicitly reviewed list of offline rooms. It requires admin authentication, `X-Admin-Request: 1`, an allowed origin when supplied, and JSON containing `rooms: [{ roomId, expectedUpdatedAt, expectedPhase }]`. Obtain those values from a fresh dashboard response; include only the rooms the owner has selected for deletion.
+
+The server rechecks the entire selection in the same queue as gameplay. A missing, changed or connected room rejects the whole request with `409 rooms_changed`. All selected rooms are removed in one durable save before success is returned as `{ ok: true, deletedRoomIds }`. Unselected rooms and their timestamps are unchanged. A storage failure returns `503` and pauses further writes.
+
+This permanently removes the selected saved games and recovery seats. It does not change the normal 30-day retention period. After an uncertain response, inspect the dashboard before retrying; do not replace the original selection with a broader query.

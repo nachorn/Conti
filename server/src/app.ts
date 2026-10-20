@@ -5,7 +5,7 @@ import { Server, type Socket } from 'socket.io'
 import { Room } from './room.js'
 import type { Card, Meld } from './types.js'
 import type { SnapshotStore } from './storage.js'
-import { registerDashboard } from './dashboard.js'
+import { registerDashboard, type RoomCleanupResult } from './dashboard.js'
 import { registerRoomInvites } from './roomInvite.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
 import { AdGate, type AdConfig } from './adGate.js'
@@ -45,12 +45,36 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const io = new Server(httpServer, { cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024 })
   const activeSockets = new Map<string, string>()
   const adGate = new AdGate(options.adConfig)
+  const isPlayerOnline = (playerId: string) => {
+    const socketId = activeSockets.get(playerId)
+    return !!socketId && io.sockets.sockets.get(socketId)?.connected === true
+  }
   registerDashboard(app, {
     key: options.dashboardKey, origins: options.origins, repository, isHealthy,
-    isOnline: playerId => {
-      const socketId = activeSockets.get(playerId)
-      return !!socketId && io.sockets.sockets.get(socketId)?.connected === true
-    },
+    isOnline: isPlayerOnline,
+    cleanupRooms: selection => new Promise<RoomCleanupResult>(resolve => {
+      const unavailable = () => resolve({ ok: false, error: 'server_unavailable', status: 503 })
+      if (closing || pending >= 200) { unavailable(); return }
+      enqueue(async () => {
+        // Recheck inside the game queue: a player might have returned since the preview.
+        const conflict = selection.some(item => {
+          const record = repository.records.get(item.roomId)
+          return !record || record.updatedAt !== item.expectedUpdatedAt ||
+            (record.room.pocha?.phase ?? record.room.phase) !== item.expectedPhase ||
+            record.room.players.some(player => player.connected || isPlayerOnline(player.id))
+        })
+        if (conflict) { resolve({ ok: false, error: 'rooms_changed', status: 409 }); return }
+        const roomIds = selection.map(item => item.roomId)
+        await repository.commitRemovalBatch(roomIds)
+        for (const roomId of roomIds) {
+          const timer = timers.get(roomId)
+          if (timer) clearTimeout(timer)
+          timers.delete(roomId)
+          adGate.forget(roomId)
+        }
+        resolve({ ok: true, deletedRoomIds: roomIds })
+      }, undefined, unavailable)
+    }),
   })
   const timers = new Map<string, NodeJS.Timeout>()
   let queue = Promise.resolve()
@@ -99,7 +123,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
   }
 
-  function enqueue(task: () => Promise<void>, socket?: Socket) {
+  function enqueue(task: () => Promise<void>, socket?: Socket, onError?: () => void) {
     // Cleanup and clock work cannot be dropped: that would leave ghost online players.
     if (socket && (pending >= 200 || (pendingBySocket.get(socket.id) ?? 0) >= 20)) {
       socket?.emit('error', { message: ACTION_QUEUE_FULL })
@@ -108,11 +132,12 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     pending++
     if (socket) pendingBySocket.set(socket.id, (pendingBySocket.get(socket.id) ?? 0) + 1)
     queue = queue.then(async () => {
-      if (closing) return
+      if (closing) { onError?.(); return }
       if (store.isHealthy?.() === false) repository.failed = true
       if (repository.failed) throw new Error('Storage unavailable')
       await task()
     }).catch(() => {
+      onError?.()
       socket?.emit('error', { message: ACTION_SAVE_FAILED })
       if (repository.failed) {
         for (const timer of timers.values()) clearTimeout(timer)

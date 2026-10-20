@@ -130,6 +130,19 @@ export class GameRepository {
     for (const [id, item] of next) {
       if (!item.room.players.some(p => p.connected) && Date.now() - item.updatedAt >= this.retentionMs) next.delete(id)
     }
+    await this.persist(next)
+  }
+
+  /** Caller validates the full selection in the same serialized queue as game actions. */
+  async commitRemovalBatch(roomIds: readonly string[]): Promise<void> {
+    if (this.failed) throw new Error('Game storage unavailable')
+    const next = new Map(this.records)
+    for (const roomId of roomIds) next.delete(roomId)
+    // Remove exactly the selected rooms; keep every other record and timestamp intact.
+    await this.persist(next)
+  }
+
+  private async persist(next: Map<string, RoomRecord>): Promise<void> {
     const saved: SavedGames = { version: 1, savedAt: Date.now(), rooms: [...next.values()].map(r => ({
       ...r, room: r.room.toSnapshot(),
     })) }
