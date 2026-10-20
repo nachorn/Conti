@@ -68,6 +68,18 @@ export function nextPochaRound(state: PochaGameState): void {
   state.dealerIndex = (state.dealerIndex + 1) % state.players.length
   dealHand(state)
 }
+function advanceBidding(state: PochaGameState, startIndex: number): void {
+  const n = state.players.length
+  for (let offset = 0; offset < n; offset++) {
+    const index = (startIndex + offset) % n
+    if (state.bids[state.players[index].id] === undefined) {
+      state.currentPlayerIndex = index
+      return
+    }
+  }
+  state.phase = 'playing'
+  state.currentPlayerIndex = state.leadPlayerIndex
+}
 export function applyPochaAction(state: PochaGameState, playerId: string, action: PochaAction, now = Date.now()): { ok: boolean; error?: string } {
   const fail = (error: string) => ({ ok: false, error })
   if (isPochaTrickReview(state, now)) return fail('Espera a que termine el resultado de la baza')
@@ -90,15 +102,16 @@ export function applyPochaAction(state: PochaGameState, playerId: string, action
   }
   if (action.type === 'trump' && state.phase === 'choosing_trump') {
     if (!['oros', 'copas', 'espadas', 'bastos'].includes(action.suit)) return fail('Elige un palo válido')
-    state.trump = action.suit; state.phase = 'bidding'; state.currentPlayerIndex = (state.leadPlayerIndex + 1) % n
+    state.trump = action.suit; state.phase = 'bidding'
+    // Predictions keep the original seat order; the winner's offer is already fixed.
+    advanceBidding(state, state.originalLeadPlayerIndex)
     return { ok: true }
   }
   if (action.type === 'bid' && state.phase === 'bidding') {
     if (!validBid(action.value)) return fail('Predicción inválida')
     if (Object.keys(state.bids).length === n - 1 && dealerBidsBlocked(state.cardsPerHand, state.bids, playerId) === action.value) return fail('El total de predicciones no puede coincidir con las bazas disponibles')
     player.bid = action.value; state.bids[playerId] = action.value
-    if (Object.keys(state.bids).length === n) { state.phase = 'playing'; state.currentPlayerIndex = state.leadPlayerIndex }
-    else state.currentPlayerIndex = (state.currentPlayerIndex + 1) % n
+    advanceBidding(state, state.currentPlayerIndex + 1)
     return { ok: true }
   }
   if (action.type === 'play' && state.phase === 'playing' && state.trump) {

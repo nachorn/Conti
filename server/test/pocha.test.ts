@@ -132,7 +132,7 @@ test('normal full deal exposes dealer last card; auction mode also auctions part
   assert.equal(a.phase,'auction'); assert.equal(a.trumpCard,null)
   assert.equal(createPochaHandState('1234',players(5),6,4,40,{...settings,maxCards:6,mode:'subastada'}).phase,'auction')
 })
-test('single-pass auction binds winner and changes final prediction player',()=>{
+test('single-pass auction binds winner and keeps the original prediction order',()=>{
   const s=createPochaHandState('1234',players(5),8,4,40,{mode:'subastada',maxCards:8,oneCardRounds:1,peakRounds:1})
   assert.equal(applyPochaAction(s,'p0',{type:'auction',value:null}).ok,false)
   act(s,{type:'auction',value:2});act(s,{type:'auction',value:null})
@@ -140,9 +140,9 @@ test('single-pass auction binds winner and changes final prediction player',()=>
   act(s,{type:'auction',value:4});act(s,{type:'auction',value:null});act(s,{type:'auction',value:null})
   assert.equal(s.phase,'choosing_trump');assert.equal(currentId(s),'p2');assert.equal(s.bids.p2,4)
   assert.equal(applyPochaAction(s,'p0',{type:'auction',value:5}).ok,false)
-  act(s,{type:'trump',suit:'oros'});assert.equal(currentId(s),'p3')
+  act(s,{type:'trump',suit:'oros'});assert.equal(currentId(s),'p0')
   for(let i=0;i<3;i++)act(s,{type:'bid',value:0})
-  assert.equal(currentId(s),'p1');assert.equal(applyPochaAction(s,'p1',{type:'bid',value:4}).ok,false)
+  assert.equal(currentId(s),'p4');assert.equal(applyPochaAction(s,'p4',{type:'bid',value:4}).ok,false)
   act(s,{type:'bid',value:0});assert.equal(currentId(s),'p2')
 })
 test('zero opening offer wins if everyone passes',()=>{

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode, type FormEvent } from 'react'
 import type { PochaDeckSize } from '@shared/pochaTypes'
-import { POCHA_DECK_SIZES } from '@shared/pochaTypes'
 import type { Lang } from '../i18n'
 import { t } from '../i18n'
 import { copyReportToClipboard } from '../lib/reportBug'
@@ -39,7 +38,6 @@ export function Lobby({
 }: LobbyProps) {
   const [createName, setCreateName] = useState('')
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
-  const [pochaDeckSize, setPochaDeckSize] = useState<PochaDeckSize>(40)
   const [pochaName, setPochaName] = useState('')
   const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState('')
@@ -51,6 +49,12 @@ export function Lobby({
     event.preventDefault()
     const name = createName.trim()
     if (name && isConnected) onCreateContinental(name, createDecks)
+  }
+
+  const handleCreatePochaSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const name = pochaName.trim()
+    if (name && isConnected) onCreatePocha(40, name)
   }
 
   const handleJoinSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -143,28 +147,17 @@ export function Lobby({
             </button>
           </form>
 
-          <section className="lobby-card lobby-card-pocha" aria-labelledby="create-pocha-title">
+          <form className="lobby-card lobby-card-pocha" onSubmit={handleCreatePochaSubmit} aria-labelledby="create-pocha-title" aria-describedby="create-pocha-description">
             <h2 id="create-pocha-title">{t(lang, 'createPocha')}</h2>
-            <p>{lang === 'es' ? 'Predice tus bazas y juega con amigos. Podrás cambiar la baraja y las rondas dentro de la sala.' : 'Predict your tricks and play with friends. You can change the deck and rounds inside the room.'}</p>
+            <p id="create-pocha-description">{t(lang, 'createPochaDesc')}</p>
             <label className="lobby-field" htmlFor="pocha-player-name">
               <span>{t(lang, 'yourName')}</span>
-              <input id="pocha-player-name" autoComplete="name" maxLength={24} value={pochaName} onChange={e => setPochaName(e.target.value)} />
+              <input id="pocha-player-name" name="pochaPlayerName" type="text" autoComplete="name" enterKeyHint="done" required maxLength={24} value={pochaName} onChange={e => setPochaName(e.target.value)} />
             </label>
-            <label className="lobby-field" htmlFor="pocha-deck-size">
-              <span>{t(lang, 'pochaDeck')}</span>
-              <select
-                id="pocha-deck-size"
-                name="pochaDeckSize"
-                value={pochaDeckSize}
-                onChange={(e) => setPochaDeckSize(Number(e.target.value) as PochaDeckSize)}
-              >
-                {POCHA_DECK_SIZES.map(size => <option key={size} value={size}>{t(lang, `pochaDeck${size}`)}</option>)}
-              </select>
-            </label>
-            <button type="button" className="lobby-create-pocha-btn" disabled={!isConnected || !pochaName.trim()} onClick={() => onCreatePocha(pochaDeckSize, pochaName.trim())}>
-              {t(lang, 'createPocha')}
+            <button type="submit" className="lobby-create-pocha-btn" disabled={!isConnected || !pochaName.trim()}>
+              {t(lang, 'createRoom')}
             </button>
-          </section>
+          </form>
 
           <form
             className="lobby-card lobby-card-join"
@@ -234,7 +227,7 @@ export function Lobby({
               </button>
             )}
             {onOpenPochaDev && (
-              <button type="button" className="lobby-dev-btn" onClick={() => onOpenPochaDev(pochaDeckSize)}>
+              <button type="button" className="lobby-dev-btn" onClick={() => onOpenPochaDev(40)}>
                 {t(lang, 'playPochaDev')}
               </button>
             )}
