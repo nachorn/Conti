@@ -6,6 +6,7 @@ import { createGameServer } from '../src/app.js'
 import { pochaBotAction } from '../src/testBot.js'
 import { createPochaHandState, applyPochaAction, publicPochaState } from '../src/game/pocha/pochaEngine.js'
 import { authenticate, cloneRecord, GameRepository, issueCredential } from '../src/recovery.js'
+import { Room } from '../src/room.js'
 import type { PochaDeckSize } from '../src/game/pocha/pochaTypes.js'
 
 const KEY = 'private-local-bot-tests-key-32-characters'
@@ -99,4 +100,27 @@ test('only the owner can add one bot; it plays, pauses with the human, survives 
   const left = once(restored, 'left', { signal: AbortSignal.timeout(2000) })
   restored.emit('leave'); await left
   assert.equal(server.repository.get(seat.roomId), undefined)
+})
+
+test('a bot added to an offline lobby waits, and its removal preserves the saved human seat', async t => {
+  const server = await createGameServer({ async load() { return null }, async save() {}, async close() {} }, { dashboardKey: KEY })
+  const url = `http://127.0.0.1:${await server.listen(0, '127.0.0.1')}`
+  t.after(() => server.close())
+  const room = new Room({ roomId: '1234', gameType: 'pocha' })
+  const issued = issueCredential('1234')
+  room.addPlayer(issued.credential.playerId, 'Human')
+  room.setConnected(issued.credential.playerId, false)
+  server.repository.records.set('1234', { room, sessions: [issued.session], updatedAt: Date.now(), paused: { turnRemainingMs: null, discardRemainingMs: null } })
+  const endpoint = url + '/api/admin/rooms/1234/test-bot'
+  const headers = { authorization: 'Bearer ' + KEY, 'x-admin-request': '1' }
+  assert.equal((await fetch(endpoint, { method: 'POST', headers })).status, 200)
+  const waiting = server.repository.get('1234')!
+  assert.ok(waiting.room.players.every(player => !player.connected))
+  assert.ok(waiting.paused)
+  assert.equal(waiting.room.phase, 'lobby')
+  assert.equal((await fetch(endpoint, { method: 'DELETE', headers })).status, 200)
+  const remaining = server.repository.get('1234')!
+  assert.deepEqual(remaining.sessions, [issued.session])
+  assert.equal(remaining.room.players.length, 1)
+  assert.equal(remaining.room.players[0]!.id, issued.credential.playerId)
 })

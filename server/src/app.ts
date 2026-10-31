@@ -137,7 +137,6 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
         const next = cloneRecord(record)
         const existing = next.sessions.find(session => session.bot)
         if (method === 'post') {
-          if (!isPlayerOnline(next.room.players[0]?.id ?? '')) { res.status(409).json({ error: 'host_offline' }); resolve(); return }
           if (existing) { res.json({ ok: true, playerId: existing.playerId, name: 'Bot de prueba' }); resolve(); return }
           const count = [...repository.records.values()].reduce((sum, item) => sum + item.sessions.filter(session => session.bot).length, 0)
           if (count >= 4) { res.status(409).json({ error: 'test_bot_capacity' }); resolve(); return }
