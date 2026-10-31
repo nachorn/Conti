@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID as uuidv4 } from 'node:crypto'
 import type { Card, GameState, Meld, Player, PublicAction, RoundResult } from './types.js'
 import { CONTINENTAL_ROUNDS, type GamePhase, type RoundContract } from './types.js'
 import { createContinentalDeck, draw } from './game/deck.js'

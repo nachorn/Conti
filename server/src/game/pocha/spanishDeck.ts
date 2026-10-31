@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID as uuidv4 } from 'node:crypto'
 import { SPANISH_RANKS_32, SPANISH_RANKS_36, SPANISH_RANKS_40, SPANISH_RANKS_48, SPANISH_RANKS_BY_SIZE } from './pochaTypes.js'
 import type { PochaCard, PochaDeckSize, SpanishSuit } from './pochaTypes.js'
 

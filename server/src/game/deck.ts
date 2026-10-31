@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID as uuidv4 } from 'node:crypto'
 import type { Card } from '../types.js'
 
 const SUITS: Card['suit'][] = ['hearts', 'diamonds', 'clubs', 'spades']
