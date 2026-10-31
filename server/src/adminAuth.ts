@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import express, { type CookieOptions, type Express, type NextFunction, type Request, type Response } from 'express'
+import { RateLimiter, requestLimit } from './security.js'
 
 export const ADMIN_SESSION_COOKIE = 'conti_admin_session'
 export const ADMIN_REMEMBER_MS = 30 * 24 * 60 * 60_000
@@ -84,7 +85,7 @@ export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: 
     if (!auth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     next()
   }
-  app.post('/api/admin/session', privateResponse, writeRequest, express.json({ limit: '1kb' }), (req, res) => {
+  app.post('/api/admin/session', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb' }), (req, res) => {
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
     if (!req.is('application/json') || typeof req.body?.password !== 'string' || typeof req.body?.remember !== 'boolean') { res.status(400).json({ error: 'invalid_request' }); return }
     if (!auth.validPassword(req.body.password)) { res.status(401).json({ error: 'unauthorized' }); return }

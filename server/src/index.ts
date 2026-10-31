@@ -1,12 +1,25 @@
 import { createGameServer } from './app.js'
 import { createSnapshotStore } from './storage.js'
 import { createMembershipService, adConfigFromEnvironment } from './membership.js'
+import { turnstileFromEnvironment } from './turnstile.js'
 
+const origins = (process.env.CLIENT_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean)
+if (process.env.NODE_ENV === 'production' && origins.length === 0) {
+  throw new Error('CLIENT_ORIGINS must list the approved website origins in production')
+}
+for (const origin of origins) {
+  const parsed = new URL(origin)
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin) {
+    throw new Error('CLIENT_ORIGINS must contain exact http(s) origins without paths or trailing slashes')
+  }
+}
+const turnstile = turnstileFromEnvironment(process.env, origins)
 const store = await createSnapshotStore()
 const membership = await createMembershipService()
 const server = await createGameServer(store, {
-  origins: (process.env.CLIENT_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean),
-  debug: process.env.ENABLE_DEBUG_ACTIONS === 'true',
+  origins,
+  turnstile,
+  debug: process.env.NODE_ENV !== 'production' && process.env.ENABLE_DEBUG_ACTIONS === 'true',
   dashboardKey: process.env.ADMIN_DASHBOARD_KEY,
   membership,
   adConfig: adConfigFromEnvironment(process.env),

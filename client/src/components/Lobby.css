@@ -1,4 +1,7 @@
 .lobby-dashboard-link { margin-top: 1.5rem; color: var(--cream-muted); font-size: .78rem; text-underline-offset: 4px; }
+.lobby-legal-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .3rem .65rem; margin-top: .8rem; color: var(--cream-muted); font-size: .74rem; }
+.lobby-legal-links a { display: inline-flex; align-items: center; min-height: 36px; color: inherit; text-underline-offset: 4px; }
+.lobby-author { margin: .2rem 0 .8rem; text-align: center; color: var(--cream-muted); font-size: .72rem; line-height: 1.5; }
 
 .lobby {
   min-height: 100vh;

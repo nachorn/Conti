@@ -1,6 +1,6 @@
 import type { DashboardSnapshot } from '@shared/dashboard'
 
-export type AdminError = 'unauthorized' | 'expired' | 'unconfigured' | 'unavailable'
+export type AdminError = 'unauthorized' | 'expired' | 'unconfigured' | 'unavailable' | 'rateLimited'
 export type AdminPhase = 'checking' | 'locked' | 'unavailable' | 'unlocked' | 'logging-out' | 'logout-error'
 export type AdminState = {
   phase: AdminPhase
@@ -70,6 +70,7 @@ export class AdminSession {
   }
   private failure(response: AdminResponse): AdminError {
     if (response.status === 401) return 'unauthorized'
+    if (response.status === 429) return 'rateLimited'
     const body = response.body as { error?: string } | null
     return body?.error === 'dashboard_not_configured' ? 'unconfigured' : 'unavailable'
   }

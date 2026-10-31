@@ -97,6 +97,18 @@ test('incorrect credentials remain on the login screen and report failure', asyn
   assert.equal(session.getState().error, 'unauthorized')
 })
 
+test('throttled login keeps the panel locked, explains the wait and permits a later successful retry', async () => {
+  const { fetcher, calls } = queue(json({}, 401), json({ error: 'rate_limited' }, 429), json({ ok: true }), json(snapshot))
+  const session = new AdminSession(fetcher)
+  await session.refresh()
+  assert.equal(await session.login({ password: 'test secret', remember: false }), false)
+  assert.equal(session.getState().phase, 'locked')
+  assert.equal(session.getState().error, 'rateLimited')
+  assert.equal(calls.length, 2, 'a rejected login must not attempt to load private data')
+  assert.equal(await session.login({ password: 'test secret', remember: false }), true)
+  assert.equal(session.getState().phase, 'unlocked')
+})
+
 test('malformed successful login responses cannot confirm authentication or clear the form', async () => {
   for (const response of [new Response('<!doctype html><title>App</title>'), json({}), json({ ok: false }), json({ ok: 'true' }), json(null)]) {
     const { fetcher, calls } = queue(json({}, 401), response)

@@ -1,0 +1,8 @@
+.room-verification { width: min(430px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid #56715e; border-radius: 18px; padding: 26px; background: #162f24; color: #f5f0df; box-shadow: 0 16px 60px #0008; }
+.room-verification::backdrop { background: #07150dcc; }
+.room-verification h2 { margin: 0 0 12px; font-size: 1.35rem; }
+.room-verification p { line-height: 1.55; }
+.room-verification button { margin: 12px 10px 0 0; }
+.room-verification-widget { min-height: 70px; width: 100%; }
+.room-verification .room-verification-privacy { margin: 22px 0 0; font-size: .8rem; color: #becdbf; }
+.room-verification-privacy a { color: inherit; text-underline-offset: 3px; }

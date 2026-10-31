@@ -269,8 +269,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     socket.connect()
   }
 
-  const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3, pochaDeckSize?: PochaDeckSize) => {
-    send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize })
+  const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3, pochaDeckSize?: PochaDeckSize, turnstileToken?: string) => {
+    send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize, turnstileToken })
   }
 
   const resumeSavedGame = (game: SavedGame) => {
@@ -292,8 +292,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     return sendWithAck('save_and_exit', {})
   }
 
-  const join = (id: string, name: string) => {
-    send('join', { roomId: id.trim(), name })
+  const join = (id: string, name: string, turnstileToken?: string) => {
+    send('join', { roomId: id.trim(), name, turnstileToken })
   }
 
   const setSeat = (seatIndex: number) => {

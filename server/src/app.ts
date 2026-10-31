@@ -12,6 +12,9 @@ import { AdGate, type AdConfig } from './adGate.js'
 import type { MembershipService } from './membership.js'
 import { appendChat } from './roomChat.js'
 import { isPochaDeckSize } from './game/pocha/pochaTypes.js'
+import { RateLimiter, allowedSocketOrigin, requestLimit, securityHeaders, SECURITY_HEADERS } from './security.js'
+import { AdminAuth } from './adminAuth.js'
+import { registerSecurityConfig, type RoomEntryVerifier } from './turnstile.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -20,13 +23,23 @@ const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are pau
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
-export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; adConfig?: AdConfig } = {}) {
+export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; adConfig?: AdConfig; turnstile?: RoomEntryVerifier } = {}) {
   const repository = new GameRepository(store, options.retentionMs)
   await repository.load()
   const app = express()
+  app.disable('x-powered-by')
+  app.use(securityHeaders)
   const isHealthy = () => !repository.failed && store.isHealthy?.() !== false
   const corsOrigin = options.origins?.length ? options.origins : true
   app.use(cors({ origin: corsOrigin }))
+  registerSecurityConfig(app, options.turnstile)
+  const adminAuth = new AdminAuth(options.dashboardKey, options.origins)
+  const adminRequests = requestLimit(new RateLimiter(120, 60_000))
+  app.use('/api/admin', (req, res, next) => {
+    // Abuse must not lock out an already authenticated owner or prevent logout.
+    if (adminAuth.authenticate(req) || (req.method === 'DELETE' && req.path === '/session')) { next(); return }
+    adminRequests(req, res, next)
+  })
   registerRoomInvites(app, repository, isHealthy)
   options.membership?.registerRoutes(app, options.origins)
   if (!options.membership) app.get('/api/membership/config', (_req, res) => res.set('Cache-Control', 'no-store').json({
@@ -42,7 +55,16 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   // Passive readiness diagnostic only: do not use as Render's health-check path.
   app.get('/ready', (_req, res) => res.status(isHealthy() ? 200 : 503).json({ ok: isHealthy() }))
   const httpServer = createServer(app)
-  const io = new Server(httpServer, { cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024 })
+  const connectionAttempts = new RateLimiter(120, 60_000)
+  const roomAttempts = new RateLimiter(60, 60_000)
+  const io = new Server(httpServer, {
+    cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024,
+    allowRequest: (req, accept) => {
+      if (!allowedSocketOrigin(req.headers.origin, options.origins ?? [])) { accept(null, false); return }
+      accept(null, connectionAttempts.take(req.socket.remoteAddress ?? 'unknown') === 0)
+    },
+  })
+  io.engine.on('headers', headers => Object.assign(headers, SECURITY_HEADERS))
   const activeSockets = new Map<string, string>()
   const adGate = new AdGate(options.adConfig)
   const isPlayerOnline = (playerId: string) => {
@@ -229,6 +251,9 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   }
 
   io.on('connection', socket => {
+    const actions = new RateLimiter(120, 10_000)
+    const entryAttempts = new RateLimiter(10, 60_000)
+    let verifyingEntry = false
     socket.data.membershipToken = typeof socket.handshake.auth?.membershipToken === 'string' && socket.handshake.auth.membershipToken.length <= 2048 ? socket.handshake.auth.membershipToken : null
     socket.emit('membership_state', { account: membershipAccount(socket) })
     // Register events immediately; the queue ensures handshake recovery finishes first.
@@ -244,10 +269,40 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
     const on = (event: string, task: (payload: any, ack?: ActionAck) => Promise<void>) => socket.on(event, (payload, maybeAck) => {
       const ack = typeof maybeAck === 'function' ? maybeAck as ActionAck : undefined
-      const queued = enqueue(async () => {
-        if (socket.connected) await task(payload, ack)
-      }, socket)
-      if (!queued) ack?.({ ok: false, error: ACTION_QUEUE_FULL })
+      const entry = event === 'create' || event === 'join'
+      const retryAfter = actions.take('actions') || (entry && (
+        entryAttempts.take('rooms') || roomAttempts.take(socket.request.socket.remoteAddress ?? 'unknown')
+      ))
+      if (retryAfter) {
+        const error = 'Too many attempts. Please wait before trying again.'
+        socket.emit('error', { message: error, code: 'rate_limited', retryAfter })
+        ack?.({ ok: false, error, code: 'rate_limited' })
+        return
+      }
+      const queueAction = () => {
+        if (!socket.connected) return
+        const queued = enqueue(async () => {
+          if (socket.connected) await task(payload, ack)
+        }, socket)
+        if (!queued) ack?.({ ok: false, error: ACTION_QUEUE_FULL })
+      }
+      if (entry && options.turnstile) {
+        if (verifyingEntry) {
+          reject('Security verification is already in progress.', ack, 'verification_pending')
+          return
+        }
+        verifyingEntry = true
+        // An unavailable verification provider must never stall another table.
+        void options.turnstile.verify(payload?.turnstileToken).then(valid => {
+          if (!socket.connected) return
+          if (!valid) { reject('No se pudo verificar el acceso. Inténtalo de nuevo. / Verification failed. Please try again.', ack, 'verification_failed'); return }
+          queueAction()
+        }).catch(() => {
+          if (socket.connected) reject('Verification is unavailable. Please try again.', ack, 'verification_failed')
+        }).finally(() => { verifyingEntry = false })
+        return
+      }
+      queueAction()
     })
     const reject = (message: string, ack?: ActionAck, code?: string) => {
       socket.emit('error', { message, ...(code ? { code } : {}) })

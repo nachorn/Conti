@@ -20,6 +20,7 @@ import { Membership } from './components/Membership'
 import { AdGate } from './components/AdGate'
 import { RoomChat } from './components/RoomChat'
 import { useTurnSound } from './useTurnSound'
+import { useRoomVerification } from './useRoomVerification'
 
 export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
@@ -85,6 +86,7 @@ function GameApp() {
     reconnect,
   } = useSocket(membership.token, membership.refresh)
   const turnSound = useTurnSound(state, socketId, isConnected && !showPochaDev && !showContinentalDev)
+  const roomVerification = useRoomVerification(lang)
 
   useEffect(() => {
     if (adGateRequested) { setMembershipOpen(false); setAdGateOpen(true) }
@@ -120,8 +122,10 @@ function GameApp() {
     // must not abandon the saved seat or briefly show the wrong screen.
   }
 
-  const handleCreateContinental = (name: string, deckCount?: 2 | 3) => {
-    create(name, 'continental', deckCount)
+  const handleCreateContinental = async (name: string, deckCount?: 2 | 3) => {
+    if (!isConnected) return
+    const proof = await roomVerification.verify()
+    if (proof !== null) create(name, 'continental', deckCount, undefined, proof)
   }
 
   const openPochaPreview = (deckSize: PochaDeckSize) => {
@@ -129,12 +133,23 @@ function GameApp() {
     setShowPochaDev(true)
     navigate('/game')
   }
-  const handleCreatePocha = (deckSize: PochaDeckSize, name: string) => {
-    create(name, 'pocha', undefined, deckSize)
+  const handleCreatePocha = async (deckSize: PochaDeckSize, name: string) => {
+    if (!isConnected) return
+    const proof = await roomVerification.verify()
+    if (proof !== null) create(name, 'pocha', undefined, deckSize, proof)
+  }
+
+  const handleJoin = async (id: string, name: string) => {
+    if (!isConnected) return false
+    const proof = await roomVerification.verify()
+    if (proof === null) return false
+    join(id, name, proof)
+    return true
   }
 
   return (
     <>
+      {roomVerification.dialog}
       {!showPochaDev && !showContinentalDev && <>
         {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen}
           onOpen={() => { setAdGateOpen(false); setMembershipOpen(true) }} onClose={() => setMembershipOpen(false)} />}
@@ -177,7 +192,7 @@ function GameApp() {
               savedGames={<SavedGames games={savedGames} lang={lang} connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} />}
               onCreateContinental={handleCreateContinental}
               onCreatePocha={handleCreatePocha}
-              onJoin={join}
+              onJoin={handleJoin}
               error={error}
               isConnected={isConnected}
               lang={lang}
@@ -195,7 +210,7 @@ function GameApp() {
           path="/room/:roomId"
           element={
             <RoomInvite
-              onJoin={join}
+              onJoin={handleJoin}
               error={error}
               isConnected={isConnected}
               lang={lang}

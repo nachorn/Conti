@@ -1,9 +1,10 @@
 import type { Express } from 'express'
 import type { RoomInviteInfo } from '../../shared/roomInvite.js'
 import type { GameRepository } from './recovery.js'
+import { RateLimiter, requestLimit } from './security.js'
 
 export function registerRoomInvites(app: Express, repository: GameRepository, isHealthy: () => boolean) {
-  app.get('/api/rooms/:roomId/invite', (req, res) => {
+  app.get('/api/rooms/:roomId/invite', requestLimit(new RateLimiter(120, 60_000)), (req, res) => {
     res.set('Cache-Control', 'no-store')
     if (!isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     const roomId = req.params.roomId

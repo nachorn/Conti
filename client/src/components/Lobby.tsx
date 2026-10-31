@@ -213,6 +213,13 @@ export function Lobby({
           {lang === 'es' ? 'Panel privado' : 'Owner dashboard'} ↗
         </a>
 
+        <nav className="lobby-legal-links" aria-label={lang === 'es' ? 'Información del servicio' : 'Service information'}>
+          <a href={`/privacy.html#${lang}`}>{lang === 'es' ? 'Privacidad' : 'Privacy'}</a>
+          <span aria-hidden="true">·</span>
+          <a href={`/terms.html#${lang}`}>{lang === 'es' ? 'Términos y condiciones' : 'Terms and conditions'}</a>
+        </nav>
+        <p className="lobby-author">{lang === 'es' ? 'Creado por' : 'Created by'} Ignacio Rodriguez Novas Catala</p>
+
         {error && (
           <p className="lobby-error" role="alert" aria-live="assertive">
             {error}

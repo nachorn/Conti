@@ -7,7 +7,7 @@ import './RoomInvite.css'
 const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
 
 interface RoomInviteProps {
-  onJoin: (roomId: string, name: string) => void
+  onJoin: (roomId: string, name: string) => void | Promise<boolean>
   error: string | null
   isConnected: boolean
   lang: Lang
@@ -84,11 +84,18 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
     return () => window.clearTimeout(timer)
   }, [joining])
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canJoin || !name.trim() || joiningRef.current) return
-    joiningRef.current = true; setJoining(true); setJoinTimedOut(false)
-    onJoin(roomId, name.trim())
+    joiningRef.current = true; setJoinTimedOut(false)
+    try {
+      // Start the server-response timeout after any human verification finishes.
+      const sent = await onJoin(roomId, name.trim())
+      if (sent === false) { joiningRef.current = false; return }
+      setJoining(true)
+    } catch {
+      joiningRef.current = false; setJoining(false); setJoinTimedOut(true)
+    }
   }
 
   const closed = currentInfo?.status === 'full' || currentInfo?.status === 'started'
