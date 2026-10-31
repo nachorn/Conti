@@ -15,6 +15,7 @@ import { isPochaDeckSize } from './game/pocha/pochaTypes.js'
 import { RateLimiter, allowedSocketOrigin, requestLimit, securityHeaders, SECURITY_HEADERS } from './security.js'
 import { AdminAuth } from './adminAuth.js'
 import { registerSecurityConfig, type RoomEntryVerifier } from './turnstile.js'
+import { pochaBotAction } from './testBot.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -66,8 +67,12 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   })
   io.engine.on('headers', headers => Object.assign(headers, SECURITY_HEADERS))
   const activeSockets = new Map<string, string>()
+  const botRooms = new Map([...repository.records.values()].flatMap(record => record.sessions
+    .filter(session => session.bot).map(session => [session.playerId, record.room.roomId] as const)))
   const adGate = new AdGate(options.adConfig)
   const isPlayerOnline = (playerId: string) => {
+    const botRoom = botRooms.get(playerId)
+    if (botRoom) return repository.get(botRoom)?.room.players.some(player => player.id === playerId && player.connected) === true
     const socketId = activeSockets.get(playerId)
     return !!socketId && io.sockets.sockets.get(socketId)?.connected === true
   }
@@ -92,6 +97,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
           const timer = timers.get(roomId)
           if (timer) clearTimeout(timer)
           timers.delete(roomId)
+          const botTimer = botTimers.get(roomId)
+          if (botTimer) clearTimeout(botTimer)
+          botTimers.delete(roomId)
+          for (const [id, code] of botRooms) if (code === roomId) botRooms.delete(id)
           adGate.forget(roomId)
         }
         resolve({ ok: true, deletedRoomIds: roomIds })
@@ -99,9 +108,52 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }),
   })
   const timers = new Map<string, NodeJS.Timeout>()
+  const botTimers = new Map<string, NodeJS.Timeout>()
   let queue = Promise.resolve()
   let closing = false
   let pending = 0
+  const testBotLimit = requestLimit(new RateLimiter(10, 60_000))
+  const testBotPath = '/api/admin/rooms/:roomId/test-bot'
+  app.all(testBotPath, (req, res, next) => {
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    if (!adminAuth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
+    if (!adminAuth.authenticate(req)) { res.status(401).json({ error: 'unauthorized' }); return }
+    if (!adminAuth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
+    if (!isHealthy() || closing || pending >= 200) { res.status(503).json({ error: 'server_unavailable' }); return }
+    testBotLimit(req, res, next)
+  })
+  for (const method of ['post', 'delete'] as const) app[method](testBotPath, async (req, res) => {
+    const roomId = req.params.roomId
+    if (!/^\d{4}$/.test(roomId)) { res.status(400).json({ error: 'invalid_room' }); return }
+    await new Promise<void>(resolve => {
+      const unavailable = () => { if (!res.headersSent) res.status(503).json({ error: 'server_unavailable' }); resolve() }
+      enqueue(async () => {
+        const record = repository.get(roomId)
+        if (!record) { res.status(404).json({ error: 'room_not_found' }); resolve(); return }
+        const allowedPhase = method === 'post' ? record.room.phase === 'lobby' : ['lobby', 'game_end'].includes(record.room.phase)
+        if (record.room.gameType !== 'pocha' || !allowedPhase || record.manualPaused) {
+          res.status(409).json({ error: 'test_bot_requires_pocha_lobby' }); resolve(); return
+        }
+        const next = cloneRecord(record)
+        const existing = next.sessions.find(session => session.bot)
+        if (method === 'post') {
+          if (!isPlayerOnline(next.room.players[0]?.id ?? '')) { res.status(409).json({ error: 'host_offline' }); resolve(); return }
+          if (existing) { res.json({ ok: true, playerId: existing.playerId, name: 'Bot de prueba' }); resolve(); return }
+          const count = [...repository.records.values()].reduce((sum, item) => sum + item.sessions.filter(session => session.bot).length, 0)
+          if (count >= 4) { res.status(409).json({ error: 'test_bot_capacity' }); resolve(); return }
+          const { credential, session } = issueCredential(roomId)
+          if (!next.room.addPlayer(credential.playerId, 'Bot de prueba')) { res.status(409).json({ error: 'room_full' }); resolve(); return }
+          next.sessions.push({ ...session, bot: true })
+        } else removeTestBots(next)
+        syncTestBots(next)
+        await repository.commit(roomId, next.room.players.length ? next : null)
+        broadcast(roomId)
+        const bot = next.sessions.find(session => session.bot)
+        res.json({ ok: true, ...(bot ? { playerId: bot.playerId, name: 'Bot de prueba' } : {}) })
+        resolve()
+      }, undefined, unavailable)
+    })
+  })
   const pendingBySocket = new Map<string, number>()
   const removeMembershipListener = options.membership?.onChange(() => {
     enqueue(async () => {
@@ -129,7 +181,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   function gateRoom(room: Room) {
     return {
       roomId: room.roomId, phase: room.phase,
-      players: room.players.map(player => {
+      players: room.players.filter(player => !repository.get(room.roomId)?.sessions.some(session => session.playerId === player.id && session.bot)).map(player => {
         const socketId = activeSockets.get(player.id)
         return { id: player.id, connected: player.connected && !!socketId && io.sockets.sockets.get(socketId)?.connected === true }
       }),
@@ -164,6 +216,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (repository.failed) {
         for (const timer of timers.values()) clearTimeout(timer)
         timers.clear()
+        for (const timer of botTimers.values()) clearTimeout(timer)
+        botTimers.clear()
         io.emit('server_paused', { message: 'Game saving is temporarily unavailable. Play is paused to protect your saved game.' })
       }
     }).finally(() => {
@@ -186,8 +240,16 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
   function broadcast(roomId: string) {
     const room = repository.get(roomId)?.room
+    for (const [id, code] of botRooms) if (code === roomId) botRooms.delete(id)
+    for (const session of repository.get(roomId)?.sessions ?? []) if (session.bot) botRooms.set(session.playerId, roomId)
     adGate.prune(repository.records.keys())
-    if (!room) { adGate.forget(roomId); return }
+    if (!room) {
+      adGate.forget(roomId)
+      const botTimer = botTimers.get(roomId)
+      if (botTimer) clearTimeout(botTimer)
+      botTimers.delete(roomId)
+      return
+    }
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
         socket.emit('state', playerState(repository.get(roomId)!, socket.data.playerId))
@@ -195,6 +257,45 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
     broadcastGate(roomId)
     schedule(roomId)
+    scheduleTestBot(roomId)
+  }
+
+  function removeTestBots(record: RoomRecord) {
+    for (const session of record.sessions.filter(session => session.bot)) record.room.removePlayer(session.playerId)
+    record.sessions = record.sessions.filter(session => !session.bot)
+  }
+
+  function syncTestBots(record: RoomRecord) {
+    const humanIds = new Set(record.sessions.filter(session => !session.bot).map(session => session.playerId))
+    if (!record.room.players.some(player => humanIds.has(player.id))) { removeTestBots(record); return }
+    const online = record.room.players.some(player => humanIds.has(player.id) && player.connected)
+    for (const session of record.sessions.filter(session => session.bot)) record.room.setConnected(session.playerId, online)
+  }
+
+  function scheduleTestBot(roomId: string) {
+    const old = botTimers.get(roomId)
+    if (old) clearTimeout(old)
+    botTimers.delete(roomId)
+    const record = repository.get(roomId)
+    if (!record || record.paused || record.manualPaused || repository.failed || closing || record.room.phase !== 'playing') return
+    const bot = record.sessions.find(session => session.bot)
+    if (!bot || !record.room.players.some(player => player.id === bot.playerId && player.connected)) return
+    const state = record.room.getState(bot.playerId).pocha
+    if (!state || !pochaBotAction(state, bot.playerId)) return
+    const delay = Math.max(800, (state.trickReviewUntil ?? 0) - Date.now() + 50)
+    botTimers.set(roomId, setTimeout(() => {
+      botTimers.delete(roomId)
+      enqueue(async () => {
+        const current = repository.get(roomId)
+        if (!current || current.paused || current.manualPaused || !current.sessions.some(session => session.bot && session.playerId === bot.playerId)) return
+        const next = cloneRecord(current)
+        const view = next.room.getState(bot.playerId).pocha
+        const action = view && pochaBotAction(view, bot.playerId)
+        if (!action || !next.room.pochaAction(bot.playerId, action).ok) return
+        await repository.commit(roomId, next)
+        broadcast(roomId)
+      })
+    }, delay))
   }
 
   function schedule(roomId: string) {
@@ -220,6 +321,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   async function attach(socket: Socket, credential: ResumeCredential, next: RoomRecord, newSeat = false) {
     const oldSocketId = activeSockets.get(credential.playerId)
     next.room.setConnected(credential.playerId, true)
+    syncTestBots(next)
     if (!next.manualPaused) resumeRoom(next)
     await repository.commit(credential.roomId, next)
     // If a first join never reached a live connection, avoid an inaccessible seat.
@@ -459,6 +561,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       const next = cloneRecord(record)
       if (next.room.players[0]?.id === playerId) next.manualPaused = true
       next.room.setConnected(playerId, false)
+      syncTestBots(next)
       if (next.manualPaused || !next.room.players.some(p => p.connected)) pauseRoom(next)
       try { await repository.commit(roomId, next) }
       catch (error) { ack?.({ ok: false, error: ACTION_SAVE_FAILED }); throw error }
@@ -479,8 +582,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       const record = repository.get(roomId)
       if (record) {
         const next = cloneRecord(record)
+        if (next.room.players[0]?.id === playerId) removeTestBots(next)
         next.room.removePlayer(playerId)
         next.sessions = next.sessions.filter(s => s.playerId !== playerId)
+        syncTestBots(next)
         if (!next.room.players.some(p => p.connected)) pauseRoom(next)
         await repository.commit(roomId, next.room.players.length ? next : null)
       }
@@ -500,6 +605,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (!record) return
       const next = cloneRecord(record)
       next.room.setConnected(playerId, false)
+      syncTestBots(next)
       if (!next.room.players.some(p => p.connected)) pauseRoom(next)
       await repository.commit(roomId, next)
       activeSockets.delete(playerId)
@@ -521,6 +627,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       removeMembershipListener?.()
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
+      for (const timer of botTimers.values()) clearTimeout(timer)
+      botTimers.clear()
       await queue
       try {
         if (!repository.failed) {

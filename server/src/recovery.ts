@@ -4,7 +4,7 @@ import type { SnapshotStore } from './storage.js'
 import { restoreChat, type ChatMessage } from './roomChat.js'
 
 export interface ResumeCredential { roomId: string; playerId: string; token: string }
-interface SavedSession { playerId: string; tokenHash: string }
+interface SavedSession { playerId: string; tokenHash: string; bot?: boolean }
 interface PausedTimers { turnRemainingMs: number | null; discardRemainingMs: number | null }
 export interface RoomRecord {
   room: Room
@@ -36,7 +36,7 @@ export function parseCredential(value: unknown): ResumeCredential | null {
 
 export function authenticate(record: RoomRecord, credential: ResumeCredential): boolean {
   const session = record.sessions.find(s => s.playerId === credential.playerId)
-  return record.room.roomId === credential.roomId && !!session &&
+  return record.room.roomId === credential.roomId && !!session && !session.bot &&
     timingSafeEqual(Buffer.from(session.tokenHash, 'hex'), Buffer.from(hashToken(credential.token), 'hex'))
 }
 
@@ -95,9 +95,10 @@ export class GameRepository {
       const sessions: SavedSession[] = []
       for (const session of raw.sessions) {
         if (!isObject(session) || typeof session.playerId !== 'string' || typeof session.tokenHash !== 'string' ||
-          !/^[a-f0-9]{64}$/.test(session.tokenHash) || sessions.some(s => s.playerId === session.playerId) ||
+          !/^[a-f0-9]{64}$/.test(session.tokenHash) || (session.bot !== undefined && typeof session.bot !== 'boolean') ||
+          (session.bot === true && room.gameType !== 'pocha') || sessions.some(s => s.playerId === session.playerId) ||
           !room.players.some(p => p.id === session.playerId)) throw new Error('Invalid saved player session')
-        sessions.push({ playerId: session.playerId, tokenHash: session.tokenHash })
+        sessions.push({ playerId: session.playerId, tokenHash: session.tokenHash, ...(session.bot === true ? { bot: true } : {}) })
       }
       if (sessions.length !== room.players.length) throw new Error('Saved room is missing player sessions')
       const record: RoomRecord = { room, sessions, updatedAt: raw.updatedAt, paused: raw.paused as PausedTimers | null, manualPaused: raw.manualPaused === true }
