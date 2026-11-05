@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /game
+Disallow: /room/
+
+Sitemap: https://conti-six.vercel.app/sitemap.xml

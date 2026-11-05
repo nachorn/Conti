@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url><loc>https://conti-six.vercel.app/</loc></url>
+  <url><loc>https://conti-six.vercel.app/learn/es/continental/</loc><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/continental/"/><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/continental/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/en/continental/</loc><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/continental/"/><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/continental/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/es/pocha/</loc><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/pocha/"/><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/pocha/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/en/pocha/</loc><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/pocha/"/><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/pocha/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/es/help/</loc><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/help/"/><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/help/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/en/help/</loc><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/help/"/><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/help/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/es/about/</loc><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/about/"/><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/about/"/></url>
+  <url><loc>https://conti-six.vercel.app/learn/en/about/</loc><xhtml:link rel="alternate" hreflang="es" href="https://conti-six.vercel.app/learn/es/about/"/><xhtml:link rel="alternate" hreflang="en" href="https://conti-six.vercel.app/learn/en/about/"/></url>
+  <url><loc>https://conti-six.vercel.app/privacy.html</loc></url>
+  <url><loc>https://conti-six.vercel.app/terms.html</loc></url>
+</urlset>

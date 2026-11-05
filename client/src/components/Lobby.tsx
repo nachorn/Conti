@@ -102,6 +102,14 @@ export function Lobby({
         <header className="lobby-header">
           <h1>{t(lang, 'appTitle')}</h1>
           <p className="lobby-subtitle">{t(lang, 'appSubtitle')}</p>
+          <p className="lobby-intro">{lang === 'es'
+            ? 'Tu mesa de cartas con amigos, estés donde estés. Juega a Continental o La Pocha en el navegador, con salas por invitación, sin instalar nada y sin crear una cuenta.'
+            : 'Your card table with friends, wherever you are. Play Continental or La Pocha in your browser, with invitation rooms, no installation and no account needed.'}</p>
+          <nav className="lobby-guide-nav" aria-label={lang === 'es' ? 'Guías y ayuda' : 'Guides and help'}>
+            <a href={`/learn/${lang}/continental/`}>{lang === 'es' ? 'Cómo jugar a Continental' : 'How to play Continental'}</a>
+            <a href={`/learn/${lang}/pocha/`}>{lang === 'es' ? 'Cómo jugar a Pocha' : 'How to play Pocha'}</a>
+            <a href={`/learn/${lang}/help/`}>{lang === 'es' ? 'Ayuda' : 'Help'}</a>
+          </nav>
         </header>
 
         {savedGames}
@@ -145,6 +153,7 @@ export function Lobby({
             <button type="submit" disabled={!isConnected || !createName.trim()}>
               {t(lang, 'createRoom')}
             </button>
+            <a className="lobby-rule-link" href={`/learn/${lang}/continental/`}>{lang === 'es' ? 'Reglas y ejemplos de Continental →' : 'Continental rules and examples →'}</a>
           </form>
 
           <form className="lobby-card lobby-card-pocha" onSubmit={handleCreatePochaSubmit} aria-labelledby="create-pocha-title" aria-describedby="create-pocha-description">
@@ -157,6 +166,7 @@ export function Lobby({
             <button type="submit" className="lobby-create-pocha-btn" disabled={!isConnected || !pochaName.trim()}>
               {t(lang, 'createRoom')}
             </button>
+            <a className="lobby-rule-link" href={`/learn/${lang}/pocha/`}>{lang === 'es' ? 'Reglas y ejemplos de Pocha →' : 'Pocha rules and examples →'}</a>
           </form>
 
           <form
@@ -207,6 +217,36 @@ export function Lobby({
           </form>
         </div>
 
+        <section className="lobby-learn" aria-labelledby="lobby-learn-title">
+          <div className="lobby-learn-heading">
+            <span className="lobby-eyebrow">{lang === 'es' ? 'Una mesa, dos maneras de jugar' : 'One table, two ways to play'}</span>
+            <h2 id="lobby-learn-title">{lang === 'es' ? 'Elige tu próxima partida' : 'Choose your next game'}</h2>
+          </div>
+          <div className="lobby-learn-grid">
+            <article>
+              <h3>Continental Rummy</h3>
+              <p>{lang === 'es'
+                ? 'Completa contratos de tríos y escalas a lo largo de siete rondas. Roba del mazo o del descarte, decide cuándo bajar tus combinaciones y trata de cerrar antes que los demás. Las cartas que conservas suman puntos: gana quien termina con menos.'
+                : 'Complete contracts of sets and runs over seven rounds. Draw from the stock or discard pile, decide when to lay down your combinations and try to go out before everyone else. Cards left in your hand add points: the lowest total wins.'}</p>
+              <a href={`/learn/${lang}/continental/`}>{lang === 'es' ? 'Ver contratos, comodines y puntuación →' : 'Explore contracts, Jokers and scoring →'}</a>
+            </article>
+            <article>
+              <h3>La Pocha</h3>
+              <p>{lang === 'es'
+                ? 'Predice cuántas bazas vas a ganar y juega para cumplir tu apuesta. Importan el palo de salida, el triunfo y lo que ya han jugado los demás. La mesa permite elegir baraja y rondas; la guía explica las opciones y cómo se cuentan los puntos.'
+                : 'Predict how many tricks you will win, then play to meet your bid. The led suit, trump suit and cards already played all matter. Choose the deck and rounds at your table; the guide explains the options and how points are counted.'}</p>
+              <a href={`/learn/${lang}/pocha/`}>{lang === 'es' ? 'Ver bazas, triunfo y ejemplos →' : 'Explore tricks, trump and examples →'}</a>
+            </article>
+          </div>
+          <h3 className="lobby-steps-title">{lang === 'es' ? 'De la invitación a la primera carta' : 'From invitation to the first card'}</h3>
+          <ol className="lobby-start-steps">
+            <li><strong>{lang === 'es' ? 'Crea una sala' : 'Create a room'}</strong><p>{lang === 'es' ? 'Elige el juego e indica tu nombre. El anfitrión prepara las opciones de la mesa.' : 'Choose a game and enter your name. The host sets up the table options.'}</p></li>
+            <li><strong>{lang === 'es' ? 'Invita a tus amigos' : 'Invite your friends'}</strong><p>{lang === 'es' ? 'Comparte el enlace de invitación o el código de cuatro cifras. Cada jugador entra desde su propio navegador.' : 'Share the invitation link or four-digit room code. Each player joins from their own browser.'}</p></li>
+            <li><strong>{lang === 'es' ? 'Jugad a vuestro ritmo' : 'Play at your own pace'}</strong><p>{lang === 'es' ? 'La mesa lleva los turnos y los puntos. Podéis guardar y volver desde el mismo navegador; el anfitrión puede pausar para todos.' : 'The table tracks turns and scores. Save and return from the same browser; the host can pause for everyone.'}</p></li>
+          </ol>
+          <a className="lobby-help-link" href={`/learn/${lang}/help/`}>{lang === 'es' ? 'Consulta la ayuda sobre invitaciones, móvil y partidas guardadas →' : 'Read the help on invitations, mobile play and saved games →'}</a>
+        </section>
+
         {initialJoinRoomId === null && <SupportProject lang={lang} />}
 
         <a className="lobby-dashboard-link" href="/dashboard" target="_blank" rel="noopener noreferrer">
@@ -214,6 +254,8 @@ export function Lobby({
         </a>
 
         <nav className="lobby-legal-links" aria-label={lang === 'es' ? 'Información del servicio' : 'Service information'}>
+          <a href={`/learn/${lang}/about/`}>{lang === 'es' ? 'Sobre Conti y contacto' : 'About Conti and contact'}</a>
+          <span aria-hidden="true">·</span>
           <a href={`/privacy.html#${lang}`}>{lang === 'es' ? 'Privacidad' : 'Privacy'}</a>
           <span aria-hidden="true">·</span>
           <a href={`/terms.html#${lang}`}>{lang === 'es' ? 'Términos y condiciones' : 'Terms and conditions'}</a>

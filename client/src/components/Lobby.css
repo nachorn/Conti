@@ -99,6 +99,33 @@
   line-height: 1.5;
 }
 
+.lobby-intro { margin: 1rem auto 0; max-width: 620px; font-size: .95rem; line-height: 1.7; color: var(--cream-muted); }
+.lobby-noscript { margin: 0; padding: 1rem; text-align: center; color: var(--cream); background: var(--surface-strong); line-height: 1.6; }
+.lobby-noscript a { color: var(--gold-bright); }
+.lobby-guide-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem 1.2rem; margin-top: .8rem; }
+.lobby-guide-nav a, .lobby-rule-link, .lobby-learn a { color: #e7c968; text-underline-offset: 4px; font-size: .86rem; line-height: 1.6; }
+.lobby-guide-nav a { display: inline-flex; align-items: center; min-height: 40px; }
+.lobby-rule-link { align-self: flex-start; min-height: 30px; display: inline-flex; align-items: center; }
+.lobby-learn { width: 100%; margin: clamp(2.5rem, 6vw, 4rem) 0 1rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+.lobby-learn-heading { margin-bottom: 1.4rem; }
+.lobby-eyebrow { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--gold-bright); }
+.lobby-learn h2 { margin: .45rem 0 0; font-size: clamp(1.9rem, 4vw, 2.5rem); }
+.lobby-learn-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 2.5rem; }
+.lobby-learn h3 { margin: 0 0 .65rem; font-size: 1rem; color: var(--cream); }
+.lobby-learn p { margin: 0 0 .8rem; max-width: 64ch; color: var(--cream-muted); font-size: .9rem; line-height: 1.8; }
+.lobby-learn .lobby-steps-title { margin-top: 2rem; }
+.lobby-start-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6rem; padding-left: 1.3rem; margin: 1rem 0; }
+.lobby-start-steps li { padding-left: .25rem; }
+.lobby-start-steps li::marker { color: var(--gold-bright); font-weight: 600; }
+.lobby-start-steps strong { font-size: .9rem; }
+.lobby-start-steps p { margin-top: .5rem; font-size: .85rem; }
+.lobby-help-link { display: inline-block; padding: .45rem 0; }
+@media (max-width: 600px) {
+  .lobby-learn-grid, .lobby-start-steps { grid-template-columns: minmax(0, 1fr); }
+  .lobby-start-steps { gap: .6rem; }
+  .lobby-guide-nav { gap: .1rem .9rem; }
+}
+
 .lobby-cards {
   width: 100%;
   display: grid;
