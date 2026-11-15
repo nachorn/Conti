@@ -28,6 +28,8 @@ The central profile stays outside the game socket owner so signing in cannot rec
 5. Deploy both clients with their existing backend/hosting settings. The card client uses the existing `VITE_SOCKET_URL`; FootballChampion uses `VITE_NRN_API_URL=https://conti-server.onrender.com` and both clients use `VITE_NRN_AUTH_URL=https://nrnplay.com`.
 6. Verify direct loads of all three game subdomains and central sign-in, then set the catalog client's `VITE_GAME_SUBDOMAINS_ENABLED=true` and rebuild. Until that switch is enabled the existing `/conti`, `/pocha` and `footballchampion.net` destinations remain in use. Host routing is already prepared independently of the link switch.
 
+The two card-game roots use early host-specific Vercel `routes`, before the static root index takes precedence over ordinary rewrites. Global security headers must run first with `continue: true` so the terminal host routes retain them. Route-specific headers run afterward; `/connect` keeps its stricter `no-referrer` and `no-store` policies. Keep the root catalog and existing non-root rewrites unchanged.
+
 ## Preserve existing games
 
 Do not redirect `footballchampion.net` or the earlier Conti addresses away immediately. Their guest seats, account credentials and local careers belong to those origins. Old card-game room links and `/conti`, `/pocha`, `/game` and `/room/:roomId` routes remain available. The new game subdomains point players back to old saved rooms when needed.
