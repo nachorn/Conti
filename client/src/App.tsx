@@ -145,13 +145,15 @@ function GameApp() {
     query.delete('nrn-signin')
     const search = query.toString()
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? '?' + search : ''}${window.location.hash}`)
+    membership.clearLocalSession()
     setSigningIn(true)
     void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
-  }, [])
+  }, [membership.clearLocalSession])
 
   const openAccount = () => {
     setAdGateOpen(false)
     if (!hostedGame || membership.account) { setMembershipOpen(true); return }
+    membership.clearLocalSession()
     setSigningIn(true); setSignInError(false)
     void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
   }
@@ -260,7 +262,7 @@ function GameApp() {
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
         onOpenAccount={openAccount} />}
       {signingIn && <p className="nrn-sign-in-status" role="status">{lang === 'es' ? 'Conectando tu cuenta de NRN Play…' : 'Connecting your NRN Play account…'}</p>}
-      {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes seguir como invitado o volver a iniciar sesión.' : 'Your account could not be connected. You can keep playing as a guest or sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
+      {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes volver a iniciar sesión.' : 'Your account could not be connected. You can sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
       {roomVerification.dialog}
       {!showPochaDev && !showContinentalDev && <>
         {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen}

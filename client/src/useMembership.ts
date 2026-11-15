@@ -103,6 +103,19 @@ export function useMembership() {
     return true
   }, [remember])
 
+  // A portal launch chooses its central identity. A failed new handoff must
+  // not revive a previous game's account through a late refresh response.
+  const clearLocalSession = useCallback(() => {
+    ++authSequence.current
+    ++refreshSequence.current
+    pendingAuth.current = null
+    registration.current = null
+    remember(null)
+    setAccount(null)
+    setBusy(false)
+    setError(null)
+  }, [remember])
+
   const refresh = useCallback(async () => {
     const current = sessionRef.current
     const sequence = ++refreshSequence.current
@@ -241,6 +254,6 @@ export function useMembership() {
     } finally { setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, refresh, adoptSession, clearError: () => setError(null) }
+  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>
