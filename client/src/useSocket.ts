@@ -7,6 +7,7 @@ import type { GameState, Card, ActionResult } from './types'
 import type { ChatMessage } from '@shared/roomChat'
 import type { PochaAction, PochaDeckSize, PochaLobbyUpdate, PochaSettings } from '@shared/pochaTypes'
 import type { AdBeginResult, AdCompletePayload, AdGateState } from '@shared/adGate'
+import type { RoomLeagueSummary } from '@shared/leagues'
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
@@ -36,6 +37,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   const [state, setState] = useState<GameState | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
+  const [leagueState, setLeagueState] = useState<{ roomId: string; league: RoomLeagueSummary | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adGate, setAdGate] = useState<AdGateState | null>(null)
   const [adGateRequested, setAdGateRequested] = useState(0)
@@ -103,6 +105,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
         return
       }
       rememberSession(session)
+      setLeagueState(null)
       archiveState(session, payload.state)
       setRoomId(payload.roomId)
       setSocketId(payload.playerId)
@@ -124,6 +127,14 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       if (payload?.roomId === sessionRef.current?.roomId) setAdGateRequested(value => value + 1)
     })
     socket.on('membership_state', () => { membershipChangeRef.current?.() })
+    socket.on('league_state', (payload: { roomId: string; league: RoomLeagueSummary | null }) => {
+      if (payload?.roomId !== sessionRef.current?.roomId || statusRef.current !== 'connected') return
+      const league = payload.league
+      if (league !== null && (!league || typeof league.id !== 'string' || typeof league.name !== 'string' ||
+          !['pocha', 'continental'].includes(league.gameType) ||
+          (league.closedAt !== null && (typeof league.closedAt !== 'number' || !Number.isFinite(league.closedAt))))) return
+      setLeagueState(payload)
+    })
 
     socket.on('state', (newState: GameState) => {
       // Until joined authenticates the saved seat, do not accept a room broadcast.
@@ -362,6 +373,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   }
 
   return {
+    roomLeague: leagueState?.roomId === roomId ? leagueState.league : null,
+    configureLeague: (leagueId: string | null) => sendWithAck('set_league', { leagueId }),
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
     continueSavedGame: () => sendWithAck('continue_saved', {}),

@@ -16,11 +16,21 @@ import { RateLimiter, allowedSocketOrigin, requestLimit, securityHeaders, SECURI
 import { AdminAuth } from './adminAuth.js'
 import { registerSecurityConfig, type RoomEntryVerifier } from './turnstile.js'
 import { pochaBotAction } from './testBot.js'
+import { beginPersonalMatch, registerPersonalStats } from './personalStats.js'
+import { registerLeagues } from './leagues.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
 const ACTION_QUEUE_FULL = 'Too many pending actions. Please wait before trying again.'
 const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are paused; please reconnect after the server recovers.'
+const leagueErrorMessages: Record<string, string> = {
+  league_not_found: 'Esta liga no está disponible. / This league is unavailable.',
+  league_closed: 'Esta liga está cerrada. Elige otra o juega una amistosa. / This league is closed. Choose another league or play a friendly game.',
+  league_wrong_game: 'La liga debe ser del mismo juego que la sala. / The league must use the same game as the room.',
+  league_members_only: 'Todos deben iniciar sesión y unirse a la liga antes de empezar. / Everyone must sign in and join the league before starting.',
+  league_duplicate_account: 'Cada jugador debe utilizar una cuenta diferente. / Each player must use a different account.',
+}
+const leagueErrorMessage = (code: string) => leagueErrorMessages[code] ?? 'No se puede jugar esta partida de liga. / This league game is unavailable.'
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
@@ -43,6 +53,30 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   })
   registerRoomInvites(app, repository, isHealthy)
   options.membership?.registerRoutes(app, options.origins)
+  registerPersonalStats(app, {
+    repository,
+    authenticate: token => options.membership?.authenticate(token)?.id ?? null,
+    isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
+  })
+  registerLeagues(app, {
+    repository,
+    authenticate: token => options.membership?.authenticate(token) ?? null,
+    isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
+    runMutation: work => new Promise((resolve, reject) => {
+      if (closing || pending >= 200 || !isHealthy()) { reject(new Error('Server unavailable')); return }
+      enqueue(async () => {
+        try {
+          const value = await work()
+          for (const [roomId, record] of repository.records) if (record.leagueId) broadcast(roomId)
+          resolve(value)
+        }
+        catch (error) {
+          reject(error)
+          if (repository.failed) throw error
+        }
+      }, undefined, () => reject(new Error('Server unavailable')))
+    }),
+  })
   if (!options.membership) app.get('/api/membership/config', (_req, res) => res.set('Cache-Control', 'no-store').json({
     enabled: false, loginEnabled: false, checkoutEnabled: false, price: null,
     ads: options.adConfig ?? { provider: 'disabled', publisherId: null },
@@ -166,7 +200,9 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     const account = options.membership.authenticate(socket.data.membershipToken)
     if (!account) return null
     // These fields are private to this socket; never put the account in room state.
-    return { id: account.id, email: account.email, adFree: account.adFree, source: account.source, expiresAt: account.expiresAt }
+    return { id: account.id, email: account.email, adFree: account.adFree, source: account.source, expiresAt: account.expiresAt,
+      ...(account.name === undefined ? {} : { name: account.name }),
+      ...(account.hasPassword === undefined ? {} : { hasPassword: account.hasPassword }) }
   }
 
   function roomExempt(room: Room) {
@@ -252,6 +288,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
         socket.emit('state', playerState(repository.get(roomId)!, socket.data.playerId))
+        const leagueId = repository.get(roomId)?.leagueId
+        socket.emit('league_state', { roomId, league: leagueId ? repository.getLeagueSummary(leagueId) : null })
       }
     }
     broadcastGate(roomId)
@@ -417,6 +455,31 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       ack?.({ ok: payload?.token == null || account !== null, account })
     })
 
+    on('set_league', async (payload, ack) => {
+      const { roomId, playerId } = socket.data
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
+      const current = repository.get(roomId)
+      if (!current) { reject('Room not found', ack); return }
+      if (current.room.players[0]?.id !== playerId || !['lobby', 'game_end'].includes(current.room.phase) || current.manualPaused) {
+        reject('Solo el anfitrión puede cambiar la liga antes o después de la partida. / Only the host can change the league before or after the game.', ack); return
+      }
+      const leagueId = payload?.leagueId
+      if (leagueId !== null && (typeof leagueId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(leagueId))) {
+        reject('Liga no válida. / Invalid league.', ack, 'league_not_found'); return
+      }
+      if (leagueId !== null) {
+        const error = repository.validateLeagueSelection(leagueId, current.room.gameType, membershipAccount(socket)?.id ?? null)
+        if (error) { reject(leagueErrorMessage(error), ack, error); return }
+      }
+      const next = cloneRecord(current)
+      if (leagueId === null) delete next.leagueId
+      else next.leagueId = leagueId
+      try { await repository.commit(roomId, next) }
+      catch (error) { ack?.({ ok: false, error: ACTION_SAVE_FAILED }); throw error }
+      broadcast(roomId)
+      ack?.({ ok: true })
+    })
+
     for (const event of ['ad_begin', 'ad_complete'] as const) on(event, async (payload, ack) => {
       const { roomId, playerId } = socket.data
       if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
@@ -441,6 +504,16 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
         reject('Everyone must complete the short ad break before the game can start.', ack, 'ad_pending')
         return
       }
+      const dealsNewGame = event === 'start' || (event === 'rematch' && current.room.gameType !== 'pocha')
+      if (dealsNewGame && current.leagueId) {
+        const error = repository.validateLeagueStart(current.leagueId, current.room.gameType,
+          current.room.players.map(player => {
+            const memberId = activeSockets.get(player.id)
+            const member = memberId && io.sockets.sockets.get(memberId)
+            return member && member.connected && member.data.roomId === roomId ? membershipAccount(member)?.id ?? null : null
+          }), current.sessions.some(session => session.bot))
+        if (error) { reject(leagueErrorMessage(error), ack, error); return }
+      }
       const next = cloneRecord(current)
       const common = ['set_seat', 'start', 'next_round', 'rematch']
       const pochaOnly = ['pocha_action', 'pocha_configure']
@@ -449,6 +522,18 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       }
       const result = apply(next.room, playerId, payload)
       if (!result.ok) { reject(result.error ?? 'Action unavailable', ack); return }
+      if ((event === 'start' || event === 'rematch') && next.room.phase === 'playing') {
+        // Only the authenticated account controlling each seat at game start
+        // owns its results; names and client-supplied IDs are not identity.
+        const accounts = Object.fromEntries(next.room.players.map(player => {
+          const memberId = activeSockets.get(player.id)
+          const member = memberId && io.sockets.sockets.get(memberId)
+          return [player.id, member && member.connected && member.data.roomId === roomId
+            ? membershipAccount(member)?.id ?? null : null]
+        }))
+        beginPersonalMatch(next, accounts)
+      }
+      if (event.startsWith('debug_') && next.match) next.match.eligible = false
       try {
         await repository.commit(roomId, next)
       } catch (error) {
@@ -637,7 +722,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
             pauseRoom(next)
             return next
           })
-          await store.save({ version: 1, savedAt: Date.now(), rooms: records.map(r => ({ ...r, room: r.room.toSnapshot() })) })
+          await repository.saveShutdown(records)
         }
       } finally {
         await new Promise<void>(resolve => io.close(() => resolve()))

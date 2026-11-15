@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type MembershipStorage } from '../src/lib/membershipSession.ts'
+import { isMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type MembershipStorage } from '../src/lib/membershipSession.ts'
 
 function storage(): MembershipStorage {
   const data = new Map<string, string>()
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } }
 }
 const credentials = { token: 'private-session-token-at-least-32-characters', expiresAt: 2000 }
+
+test('only complete, unexpired sign-in responses can become account sessions', () => {
+  const valid = { token: 'a'.repeat(43), expiresAt: 2000, account: { id: 'account-1', email: 'ana@example.com', name: 'Ana', hasPassword: true, adFree: false, source: null, expiresAt: null } }
+  assert.equal(isMembershipSession(valid, 1000), true)
+  assert.equal(isMembershipSession({ ...valid, account: { ...valid.account, name: undefined, hasPassword: undefined } }, 1000), true, 'legacy email-code accounts remain valid')
+  for (const invalid of [null, {}, { ...valid, token: 'short' }, { ...valid, expiresAt: 999 }, { ...valid, account: null },
+    { ...valid, account: { ...valid.account, email: '' } }, { ...valid, account: { ...valid.account, adFree: 'yes' } },
+    { ...valid, account: { ...valid.account, name: ' ' } }, { ...valid, account: { ...valid.account, hasPassword: 'yes' } }]) {
+    assert.equal(isMembershipSession(invalid, 1000), false)
+  }
+})
 
 test('membership stores credentials and strips cached entitlement/account data', () => {
   const store = storage()

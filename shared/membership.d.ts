@@ -2,6 +2,8 @@
 export interface MembershipAccount {
   id: string
   email: string
+  name?: string
+  hasPassword?: boolean
   adFree: boolean
   source: 'purchase' | 'gift' | null
   expiresAt: number | null
@@ -10,6 +12,7 @@ export interface MembershipAccount {
 export interface MembershipConfig {
   enabled: boolean
   loginEnabled: boolean
+  passwordLoginEnabled?: boolean
   checkoutEnabled: boolean
   price: { amount: number; currency: string } | null
   prices?: { amount: number; currency: string }[]

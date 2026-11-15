@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useId, useCallback, useMemo, type CSSProperties } from 'react'
+import { useState, useEffect, useRef, useId, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionResult, Card as CardType, GameState, Meld, Player } from '../types'
 import type { Lang } from '../i18n'
@@ -106,6 +106,7 @@ interface GameBoardProps {
   onRematch: () => void
   onDebugSkipRound?: () => void
   onSetSeat?: (seatIndex: number) => void
+  lobbyExtra?: ReactNode
 }
 
 export function GameBoard(props: GameBoardProps) {
@@ -136,6 +137,7 @@ function GameBoardContent({
   onRematch,
   onDebugSkipRound,
   onSetSeat,
+  lobbyExtra,
 }: GameBoardProps) {
   const arrangeHintId = useId()
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
@@ -614,6 +616,7 @@ function GameBoardContent({
             {roomLinkCopied ? t(lang, 'roomLinkCopied') : t(lang, 'copyRoomLink')}
           </button>
         </div>
+        {lobbyExtra}
         <div className="conti-lobby-grid">
           <section className="conti-lobby-seats" aria-labelledby="conti-seats-title">
             <h2 id="conti-seats-title">{t(lang, 'chooseSeat')}</h2>
@@ -787,6 +790,7 @@ function GameBoardContent({
           )}
           <RoundRecap result={state.roundHistory?.find(r => r.round === state.round)} lang={lang} />
           <ScoreHistory state={state} lang={lang} />
+          {lobbyExtra}
           {isHost ? <button className="game-next-round-btn" onClick={onRematch} disabled={!isConnected || state.players.length < 2}>{lang === 'es' ? 'Jugar de nuevo con este grupo' : 'Play again with this group'}</button>
             : <p className="game-wait-host-msg">{lang === 'es' ? 'El anfitrión puede iniciar otra partida con este grupo.' : 'The host can start another game with this group.'}</p>}
         </div>

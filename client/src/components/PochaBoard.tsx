@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PochaAction, PochaDeckSize, PochaGameState, PochaLobbyUpdate, PochaSettings, SpanishSuit } from '@shared/pochaTypes'
 import { POCHA_DECK_SIZES, POCHA_TRICK_ORDER, POCHA_TRICK_REVIEW_MS } from '@shared/pochaTypes'
 import { isPochaAuctionRound, legalCards, pochaScoring, roundSchedule, winningCard } from '@shared/pochaRules'
@@ -25,10 +25,11 @@ export interface PochaBoardProps {
   onPlayCard?: (cardId: string) => void
   isConnected?: boolean
   error?: string | null
+  lobbyExtra?: ReactNode
 }
 
 export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, onStart, onConfigure, onNextRound, onRematch,
-  onBid, onPlayCard, isConnected = true, error }: PochaBoardProps) {
+  onBid, onPlayCard, isConnected = true, error, lobbyExtra }: PochaBoardProps) {
   const L = (es: string, en: string) => lang === 'es' ? es : en
   const [selected, setSelected] = useState<string | null>(null)
   const [bid, setBid] = useState<number | null>(null)
@@ -96,6 +97,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
     {state.phase === 'lobby' ? <main className="pocha-lobby">
       <header className="pocha-title"><span className="pocha-eyebrow">{L('LA MESA ESTÁ ABIERTA', 'THE TABLE IS OPEN')}</span>
         <h1>La Pocha</h1><p>{L('Pide con cabeza. Juega tus cartas.', 'Make your prediction. Play your hand.')}</p></header>
+      {lobbyExtra}
       <div className="pocha-lobby-grid">
         <section className="pocha-panel">
           <h2>{L('Tu mesa', 'Your table')} <small>{state.players.length}/10</small></h2>
@@ -133,6 +135,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
             {state.phase === 'game_end' && <p>{L('Mayor puntuación · ', 'Top score · ')}{Math.max(...state.players.map(p => p.score))} pt</p>}
             {state.lastTrick && <p className="pocha-result-last-winner">{L('Última baza para ', 'Last trick won by ')}<strong>{name(state.lastTrick.winnerId)}</strong></p>}
             <ResultTable state={state} lang={lang} />
+            {state.phase === 'game_end' && lobbyExtra}
             {isHost ? <button className="pocha-primary" disabled={!available} onClick={state.phase === 'game_end' ? onRematch : onNextRound}>
               {state.phase === 'game_end' ? L('Preparar otra partida', 'Set up another game') : L('Siguiente ronda', 'Next round') + ' · ' + state.schedule[state.handNumber] + L(' cartas', ' cards')}</button>
               : <p>{L('El administrador continuará la partida.', 'The host will continue the game.')}</p>}

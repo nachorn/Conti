@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, type ReactNode } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
@@ -17,6 +17,7 @@ import type { ActionResult } from './types'
 import { Dashboard } from './components/Dashboard'
 import { useMembership } from './useMembership'
 import { Membership } from './components/Membership'
+import { LeagueRoomSetup } from './components/LeagueRoomSetup'
 import { AdGate } from './components/AdGate'
 import { RoomChat } from './components/RoomChat'
 import { useTurnSound } from './useTurnSound'
@@ -55,6 +56,7 @@ function GameApp() {
   const continentalMock = useContinentalMockState()
   const {
     state,
+    roomLeague, configureLeague,
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, continueSavedGame, deviceStorageAvailable,
     adGate,
@@ -242,6 +244,11 @@ function GameApp() {
           path="/game"
           element={
             <GamePage
+              lobbyExtra={state && <LeagueRoomSetup token={membership.token} roomLeague={roomLeague}
+                gameType={state.gameType ?? 'continental'} isHost={state.players[0]?.id === socketId}
+                nextGame={state.phase === 'game_end'}
+                connected={isConnected} lang={lang} onSetLeague={configureLeague}
+                onOpenAccount={() => setMembershipOpen(true)} />}
               onContinueSaved={continueSavedGame}
               pochaAction={pochaAction}
               configurePocha={configurePocha}
@@ -295,6 +302,7 @@ function GameApp() {
 
 /** Renders the correct board for /game; redirects to / if not in a game. */
 function GamePage({
+  lobbyExtra,
   onContinueSaved,
   pochaAction,
   configurePocha,
@@ -325,6 +333,7 @@ function GamePage({
   rematch,
   setSeat,
 }: {
+  lobbyExtra?: ReactNode
   onContinueSaved: () => Promise<ActionResult>
   pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
   configurePocha: (update: PochaLobbyUpdate) => Promise<ActionResult>
@@ -406,12 +415,14 @@ function GamePage({
     const gameType = state.gameType ?? 'continental'
     if (gameType === 'pocha') {
       return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
+        lobbyExtra={lobbyExtra}
         isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction} onConfigure={configurePocha}
         onStart={() => start()} onNextRound={nextRound} onRematch={rematch} /> : null
     }
     return (
       <GameBoard
         state={state}
+        lobbyExtra={lobbyExtra}
         socketId={socketId}
         isConnected={isConnected}
         lang={lang}

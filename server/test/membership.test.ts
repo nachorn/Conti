@@ -380,7 +380,7 @@ test('disabled configuration never creates accounts, enables ads, or exposes a p
   const store = new MemoryStore()
   const membership = await new MembershipService({ store, authSecret: SECRET }).load()
   t.after(() => membership.close())
-  assert.deepEqual(await membership.config(), { enabled: true, loginEnabled: false, checkoutEnabled: false, price: null, prices: [], ads: { provider: 'disabled', publisherId: null } })
+  assert.deepEqual(await membership.config(), { enabled: true, loginEnabled: false, passwordLoginEnabled: true, checkoutEnabled: false, price: null, prices: [], ads: { provider: 'disabled', publisherId: null } })
   await assert.rejects(membership.requestCode('player@example.com', 'en', 'ip'), /email_not_configured/)
 })
 

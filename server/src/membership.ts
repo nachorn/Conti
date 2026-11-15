@@ -4,13 +4,15 @@ import { resolve } from 'node:path'
 import { FileSnapshotStore, PostgresSnapshotStore, type SnapshotStore } from './storage.js'
 import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
+import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
-type Account = { id: string; email: string; createdAt: number }
+type Account = { id: string; email: string; createdAt: number; name?: string; passwordHash?: string }
 type Session = { accountId: string; tokenHash: string; expiresAt: number }
-type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number }
+type ChallengePurpose = 'login' | 'register' | 'reset'
+type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
 type Limit = { key: string; count: number; until: number }
 type Order = { id: string; accountId: string; priceId: string; amount: number; currency: string; createdAt: number; sessionId: string | null; paymentIntentId: string | null; url: string | null; state: 'pending' | 'paid' | 'revoked' }
 type Data = { version: 1; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[] }
@@ -46,6 +48,11 @@ export function normalizeMembershipEmail(value: unknown): string | null {
 class MembershipError extends Error {
   constructor(readonly code: string, readonly status = 400) { super(code) }
 }
+export function normalizeAccountName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim()
+  return name.length > 0 && name.length <= 24 && !/[\u0000-\u001f\u007f]/.test(name) ? name : null
+}
 const empty = (): Data => ({ version: 1, accounts: [], sessions: [], challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [] })
 function decode(value: unknown): Data {
   if (value === null) return empty()
@@ -55,12 +62,16 @@ function decode(value: unknown): Data {
     if (!Array.isArray(value[field]) || value[field].length > 100_000) return fail()
   }
   const v = value as Data
-  if (!v.accounts.every(a => object(a) && id(a.id) && normalizeMembershipEmail(a.email) === a.email && time(a.createdAt)) ||
+  if (!v.accounts.every(a => object(a) && id(a.id) && normalizeMembershipEmail(a.email) === a.email && time(a.createdAt) &&
+      (a.name === undefined || normalizeAccountName(a.name) === a.name) &&
+      (a.passwordHash === undefined || isStoredPasswordHash(a.passwordHash))) ||
       new Set(v.accounts.map(a => a.id)).size !== v.accounts.length || new Set(v.accounts.map(a => a.email)).size !== v.accounts.length) return fail()
   const accountIds = new Set(v.accounts.map(a => a.id))
   if (!v.sessions.every(s => object(s) && accountIds.has(s.accountId) && digest(s.tokenHash) && time(s.expiresAt)) ||
       new Set(v.sessions.map(s => s.tokenHash)).size !== v.sessions.length ||
-      !v.challenges.every(c => object(c) && normalizeMembershipEmail(c.email) === c.email && id(c.salt) && digest(c.codeHash) && time(c.expiresAt) && time(c.attempts) && c.attempts <= 5) ||
+      !v.challenges.every(c => object(c) && normalizeMembershipEmail(c.email) === c.email && id(c.salt) && digest(c.codeHash) && time(c.expiresAt) && time(c.attempts) && c.attempts <= 5 &&
+        (c.purpose === undefined || ['login', 'register', 'reset'].includes(c.purpose)) &&
+        (c.purpose === 'register' ? normalizeAccountName(c.name) === c.name && isStoredPasswordHash(c.passwordHash) && digest(c.registrationTokenHash) : c.name === undefined && c.passwordHash === undefined && c.registrationTokenHash === undefined)) ||
       !v.limits.every(l => object(l) && digest(l.key) && time(l.count) && time(l.until)) ||
       !v.grants.every(g => object(g) && normalizeMembershipEmail(g.email) === g.email && typeof g.active === 'boolean' && (g.expiresAt === null || time(g.expiresAt)) && time(g.grantedAt)) ||
       new Set(v.grants.map(g => g.email)).size !== v.grants.length ||
@@ -104,6 +115,7 @@ export class MembershipService {
   private pending = 0
   private failed = false
   private listeners = new Set<() => void>()
+  private resetDeliveries = new Set<Promise<void>>()
   private priceCache: { prices: StripePrice[]; at: number } | null = null
   private priceLoading: Promise<StripePrice[]> | null = null
   private readonly now: () => number
@@ -127,7 +139,16 @@ export class MembershipService {
     if (firstFailure) this.notify()
     throw new MembershipError('server_unavailable', 503)
   }
-  async close() { await this.queue; await this.options.store.close() }
+  async close() {
+    await this.queue
+    if (this.resetDeliveries.size) {
+      let timer: NodeJS.Timeout | undefined
+      try {
+        await Promise.race([Promise.allSettled(this.resetDeliveries), new Promise<void>(resolve => { timer = setTimeout(resolve, 15_000) })])
+      } finally { if (timer) clearTimeout(timer) }
+    }
+    await this.options.store.close()
+  }
   private mutate<T>(work: (data: Data) => T | Promise<T>, notify = true): Promise<T> {
     if (this.pending >= 100) return Promise.reject(new MembershipError('rate_limited', 429))
     this.pending++
@@ -150,7 +171,7 @@ export class MembershipService {
   private publicAccount(account: Account, data = this.data): MembershipAccount {
     const purchased = data.orders.some(o => o.accountId === account.id && o.state === 'paid')
     const gift = data.grants.find(g => g.email === account.email && g.active && (g.expiresAt === null || g.expiresAt > this.now()))
-    return { id: account.id, email: account.email, adFree: purchased || !!gift, source: purchased ? 'purchase' : gift ? 'gift' : null, expiresAt: purchased ? null : gift?.expiresAt ?? null }
+    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: purchased || !!gift, source: purchased ? 'purchase' : gift ? 'gift' : null, expiresAt: purchased ? null : gift?.expiresAt ?? null }
   }
   authenticate(token: string): MembershipAccount | null {
     if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
@@ -181,49 +202,169 @@ export class MembershipService {
     const key = createHmac('sha256', this.options.authSecret).update(label).digest('hex')
     return this.data.limits.some(l => l.key === key && l.until > this.now() && l.count >= count)
   }
-  private codeHash(email: string, salt: string, code: string) { return createHmac('sha256', this.options.authSecret).update(`${email}\0${salt}\0${code}`).digest('hex') }
+  private codeHash(email: string, salt: string, code: string, purpose?: ChallengePurpose) {
+    // Old snapshots omit purpose and keep their original digest readable.
+    return createHmac('sha256', this.options.authSecret).update(`${purpose === undefined ? '' : purpose + '\0'}${email}\0${salt}\0${code}`).digest('hex')
+  }
+  private async reserveSend(email: string, remoteAddress: string): Promise<void> {
+    if (this.limited(`send-ip:${remoteAddress}`, 15) || this.limited('send-global', 100) || this.limited(`send-email:${email}`, 3)) throw new MembershipError('rate_limited', 429)
+    const allowed = await this.mutate(data => {
+      const ipOk = this.limit(data, `send-ip:${remoteAddress}`, 15, 15 * 60_000)
+      const globalOk = this.limit(data, 'send-global', 100, 60 * 60_000)
+      const emailOk = this.limit(data, `send-email:${email}`, 3, 15 * 60_000)
+      return ipOk && globalOk && emailOk
+    }, false)
+    if (!allowed) throw new MembershipError('rate_limited', 429)
+  }
+  private async passwordWork<T>(work: () => Promise<T>): Promise<T> {
+    try { return await work() }
+    catch (error) { if (error instanceof PasswordWorkBusy) throw new MembershipError('rate_limited', 429); throw error }
+  }
+  private async challenge(email: string, lang: Language, purpose: ChallengePurpose, registration?: { name: string; passwordHash: string; registrationTokenHash: string }): Promise<void> {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+    const send = await this.mutate(data => {
+      const exists = data.accounts.some(a => a.email === email)
+      // A signup request can never replace an existing verified account.
+      // Unknown reset emails get the same public acknowledgement, without a new account.
+      if ((purpose === 'register' && exists) || (purpose === 'reset' && !exists)) return false
+      const salt = randomBytes(16).toString('hex')
+      data.challenges = data.challenges.filter(c => c.email !== email)
+      data.challenges.push({ email, salt, codeHash: this.codeHash(email, salt, code, purpose), expiresAt: this.now() + 10 * 60_000,
+        attempts: 0, purpose, ...(registration ?? {}) })
+      return true
+    }, false)
+    if (send) {
+      if (purpose === 'reset') {
+        // SMTP/provider latency must not reveal whether a recovery email exists.
+        // Delivery is bounded, independent of account/game mutations and never logged.
+        if (this.resetDeliveries.size < 16) {
+          const delivery = Promise.resolve().then(() => this.options.sendCode!(email, code, lang))
+            .catch(() => undefined).finally(() => { this.resetDeliveries.delete(delivery) })
+          this.resetDeliveries.add(delivery)
+        }
+        return
+      }
+      try { await this.options.sendCode!(email, code, lang) } catch { throw new MembershipError('email_unavailable', 503) }
+    }
+  }
   async requestCode(emailValue: unknown, lang: Language, remoteAddress: string): Promise<void> {
     if (!this.options.sendCode) throw new MembershipError('email_not_configured', 503)
     const email = normalizeMembershipEmail(emailValue)
     if (!email) throw new MembershipError('invalid_email')
-    if (this.limited(`send-ip:${remoteAddress}`, 15) || this.limited('send-global', 100) || this.limited(`send-email:${email}`, 3)) throw new MembershipError('rate_limited', 429)
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-    const allowed = await this.mutate(data => {
-      const ipOk = this.limit(data, `send-ip:${remoteAddress}`, 15, 15 * 60_000)
-      const globalOk = this.limit(data, 'send-global', 100, 60 * 60_000)
-      if (!ipOk || !globalOk) return false
-      if (!this.limit(data, `send-email:${email}`, 3, 15 * 60_000)) return false
-      const salt = randomBytes(16).toString('hex')
-      data.challenges = data.challenges.filter(c => c.email !== email)
-      data.challenges.push({ email, salt, codeHash: this.codeHash(email, salt, code), expiresAt: this.now() + 10 * 60_000, attempts: 0 })
-      return true
-    }, false)
-    if (!allowed) throw new MembershipError('rate_limited', 429)
-    try { await this.options.sendCode(email, code, lang) } catch { throw new MembershipError('email_unavailable', 503) }
+    await this.reserveSend(email, remoteAddress)
+    await this.challenge(email, lang, 'login')
   }
-  async verifyCode(emailValue: unknown, code: unknown, remoteAddress: string): Promise<MembershipSession> {
+  async register(nameValue: unknown, emailValue: unknown, password: unknown, lang: Language, remoteAddress: string): Promise<string> {
+    if (!this.options.sendCode) throw new MembershipError('email_not_configured', 503)
+    const email = normalizeMembershipEmail(emailValue), name = normalizeAccountName(nameValue)
+    if (!email) throw new MembershipError('invalid_email')
+    if (!name) throw new MembershipError('invalid_name')
+    if (!passwordIsAcceptable(password)) throw new MembershipError('invalid_password')
+    await this.reserveSend(email, remoteAddress)
+    const passwordHash = await this.passwordWork(() => hashPassword(password))
+    const registrationToken = randomBytes(32).toString('base64url')
+    await this.challenge(email, lang, 'register', { name, passwordHash, registrationTokenHash: hash(registrationToken) })
+    return registrationToken
+  }
+  async requestPasswordReset(emailValue: unknown, lang: Language, remoteAddress: string): Promise<void> {
+    if (!this.options.sendCode) throw new MembershipError('email_not_configured', 503)
+    const email = normalizeMembershipEmail(emailValue)
+    if (!email) throw new MembershipError('invalid_email')
+    // Apply backpressure before looking up the email, with the same response for everyone.
+    if (this.resetDeliveries.size >= 16) throw new MembershipError('rate_limited', 429)
+    await this.reserveSend(email, remoteAddress)
+    await this.challenge(email, lang, 'reset')
+  }
+  private issueSession(data: Data, account: Account): MembershipSession {
+    const token = randomBytes(32).toString('base64url'), expiresAt = this.now() + 30 * DAY
+    const previous = data.sessions.filter(s => s.accountId === account.id).slice(-9)
+    data.sessions = data.sessions.filter(s => s.accountId !== account.id).concat(previous, { accountId: account.id, tokenHash: hash(token), expiresAt })
+    return { token, expiresAt, account: this.publicAccount(account, data) }
+  }
+  private async reserveVerify(remoteAddress: string): Promise<void> {
+    if (this.limited(`verify-ip:${remoteAddress}`, 40)) throw new MembershipError('rate_limited', 429)
+    const allowed = await this.mutate(data => this.limit(data, `verify-ip:${remoteAddress}`, 40, 15 * 60_000), false)
+    if (!allowed) throw new MembershipError('rate_limited', 429)
+  }
+  private consumeChallenge(data: Data, email: string, code: string, purpose: ChallengePurpose, registrationToken?: unknown): Challenge | null {
+    const challenge = data.challenges.find(c => c.email === email)
+    if (!challenge || challenge.expiresAt <= this.now() || challenge.attempts >= 5 ||
+        (challenge.purpose ?? 'login') !== purpose) return null
+    challenge.attempts++
+    if (purpose === 'register' && (typeof registrationToken !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(registrationToken) ||
+        !equal(challenge.registrationTokenHash!, hash(registrationToken)))) return null
+    if (!equal(challenge.codeHash, this.codeHash(email, challenge.salt, code, challenge.purpose))) return null
+    data.challenges = data.challenges.filter(c => c !== challenge)
+    return challenge
+  }
+  async verifyCode(emailValue: unknown, code: unknown, remoteAddress: string, purpose: 'login' | 'register' = 'login', registrationToken?: unknown): Promise<MembershipSession> {
     const email = normalizeMembershipEmail(emailValue)
     if (!email || typeof code !== 'string' || !/^\d{6}$/.test(code)) throw new MembershipError('invalid_code')
-    if (this.limited(`verify-ip:${remoteAddress}`, 40)) throw new MembershipError('rate_limited', 429)
-    if (!this.data.challenges.some(c => c.email === email && c.expiresAt > this.now() && c.attempts < 5)) throw new MembershipError('invalid_code')
+    if (purpose !== 'login' && purpose !== 'register') throw new MembershipError('invalid_code')
+    await this.reserveVerify(remoteAddress)
     const result = await this.mutate(data => {
-      if (!this.limit(data, `verify-ip:${remoteAddress}`, 40, 15 * 60_000)) return { error: 'rate_limited' }
-      const challenge = data.challenges.find(c => c.email === email)
-      if (!challenge || challenge.attempts >= 5) return { error: 'invalid_code' }
-      challenge.attempts++
-      if (!equal(challenge.codeHash, this.codeHash(email, challenge.salt, code))) return { error: 'invalid_code' }
-      data.challenges = data.challenges.filter(c => c !== challenge)
+      const challenge = this.consumeChallenge(data, email, code, purpose, registrationToken)
+      if (!challenge) return null
       let account = data.accounts.find(a => a.email === email)
-      if (!account) { account = { id: randomUUID(), email, createdAt: this.now() }; data.accounts.push(account) }
-      const token = randomBytes(32).toString('base64url')
-      const expiresAt = this.now() + 30 * DAY
-      const previous = data.sessions.filter(s => s.accountId === account!.id).slice(-9)
-      data.sessions = data.sessions.filter(s => s.accountId !== account!.id).concat(previous, { accountId: account.id, tokenHash: hash(token), expiresAt })
-      return { session: { token, expiresAt, account: this.publicAccount(account, data) } }
+      if (!account) {
+        account = { id: randomUUID(), email, createdAt: this.now(),
+          ...(challenge.purpose === 'register' ? { name: challenge.name!, passwordHash: challenge.passwordHash! } : {}) }
+        data.accounts.push(account)
+      }
+      return this.issueSession(data, account)
     }, false)
-    if (result.error || !result.session) throw new MembershipError(result.error ?? 'invalid_code', result.error === 'rate_limited' ? 429 : 400)
+    if (!result) throw new MembershipError('invalid_code')
     this.notify()
-    return result.session
+    return result
+  }
+  async passwordLogin(emailValue: unknown, password: unknown, remoteAddress: string): Promise<MembershipSession> {
+    const email = normalizeMembershipEmail(emailValue)
+    if (!email || typeof password !== 'string' || !password.length || Buffer.byteLength(password, 'utf8') > 512) throw new MembershipError('invalid_credentials', 401)
+    if (this.limited(`password-ip:${remoteAddress}`, 30) || this.limited(`password-email:${email}`, 10) || this.limited('password-global', 200)) throw new MembershipError('rate_limited', 429)
+    const allowed = await this.mutate(data => {
+      const ipOk = this.limit(data, `password-ip:${remoteAddress}`, 30, 15 * 60_000)
+      const emailOk = this.limit(data, `password-email:${email}`, 10, 15 * 60_000)
+      const globalOk = this.limit(data, 'password-global', 200, 15 * 60_000)
+      return ipOk && emailOk && globalOk
+    }, false)
+    if (!allowed) throw new MembershipError('rate_limited', 429)
+    const account = this.data.accounts.find(a => a.email === email), expectedHash = account?.passwordHash
+    const correct = await this.passwordWork(() => verifyPassword(password, expectedHash))
+    if (!account || !expectedHash || !correct) throw new MembershipError('invalid_credentials', 401)
+    const session = await this.mutate(data => {
+      const current = data.accounts.find(a => a.id === account.id)
+      // A simultaneous reset invalidates an in-flight password comparison too.
+      if (!current || current.passwordHash !== expectedHash) return null
+      return this.issueSession(data, current)
+    }, false)
+    if (!session) throw new MembershipError('invalid_credentials', 401)
+    this.notify()
+    return session
+  }
+  async confirmPasswordReset(emailValue: unknown, code: unknown, password: unknown, remoteAddress: string): Promise<MembershipSession> {
+    const email = normalizeMembershipEmail(emailValue)
+    if (!email || typeof code !== 'string' || !/^\d{6}$/.test(code)) throw new MembershipError('invalid_code')
+    if (!passwordIsAcceptable(password)) throw new MembershipError('invalid_password')
+    await this.reserveVerify(remoteAddress)
+    // Verify and claim the one-use challenge before expensive work, but do not
+    // change a password or session until the resulting hash is durable.
+    const claim = await this.mutate(data => {
+      const challenge = this.consumeChallenge(data, email, code, 'reset')
+      const account = data.accounts.find(a => a.email === email)
+      return challenge && account ? { accountId: account.id, previousHash: account.passwordHash, challengeHash: challenge.codeHash } : null
+    }, false)
+    if (!claim) throw new MembershipError('invalid_code')
+    const passwordHash = await this.passwordWork(() => hashPassword(password))
+    const session = await this.mutate(data => {
+      const account = data.accounts.find(a => a.id === claim.accountId)
+      if (!account || account.passwordHash !== claim.previousHash) return null
+      account.passwordHash = passwordHash
+      data.sessions = data.sessions.filter(s => s.accountId !== account.id)
+      return this.issueSession(data, account)
+    }, false)
+    if (!session) throw new MembershipError('invalid_code')
+    this.notify()
+    return session
   }
   async grant(emailValue: unknown, expiresAt: unknown) {
     const email = normalizeMembershipEmail(emailValue)
@@ -277,7 +418,7 @@ export class MembershipService {
   }
   async config(): Promise<MembershipConfig> {
     const prices = (await this.prices()).map(({ amount, currency }) => ({ amount, currency }))
-    return { enabled: true, loginEnabled: !!this.options.sendCode, checkoutEnabled: !!prices.length && !!this.options.sendCode && this.isHealthy(), price: prices[0] ?? null, prices, ads: this.options.ads ?? { provider: 'disabled', publisherId: null } }
+    return { enabled: true, loginEnabled: !!this.options.sendCode, passwordLoginEnabled: true, checkoutEnabled: !!prices.length && !!this.options.sendCode && this.isHealthy(), price: prices[0] ?? null, prices, ads: this.options.ads ?? { provider: 'disabled', publisherId: null } }
   }
   async checkout(token: string, currency?: unknown): Promise<string> {
     const account = this.authenticate(token)
@@ -348,7 +489,17 @@ export class MembershipService {
       // untrusted unless deployment explicitly configures a trusted proxy.
       await this.requestCode(req.body?.email, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown'); res.json({ ok: true })
     }))
-    app.post('/api/membership/verify', json, run(async (req, res) => res.json(await this.verifyCode(req.body?.email, req.body?.code, req.ip ?? 'unknown'))))
+    app.post('/api/membership/verify', json, run(async (req, res) => res.json(await this.verifyCode(req.body?.email, req.body?.code, req.ip ?? 'unknown', req.body?.purpose, req.body?.registrationToken))))
+    app.post('/api/membership/register', json, run(async (req, res) => {
+      const registrationToken = await this.register(req.body?.name, req.body?.email, req.body?.password, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown')
+      res.json({ ok: true, registrationToken })
+    }))
+    app.post('/api/membership/password-login', json, run(async (req, res) => res.json(await this.passwordLogin(req.body?.email, req.body?.password, req.ip ?? 'unknown'))))
+    app.post('/api/membership/password-reset', json, run(async (req, res) => {
+      await this.requestPasswordReset(req.body?.email, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown')
+      res.json({ ok: true })
+    }))
+    app.post('/api/membership/password-reset/confirm', json, run(async (req, res) => res.json(await this.confirmPasswordReset(req.body?.email, req.body?.code, req.body?.password, req.ip ?? 'unknown'))))
     app.get('/api/membership/me', run((req, res) => {
       const account = this.requireAccount(req)
       const session = this.data.sessions.find(s => s.tokenHash === hash(this.token(req)))!

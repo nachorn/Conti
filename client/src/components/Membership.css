@@ -1,9 +1,9 @@
 .membership-toolbar { display: flex; justify-content: flex-end; padding: .35rem max(.8rem, env(safe-area-inset-right, 0px)) .1rem; background: var(--felt-dark); }
 .membership-account-button { display: inline-flex; align-items: center; gap: .45rem; color: var(--cream-muted); border: 1px solid rgba(245,240,225,.14); background: transparent; font-size: .78rem; min-height: 36px; padding: .35rem .65rem; }
 .membership-badge { color: var(--gold-bright); font-size: .7rem; }
-.membership-dialog { width: min(480px, calc(100% - 1.5rem)); max-height: calc(100dvh - 2rem); padding: clamp(1.2rem, 4vw, 2rem); color: var(--cream); background: #0a2b1c; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 90px #0009; overflow-y: auto; }
+.membership-dialog { width: min(640px, calc(100% - 1.5rem)); max-height: calc(100dvh - 2rem); padding: clamp(1.2rem, 4vw, 2rem); color: var(--cream); background: #0a2b1c; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 90px #0009; overflow-y: auto; }
 .membership-dialog::backdrop { background: #00180ed9; backdrop-filter: blur(5px); }
-.membership-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.membership-header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #0a2b1c; }
 .membership-eyebrow { color: var(--gold-bright); text-transform: uppercase; letter-spacing: .14em; font-size: .7rem; }
 .membership-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin: -.5rem -.6rem -.5rem 0; padding: .4rem; background: transparent; color: var(--cream-muted); font-size: 1.7rem; }
 .membership-dialog h2 { font-size: 2rem; line-height: 1.12; margin: 1rem 0 .7rem; }
@@ -38,3 +38,46 @@
 .membership-currencies input:disabled + span { opacity: .5; cursor: not-allowed; }
 .membership-dialog .membership-error { padding: .8rem; border-radius: 8px; background: #72292966; border: 1px solid #e6a6a640; color: #ffd9d9; }
 .membership-dialog .membership-footnote { margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid #ffffff12; color: var(--cream-muted); font-size: .76rem; }
+.membership-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; margin: 1.2rem 0; padding: .3rem; border: 1px solid #ffffff21; border-radius: 12px; background: #071e16; }
+.membership-tabs button { min-height: 44px; min-width: 0; padding: .6rem .5rem; border: 1px solid transparent; border-radius: 8px; color: #bfcdc3; background: transparent; font-size: .86rem; }
+.membership-tabs button[aria-pressed=true] { background: #efd18b17; border-color: #efd18b77; color: #efd18b; }
+.membership-form input { font-size: 16px; }
+.membership-password-help, .membership-dialog .membership-password-help { margin: 0 0 .25rem; color: #bfcdc3; font-size: .78rem; }
+.membership-form .membership-reveal { align-self: flex-start; min-height: 44px; }
+.membership-profile-name { margin: 1.1rem 0 .2rem; color: #efd18b; font-size: 1.3rem; overflow-wrap: anywhere; }
+.membership-ad-access { margin-top: 1.4rem; padding: .9rem 1rem; border: 1px solid #ffffff21; border-radius: 12px; }
+.membership-ad-access > summary { min-height: 24px; cursor: pointer; font-size: .9rem; color: #efd18b; }
+.personal-stats-heading { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
+.personal-stats-heading h3 { margin: 0; font-size: 1rem; }
+.personal-stats-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; margin: .8rem 0 1rem; }
+.personal-stats-filters button { min-height: 44px; min-width: 0; background: #ffffff08; color: #bfcdc3; border: 1px solid #ffffff21; border-radius: 8px; }
+.personal-stats-filters button[aria-pressed=true] { color: #efd18b; border-color: #efd18b88; background: #efd18b12; }
+.personal-stats-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem; margin: 0 0 1.4rem; }
+.personal-stats-summary > div { min-width: 0; padding: .9rem .65rem; border: 1px solid #ffffff21; border-radius: 12px; background: #ffffff05; }
+.personal-stats-summary dt { color: #bfcdc3; font-size: .73rem; overflow-wrap: anywhere; }
+.personal-stats-summary dd { margin: .4rem 0 0; color: #efd18b; font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.personal-stats-empty { padding: 1rem; border: 1px dashed #617653; border-radius: 12px; color: #bfcdc3; }
+.personal-stats-empty strong { color: #faf4e5; font-size: .95rem; }
+.personal-stats-empty p { margin-bottom: 0; }
+.personal-stats > h3 { font-size: .95rem; }
+.personal-stats-history { list-style: none; margin: 0; padding: 0; }
+.personal-stats-history > li { padding: 1rem 0; border-top: 1px solid #ffffff21; }
+.personal-stats-game-heading, .personal-stats-game-meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .4rem .75rem; }
+.personal-stats-game-heading > strong { font-size: .95rem; }
+.personal-stats-outcome { font-size: .74rem; color: #bfcdc3; padding: .25rem .55rem; border-radius: 20px; background: #ffffff08; }
+.personal-stats-outcome.is-win { color: #efd18b; background: #efd18b17; }
+.personal-stats-outcome.is-draw { color: #d3e9f3; background: #80bdd017; }
+.personal-stats-game-meta { margin-top: .5rem; color: #bfcdc3; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.personal-stats-history details { margin-top: .65rem; }
+.personal-stats-history summary { min-height: 30px; cursor: pointer; color: #efd18b; font-size: .78rem; }
+.personal-stats-history details ol { list-style: none; padding: 0; margin: .35rem 0; }
+.personal-stats-history details li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; font-size: .8rem; color: #bfcdc3; }
+.personal-stats-history details li span { overflow-wrap: anywhere; }
+.personal-stats-history details li strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.membership-dialog .personal-stats-note { color: #bfcdc3; font-size: .75rem; border-top: 1px solid #ffffff21; padding-top: 1rem; }
+.membership-dialog button:focus-visible, .membership-dialog summary:focus-visible { outline: 2px solid #efd18b; outline-offset: 3px; }
+@media (max-width: 460px) {
+  .personal-stats-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .personal-stats-summary dd { font-size: 1.6rem; }
+  .membership-tabs button { font-size: .8rem; }
+}
