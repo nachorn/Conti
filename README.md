@@ -57,7 +57,7 @@ The public website is [NRNPlay](https://nrnplay.com), hosted on Vercel. The game
 
 Keep [the previous address](https://conti-six.vercel.app) available without an automatic redirect. Guest recovery tokens and remembered account sessions belong to their browser profile and website origin: saved games at the previous address remain recoverable there. Existing accounts and results use the same server; players can sign in again at NRNPlay.
 
-The server allows exactly `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app` in `CLIENT_ORIGINS`, and uses `PUBLIC_APP_URL=https://nrnplay.com`. Resend sends verification and recovery codes as `NRNPlay <no-reply@nrnplay.com>`, with `nacho@nrnplay.com` as Reply-To. Contact mail is received in Zoho. Configure the private Resend key and account settings from [the environment example](server/membership.env.example); see [deployment guidance](DEPLOY.md) for the full migration checklist.
+The production `CLIENT_ORIGINS` list includes `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app`; retain existing approved preview origins when updating it. The server uses `PUBLIC_APP_URL=https://nrnplay.com`. Resend sends verification and recovery codes as `NRNPlay <no-reply@nrnplay.com>`, with `nacho@nrnplay.com` as Reply-To. Contact mail is received in Zoho. Configure the private Resend key and account settings from [the environment example](server/membership.env.example); see [deployment guidance](DEPLOY.md) for the full migration checklist.
 
 ## Private leagues
 
