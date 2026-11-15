@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PochaAction, PochaDeckSize, PochaGameState, PochaLobbyUpdate, PochaSettings, SpanishSuit } from '@shared/pochaTypes'
 import { POCHA_DECK_SIZES, POCHA_TRICK_ORDER, POCHA_TRICK_REVIEW_MS } from '@shared/pochaTypes'
-import { isPochaAuctionRound, legalCards, roundSchedule, winningCard } from '@shared/pochaRules'
+import { isPochaAuctionRound, legalCards, pochaScoring, roundSchedule, winningCard } from '@shared/pochaRules'
 import { t, type Lang } from '../i18n'
 import type { ActionResult } from '../types'
 import { GameShell } from './GameShell'
@@ -186,7 +186,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
             {state.history.map(h => <div className="pocha-history-round" key={h.handNumber}><b>{L('Ronda ', 'Round ')}{h.handNumber} · {h.cardsPerHand} {L('cartas', 'cards')}</b>
               {h.players.map(p => <div className="pocha-score-row" key={p.id}><span>{p.name} · {p.tricksWon}/{p.bid}</span><strong>{p.points > 0 ? '+' : ''}{p.points}</strong></div>)}</div>)}
           </details>
-          <PochaHelp lang={lang} />
+          <PochaHelp lang={lang} settings={state.settings} />
         </aside>
       </div>
       {active && (!reviewing || hand.length > 0) && <section className="pocha-hand-area" aria-label={L('Tu mano y acciones', 'Your hand and actions')}>
@@ -247,6 +247,13 @@ function PochaSetup({ state, isHost, available, lang, onStart, onConfigure }: {
   const savingRef = useRef(false)
   const [configError, setConfigError] = useState<string | null>(null)
   const settings = state.settings
+  const { exactBidPoints, trickPoints, missPenalty } = pochaScoring(settings)
+  const [scoreDraft, setScoreDraft] = useState(() => ({ exactBidPoints: String(exactBidPoints), trickPoints: String(trickPoints), missPenalty: String(missPenalty) }))
+  useEffect(() => {
+    setScoreDraft({ exactBidPoints: String(exactBidPoints), trickPoints: String(trickPoints), missPenalty: String(missPenalty) })
+  }, [exactBidPoints, trickPoints, missPenalty])
+  const scoringChanged = scoreDraft.exactBidPoints.trim() === '' || scoreDraft.trickPoints.trim() === '' || scoreDraft.missPenalty.trim() === '' ||
+    Number(scoreDraft.exactBidPoints) !== exactBidPoints || Number(scoreDraft.trickPoints) !== trickPoints || Number(scoreDraft.missPenalty) !== missPenalty
   const schedule = roundSchedule(settings, n, state.deckSize)
   const auctionCount = schedule.filter(c => isPochaAuctionRound(settings, c)).length
   const canEdit = isHost && available && !saving && !!onConfigure
@@ -260,7 +267,7 @@ function PochaSetup({ state, isHost, available, lang, onStart, onConfigure }: {
     finally { savingRef.current = false; setSaving(false) }
   }
   return <section className="pocha-panel pocha-setup"><h2>{L('A vuestro ritmo', 'At your own pace')}</h2>
-    <p>{isHost ? L('Puedes cambiar la baraja y las rondas sin salir de la sala. Todos verán los cambios.', 'Change the deck and rounds without leaving the room. Everyone will see the changes.') : L('El anfitrión configura la partida. Sus cambios se muestran aquí.', 'The host sets up the game. Changes appear here for everyone.')}</p>
+    <p>{isHost ? L('Puedes cambiar la baraja, las rondas y los puntos sin salir de la sala. Todos verán los cambios.', 'Change the deck, rounds and points without leaving the room. Everyone will see the changes.') : L('El anfitrión configura la partida. Sus cambios se muestran aquí.', 'The host sets up the game. Changes appear here for everyone.')}</p>
       <label className="pocha-deck-field">{L('Baraja', 'Deck')}
         <select value={state.deckSize} disabled={!canEdit} onChange={e => void update({ deckSize: Number(e.target.value) as PochaDeckSize })}>
           {POCHA_DECK_SIZES.map(size => <option key={size} value={size}>{t(lang, `pochaDeck${size}`)}</option>)}
@@ -270,13 +277,38 @@ function PochaSetup({ state, isHost, available, lang, onStart, onConfigure }: {
         <button type="button" aria-pressed={settings.mode === 'normal'} onClick={() => void update({ settings: { mode: 'normal' } })}><strong>Normal</strong><small>{L('El triunfo lo marca una carta.', 'A card determines trump.')}</small></button>
         <button type="button" aria-pressed={settings.mode === 'subastada'} onClick={() => void update({ settings: { mode: 'subastada' } })}><strong>{L('Subastada', 'Auction')}</strong><small>{L('Se subastan las rondas del máximo, aunque sobren cartas.', 'Auction the peak rounds, even with undealt cards.')}</small></button>
       </div></fieldset>
-      <div className="pocha-setting-fields">{([
+      <fieldset disabled={!canEdit}><legend>{L('Rondas', 'Rounds')}</legend><div className="pocha-setting-fields">{([
         ['maxCards', L('Máximo de cartas', 'Maximum cards'), Math.floor(state.deckSize/n)],
-        ['oneCardRounds', settings.maxCards === 1 ? L('Rondas de 1 carta', 'One-card rounds') : L('Rondas de 1 al inicio y al final', 'One-card rounds at each end'), n],
+        ['oneCardRounds', settings.maxCards === 1 ? L('Rondas de 1 carta', 'One-card rounds') : L('Rondas de 1 carta al inicio', 'One-card rounds at the start'), n],
+        ['oneCardRoundsEnd', L('Rondas de 1 carta al final', 'One-card rounds at the end'), n],
         ['peakRounds', L('Rondas en el máximo', 'Rounds at the maximum'), n],
-      ] as const).filter(([key]) => key !== 'peakRounds' || settings.maxCards > 1).map(([key,label,max]) => <label key={key}>{label}
-        <select value={settings[key]} disabled={!canEdit} onChange={e => void update({ settings: { [key]: Number(e.target.value) } })}>{Array.from({length:max},(_,i) => <option key={i+1}>{i+1}</option>)}</select>
-      </label>)}</div>
+      ] as const).filter(([key]) => (key !== 'peakRounds' && key !== 'oneCardRoundsEnd') || settings.maxCards > 1).map(([key,label,max]) => <label key={key}>{label}
+        <select value={settings[key] ?? settings.oneCardRounds} onChange={e => void update({ settings: {
+          [key]: Number(e.target.value),
+          // Pin the current final block when editing the start of a legacy setup.
+          ...(key === 'oneCardRounds' ? { oneCardRoundsEnd: settings.oneCardRoundsEnd ?? settings.oneCardRounds } : {}),
+        } })}>{Array.from({length:max},(_,i) => <option key={i+1}>{i+1}</option>)}</select>
+      </label>)}</div></fieldset>
+      <form className="pocha-scoring-form" onSubmit={event => {
+        event.preventDefault()
+        void update({ settings: { exactBidPoints: Number(scoreDraft.exactBidPoints), trickPoints: Number(scoreDraft.trickPoints), missPenalty: Number(scoreDraft.missPenalty) } })
+      }}>
+        <fieldset disabled={!canEdit}><legend>{L('Puntuación', 'Scoring')}</legend>
+          <div className="pocha-setting-fields">{([
+            ['exactBidPoints', L('Por acertar la predicción', 'For an exact prediction')],
+            ['trickPoints', L('Por cada baza, si aciertas', 'Per trick, when correct')],
+            ['missPenalty', L('Penalización por cada baza de diferencia', 'Penalty per trick of difference')],
+          ] as const).map(([key, label]) => <label key={key}>{label}
+            <span className="pocha-points-input"><span aria-hidden="true">{key === 'missPenalty' ? '−' : '+'}</span>
+              <input name={key} type="number" inputMode="numeric" min="0" max="100" step="1" required value={scoreDraft[key]}
+                onChange={event => setScoreDraft(previous => ({ ...previous, [key]: event.target.value }))} />
+            </span>
+          </label>)}</div>
+          <p className="pocha-scoring-note">{L('Si fallas, solo se resta la penalización. Puedes elegir de 0 a 100 puntos en cada campo.', 'A missed prediction only subtracts the penalty. Choose from 0 to 100 points in each field.')}</p>
+          {isHost && scoringChanged && <button type="submit" className="pocha-secondary">{L('Guardar puntuación', 'Save scoring')}</button>}
+        </fieldset>
+        {isHost && scoringChanged && <p className="pocha-scoring-unsaved" role="status">{L('Guarda la puntuación para poder empezar.', 'Save scoring before starting.')}</p>}
+      </form>
       <div className="pocha-preview"><strong>{schedule.length} {L('rondas', 'rounds')} · {state.deckSize} {L('cartas en la baraja', 'cards in deck')}</strong>
         <div className="pocha-schedule">{schedule.map((c,i) => <span key={i} className={isPochaAuctionRound(settings, c) ? 'auction-round' : ''}>{c}</span>)}</div>
         <p>{settings.mode === 'subastada' ? auctionCount + L(auctionCount === 1 ? ' ronda con subasta, marcada en dorado.' : ' rondas con subasta, marcadas en dorado.', auctionCount === 1 ? ' auction round, highlighted in gold.' : ' auction rounds, highlighted in gold.') : L('Triunfo por carta levantada, o por la última repartida si no sobran cartas.', 'Trump is the turned-up card, or the last dealt card when none remain.')}</p>
@@ -284,8 +316,8 @@ function PochaSetup({ state, isHost, available, lang, onStart, onConfigure }: {
       </div>
       {saving && <p className="pocha-muted" role="status">{L('Guardando cambios…', 'Saving changes…')}</p>}
       {configError && <p className="pocha-notice" role="alert">{configError}</p>}
-      {isHost && <button className="pocha-primary" disabled={!available || saving || state.players.length < 2 || state.players.some(p => !p.connected)} onClick={() => onStart?.(settings)}>{state.players.length < 2 ? L('Esperando a otro jugador', 'Waiting for another player') : L('Empezar partida', 'Start game')}</button>}
-    <PochaHelp lang={lang} />
+      {isHost && <button className="pocha-primary" disabled={!available || saving || scoringChanged || state.players.length < 2 || state.players.some(p => !p.connected)} onClick={() => onStart?.(settings)}>{state.players.length < 2 ? L('Esperando a otro jugador', 'Waiting for another player') : L('Empezar partida', 'Start game')}</button>}
+    <PochaHelp lang={lang} settings={settings} />
   </section>
 }
 function ResultTable({ state, lang }: { state: PochaGameState; lang: Lang }) {
@@ -293,9 +325,11 @@ function ResultTable({ state, lang }: { state: PochaGameState; lang: Lang }) {
   return <div className="pocha-results-scroll"><table><thead><tr>{(lang === 'es' ? ['Jugador','Pidió','Ganó','Puntos','Total'] : ['Player','Bid','Won','Points','Total']).map(h => <th key={h}>{h}</th>)}</tr></thead>
     <tbody>{[...results].sort((a,b) => b.total-a.total).map(p => <tr key={p.id}><th scope="row">{p.name}</th><td>{p.bid}</td><td>{p.tricksWon}</td><td className={p.points < 0 ? 'negative' : 'positive'}>{p.points > 0 ? '+' : ''}{p.points}</td><td><b>{p.total}</b></td></tr>)}</tbody></table></div>
 }
-function PochaHelp({lang}: {lang: Lang}) {
+function PochaHelp({lang, settings}: {lang: Lang; settings: PochaSettings}) {
+  const { exactBidPoints, trickPoints, missPenalty } = pochaScoring(settings)
+  const penalty = missPenalty === 0 ? '0' : '−' + missPenalty
   return <details className="pocha-panel pocha-help"><summary>{lang === 'es' ? 'Reglas de esta mesa' : 'Table rules'}</summary>
-    {lang === 'es' ? <><p>Acierto exacto: 5 + 2 por baza. Fallo: −2 por cada baza de diferencia. Acertar 0 da 5 puntos.</p><p>Asiste al palo de salida y supera la carta ganadora si puedes; si no, elige cualquier carta de ese palo. Si no tienes el palo de salida, debes jugar un triunfo que gane si tienes alguno. Si no puedes ganar con triunfo, puedes tirar cualquier carta, incluido un triunfo inferior. Quien gana sale después.</p><p>As › 3 › rey › caballo › sota › 9 › 8 › 7 › 6 › 5 › 4 › 2. La baraja de 48 está completa. La de 40 no tiene 8 ni 9; la de 36 tampoco tiene cuatros, y la de 32 tampoco tiene doses.</p><p>La primera mano se sortea al empezar cada partida. El último en pedir no puede cuadrar el total. La subasta es una sola vuelta: su ganador fija su predicción, elige triunfo y sale. Los demás piden desde la mano original, siguiendo el orden y saltando al ganador. La siguiente ronda conserva la rotación original.</p></> :
-    <><p>Exact prediction: 5 + 2 per trick. Miss: −2 per trick of difference. Predicting and winning 0 earns 5.</p><p>Follow the led suit and beat the winning card if possible; otherwise choose any card of that suit. Without the led suit, you must play a winning trump if you have one. If you cannot win with trump, you may play any card, including a lower trump. The winner leads next.</p><p>Ace › 3 › king › knight › jack › 9 › 8 › 7 › 6 › 5 › 4 › 2. The 48-card deck is complete. The 40-card deck omits 8s and 9s; the 36-card deck also omits 4s, and the 32-card deck also omits 2s.</p><p>The opening lead is chosen at random each game. The last prediction cannot match the total tricks. Auctions last one turn each. The winner keeps their offer as their prediction, chooses trump, and leads. Everyone else predicts in the original order, starting with the original opening player and skipping the winner. The next round keeps the original rotation.</p></>}
+    {lang === 'es' ? <><p>Acierto exacto: {exactBidPoints} + {trickPoints} por baza. Fallo: {penalty} por cada baza de diferencia, sin puntos de acierto ni de bazas. Acertar 0 da {exactBidPoints} puntos.</p><p>Asiste al palo de salida y supera la carta ganadora si puedes; si no, elige cualquier carta de ese palo. Si no tienes el palo de salida, debes jugar un triunfo que gane si tienes alguno. Si no puedes ganar con triunfo, puedes tirar cualquier carta, incluido un triunfo inferior. Quien gana sale después.</p><p>As › 3 › rey › caballo › sota › 9 › 8 › 7 › 6 › 5 › 4 › 2. La baraja de 48 está completa. La de 40 no tiene 8 ni 9; la de 36 tampoco tiene cuatros, y la de 32 tampoco tiene doses.</p><p>La primera mano se sortea al empezar cada partida. El último en pedir no puede cuadrar el total. La subasta es una sola vuelta: su ganador fija su predicción, elige triunfo y sale. Los demás piden desde la mano original, siguiendo el orden y saltando al ganador. La siguiente ronda conserva la rotación original.</p></> :
+    <><p>Exact prediction: {exactBidPoints} + {trickPoints} per trick. Miss: {penalty} per trick of difference, with no exact-prediction or trick points. Predicting and winning 0 earns {exactBidPoints}.</p><p>Follow the led suit and beat the winning card if possible; otherwise choose any card of that suit. Without the led suit, you must play a winning trump if you have one. If you cannot win with trump, you may play any card, including a lower trump. The winner leads next.</p><p>Ace › 3 › king › knight › jack › 9 › 8 › 7 › 6 › 5 › 4 › 2. The 48-card deck is complete. The 40-card deck omits 8s and 9s; the 36-card deck also omits 4s, and the 32-card deck also omits 2s.</p><p>The opening lead is chosen at random each game. The last prediction cannot match the total tricks. Auctions last one turn each. The winner keeps their offer as their prediction, chooses trump, and leads. Everyone else predicts in the original order, starting with the original opening player and skipping the winner. The next round keeps the original rotation.</p></>}
   </details>
 }

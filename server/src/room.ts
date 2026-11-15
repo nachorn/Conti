@@ -342,6 +342,7 @@ export class Room {
       ? { ...this.pocha.settings,
           maxCards: Math.min(this.pocha.settings.maxCards, Math.floor(this.pocha.deckSize / players)),
           oneCardRounds: Math.min(this.pocha.settings.oneCardRounds, players),
+          ...(this.pocha.settings.oneCardRoundsEnd === undefined ? {} : { oneCardRoundsEnd: Math.min(this.pocha.settings.oneCardRoundsEnd, players) }),
           peakRounds: Math.min(this.pocha.settings.peakRounds, players) }
       : defaultPochaSettings(players, this.pocha.deckSize)
   }
@@ -362,7 +363,7 @@ export class Room {
     if ('deckSize' in patch && !isPochaDeckSize(patch.deckSize)) return fail()
     if ('settings' in patch && (!patch.settings || typeof patch.settings !== 'object' || Array.isArray(patch.settings))) return fail()
     const settingsPatch = (patch.settings ?? {}) as Record<string, unknown>
-    if (Object.keys(settingsPatch).some(key => !['mode', 'maxCards', 'oneCardRounds', 'peakRounds', 'auctionWithRemainder'].includes(key))) return fail()
+    if (Object.keys(settingsPatch).some(key => !['mode', 'maxCards', 'oneCardRounds', 'oneCardRoundsEnd', 'peakRounds', 'auctionWithRemainder', 'exactBidPoints', 'trickPoints', 'missPenalty'].includes(key))) return fail()
     const deckSize = isPochaDeckSize(patch.deckSize) ? patch.deckSize : this.pocha.deckSize
     const players = Math.max(2, this.players.length)
     const settings = {

@@ -39,6 +39,12 @@
 .pocha-deck-field select { width: 100%; min-width: 0; min-height: 44px; background: #173c31; }
 .pocha-setting-fields label { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-size: .88rem; }
 .pocha-setting-fields select { min-height: 44px; min-width: 80px; background: #173c31; }
+.pocha-setting-fields label > .pocha-points-input { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; color: var(--pocha-gold); font-size: 1.05rem; }
+.pocha-points-input input { width: 80px; min-width: 0; min-height: 44px; background: #173c31; color: var(--pocha-cream); font-size: 1rem; font-variant-numeric: tabular-nums; }
+.pocha-scoring-note, .pocha-scoring-unsaved { font-size: .8rem; color: #c4d3c8; }
+.pocha-scoring-unsaved { color: var(--pocha-gold); }
+.pocha-scoring-form .pocha-secondary { width: 100%; }
+.pocha-board input:focus-visible, .pocha-board select:focus-visible { outline: 3px solid var(--pocha-gold); outline-offset: 3px; }
 .pocha-preview { margin: 1.3rem 0; background: #ffffff05; border-radius: 12px; padding: 1rem; }
 .pocha-preview strong { font-size: .88rem; }
 .pocha-preview p { font-size: .8rem; color: #c4d3c8; margin-bottom: 0; }

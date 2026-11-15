@@ -27,7 +27,11 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
   if (settingsRaw.auctionWithRemainder !== undefined && typeof settingsRaw.auctionWithRemainder !== 'boolean') fail()
   const settings: PochaSettings = { mode: settingsRaw.mode, maxCards: num(settingsRaw.maxCards, 1, 24),
     oneCardRounds: num(settingsRaw.oneCardRounds, 1, 10), peakRounds: num(settingsRaw.peakRounds, 1, 10),
-    ...(settingsRaw.auctionWithRemainder === undefined ? {} : { auctionWithRemainder: settingsRaw.auctionWithRemainder }) }
+    ...(settingsRaw.auctionWithRemainder === undefined ? {} : { auctionWithRemainder: settingsRaw.auctionWithRemainder }),
+    ...(settingsRaw.oneCardRoundsEnd === undefined ? {} : { oneCardRoundsEnd: num(settingsRaw.oneCardRoundsEnd, 1, 10) }),
+    ...(settingsRaw.exactBidPoints === undefined ? {} : { exactBidPoints: num(settingsRaw.exactBidPoints, 0, 100) }),
+    ...(settingsRaw.trickPoints === undefined ? {} : { trickPoints: num(settingsRaw.trickPoints, 0, 100) }),
+    ...(settingsRaw.missPenalty === undefined ? {} : { missPenalty: num(settingsRaw.missPenalty, 0, 100) }) }
   const expected = roundSchedule(settings, Math.max(2, members.length), deckSize)
   if (!['lobby', 'auction', 'choosing_trump', 'bidding', 'playing', 'hand_end', 'game_end'].includes(s.phase)) fail()
   const schedule = list(s.schedule, 80).map(n => num(n, 1, 24))
@@ -47,7 +51,7 @@ export function parsePochaSnapshot(raw: unknown, roomId: string, members: { id: 
       players: list(h.players, 10).map(v => {
         const p = obj(v)
         return { id: id(p.id), name: str(p.name, 24), bid: num(p.bid, 0, 24), tricksWon: num(p.tricksWon, 0, 24),
-          points: num(p.points, -48, 53), total: num(p.total, -10000, 10000) }
+          points: num(p.points, -2400, 2500), total: num(p.total, -200000, 200000) }
       }) }
   })
   const result: PochaGameState = {

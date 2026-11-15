@@ -56,8 +56,16 @@ export interface PochaSettings {
   /** @deprecated Retained for old saves/clients; mode alone determines auctions. */
   auctionWithRemainder?: boolean
   maxCards: number
+  /** One-card rounds at the beginning (or the only block when maxCards is 1). */
   oneCardRounds: number
+  /** Defaults to oneCardRounds in saved games created before independent end rounds. */
+  oneCardRoundsEnd?: number
   peakRounds: number
+  /** Points for predicting exactly; omitted values use the traditional 5, +2, -2 rules. */
+  exactBidPoints?: number
+  trickPoints?: number
+  /** Non-negative points deducted per trick above or below the prediction. */
+  missPenalty?: number
 }
 export interface PochaLobbyUpdate {
   deckSize?: PochaDeckSize

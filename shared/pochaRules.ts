@@ -1,20 +1,34 @@
 import { isPochaDeckSize, POCHA_TRICK_ORDER } from './pochaTypes.js'
 import type { PochaCard, PochaSettings, SpanishSuit, TrickCard } from './pochaTypes.js'
 
+export const POCHA_DEFAULT_SCORING = { exactBidPoints: 5, trickPoints: 2, missPenalty: 2 } as const
+export function pochaScoring(settings: Partial<PochaSettings> = {}) {
+  return {
+    exactBidPoints: settings.exactBidPoints ?? POCHA_DEFAULT_SCORING.exactBidPoints,
+    trickPoints: settings.trickPoints ?? POCHA_DEFAULT_SCORING.trickPoints,
+    missPenalty: settings.missPenalty ?? POCHA_DEFAULT_SCORING.missPenalty,
+  }
+}
+
 export function defaultPochaSettings(players: number, deckSize: number): PochaSettings {
   return { mode: 'normal', maxCards: Math.floor(deckSize / Math.max(2, players)), oneCardRounds: Math.max(1, players), peakRounds: Math.max(1, players) }
 }
 export function roundSchedule(settings: PochaSettings, players: number, deckSize: number): number[] {
   const { maxCards, oneCardRounds, peakRounds, mode } = settings
+  const oneCardRoundsEnd = settings.oneCardRoundsEnd === undefined ? oneCardRounds : settings.oneCardRoundsEnd
   if (!Number.isInteger(players) || players < 2 || players > 10 || !isPochaDeckSize(deckSize) ||
       !['normal', 'subastada'].includes(mode) ||
       (settings.auctionWithRemainder !== undefined && typeof settings.auctionWithRemainder !== 'boolean') ||
       !Number.isInteger(maxCards) || maxCards < 1 || maxCards > Math.floor(deckSize / players) ||
-      ![oneCardRounds, peakRounds].every(n => Number.isInteger(n) && n >= 1 && n <= players)) throw new Error('Configuración de rondas inválida')
+      ![oneCardRounds, oneCardRoundsEnd, peakRounds].every(n => Number.isInteger(n) && n >= 1 && n <= players) ||
+      !['exactBidPoints', 'trickPoints', 'missPenalty'].every(key => {
+        const value = settings[key as 'exactBidPoints' | 'trickPoints' | 'missPenalty']
+        return value === undefined || (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100)
+      })) throw new Error('Configuración de rondas inválida')
   // A one-card-only game has one block, without duplicate slopes or peaks.
   if (maxCards === 1) return Array(oneCardRounds).fill(1)
   const slope = Array.from({ length: maxCards - 2 }, (_, i) => i + 2)
-  return [...Array(oneCardRounds).fill(1), ...slope, ...Array(peakRounds).fill(maxCards), ...slope.reverse(), ...Array(oneCardRounds).fill(1)]
+  return [...Array(oneCardRounds).fill(1), ...slope, ...Array(peakRounds).fill(maxCards), ...slope.reverse(), ...Array(oneCardRoundsEnd).fill(1)]
 }
 /** Auction mode always auctions peak rounds, including partial deals. */
 export function isPochaAuctionRound(settings: PochaSettings, cards: number): boolean {
@@ -40,7 +54,8 @@ export function legalCards(hand: PochaCard[], trick: TrickCard[], trump: Spanish
   const beatingTrumps = hand.filter(c => c.suit === trump && compareInTrick(c, winner.card, ledSuit, trump) > 0)
   return beatingTrumps.length ? beatingTrumps : hand
 }
-export function scoreHand(bid: number, tricksWon: number): number {
-  return bid === tricksWon ? 5 + 2 * tricksWon : -2 * Math.abs(bid - tricksWon)
+export function scoreHand(bid: number, tricksWon: number, settings?: Partial<PochaSettings>): number {
+  const { exactBidPoints, trickPoints, missPenalty } = pochaScoring(settings)
+  return bid === tricksWon ? exactBidPoints + trickPoints * tricksWon : -(missPenalty * Math.abs(bid - tricksWon)) || 0
 }
 

@@ -699,9 +699,10 @@ for (const deckSize of [32, 36] as const) {
     const guest = await peer(h)
     const gj = await guest.request<Joined>('join', { roomId: hj.roomId, name: 'Luis' }, 'joined')
     const original = h.server.repository.get(hj.roomId)!.room.toSnapshot()
-    const setup = { mode: 'subastada', maxCards: deckSize / 2, oneCardRounds: 2, peakRounds: 2 }
+    const setup = { mode: 'subastada', maxCards: deckSize / 2, oneCardRounds: 2, oneCardRoundsEnd: 1, peakRounds: 2,
+      exactBidPoints: 12, trickPoints: 4, missPenalty: 3 }
     assert.equal((await guest.acknowledge<{ ok: boolean }>('pocha_configure', { deckSize, settings: setup })).ok, false)
-    for (const invalid of [null, {}, { deckSize: 31 }, { deckSize: '32' }, { unrelated: true }, { settings: { unrelated: true } }, { settings: { mode: 'bad' } }, { settings: { maxCards: 0 } }, { settings: { oneCardRounds: 3 } }, { deckSize, settings: { maxCards: 99 } }]) {
+    for (const invalid of [null, {}, { deckSize: 31 }, { deckSize: '32' }, { unrelated: true }, { settings: { unrelated: true } }, { settings: { mode: 'bad' } }, { settings: { maxCards: 0 } }, { settings: { oneCardRounds: 3 } }, { settings: { oneCardRoundsEnd: 3 } }, { settings: { exactBidPoints: 101 } }, { settings: { trickPoints: -1 } }, { settings: { missPenalty: '2' } }, { deckSize, settings: { maxCards: 99 } }]) {
       assert.equal((await host.acknowledge<{ ok: boolean }>('pocha_configure', invalid)).ok, false)
       assert.deepEqual(h.server.repository.get(hj.roomId)!.room.toSnapshot(), original)
     }

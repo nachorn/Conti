@@ -129,7 +129,7 @@ export function applyPochaAction(state: PochaGameState, playerId: string, action
       state.currentTrick = []; state.currentPlayerIndex = winner; state.leadPlayerIndex = winner
       if (state.players.every(p => !p.hand.length)) {
         const results = state.players.map(p => {
-          const points = scoreHand(p.bid!, p.tricksWon); p.score += points
+          const points = scoreHand(p.bid!, p.tricksWon, state.settings); p.score += points
           return { id: p.id, name: p.name, bid: p.bid!, tricksWon: p.tricksWon, points, total: p.score }
         })
         state.history.push({ handNumber: state.handNumber, cardsPerHand: state.cardsPerHand, trump: state.trump, players: results })
