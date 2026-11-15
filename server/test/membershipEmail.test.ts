@@ -202,7 +202,7 @@ test('a rejected access token is refreshed on the next send without retrying the
 
 test('keeps explicit and legacy Resend configuration compatible with bilingual messages', async () => {
   for (const provider of [undefined, 'resend']) {
-    const { request, calls } = mockRequest(() => new Response(null, { status: 202 }))
+    const { request, calls } = mockRequest(() => Response.json({ id: 'resend-message-id' }))
     const send = createMembershipEmailSender({ MEMBERSHIP_EMAIL_PROVIDER: provider, RESEND_API_KEY: 'resend-test-key', MEMBERSHIP_EMAIL_FROM: 'Conti <sender@example.com>' }, request)!
     await send('player@example.com', '123456', 'es')
     await send('player@example.com', '654321', 'en')
@@ -211,10 +211,84 @@ test('keeps explicit and legacy Resend configuration compatible with bilingual m
     const second = JSON.parse(calls[1].options.body as string)
     assert.equal(first.from, 'Conti <sender@example.com>')
     assert.deepEqual(first.to, ['player@example.com'])
+    assert.equal(first.reply_to, undefined)
+    assert.equal(first.subject, 'Tu código de acceso · Continental y Pocha')
     assert.match(first.text, /Tu código de acceso es 123456/)
     assert.match(second.text, /Your sign-in code is 654321/)
     const keys = calls.map(call => new Headers(call.options.headers).get('idempotency-key'))
     assert.ok(keys.every(Boolean))
     assert.notEqual(keys[0], keys[1])
   }
+})
+
+const RESEND_ENV = {
+  MEMBERSHIP_EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'resend-test-key',
+  MEMBERSHIP_EMAIL_FROM: 'NRNPlay <no-reply@nrnplay.com>',
+  MEMBERSHIP_EMAIL_REPLY_TO: 'nacho@nrnplay.com', MEMBERSHIP_EMAIL_BRAND: 'NRNPlay',
+}
+
+test('NRNPlay Resend delivery uses its named sender, reply mailbox and bilingual subject', async () => {
+  const { request, calls } = mockRequest(() => Response.json({ id: '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794' }))
+  const send = createMembershipEmailSender(RESEND_ENV, request)!
+  await send('player@example.com', '001234', 'es')
+  await send('player@example.com', '654321', 'en')
+  assert.equal(calls.length, 2)
+  for (const [index, call] of calls.entries()) {
+    assert.equal(call.url, 'https://api.resend.com/emails')
+    assert.equal(call.options.method, 'POST')
+    assert.equal(call.options.redirect, 'error')
+    assert(call.options.signal instanceof AbortSignal)
+    assert.equal(new Headers(call.options.headers).get('authorization'), 'Bearer resend-test-key')
+    const body = JSON.parse(call.options.body as string)
+    assert.equal(body.from, 'NRNPlay <no-reply@nrnplay.com>')
+    assert.equal(body.reply_to, 'nacho@nrnplay.com')
+    assert.deepEqual(body.to, ['player@example.com'])
+    assert.equal(body.subject, index === 0 ? 'Tu código de acceso · NRNPlay' : 'Your sign-in code · NRNPlay')
+    assert.match(body.text, index === 0 ? /001234.*10 minutos.*una vez/ : /654321.*10 minutes.*once/)
+    assert(!JSON.stringify(body).includes(RESEND_ENV.RESEND_API_KEY))
+    assert.deepEqual(Object.keys(body).sort(), ['from', 'reply_to', 'subject', 'text', 'to'])
+  }
+  assert.notEqual(new Headers(calls[0].options.headers).get('idempotency-key'), new Headers(calls[1].options.headers).get('idempotency-key'))
+})
+
+test('unsafe reply mailboxes and email brands disable configuration before any provider call', () => {
+  const { request, calls } = mockRequest()
+  for (const replyTo of ['nacho@nrnplay.com\r\nBcc: other@example.com', 'nacho@nrnplay.com\n', 'Name <nacho@nrnplay.com>', 'one@example.com,two@example.com', 'bad@-example.com']) {
+    assert.equal(createMembershipEmailSender({ ...RESEND_ENV, MEMBERSHIP_EMAIL_REPLY_TO: replyTo }, request), undefined)
+  }
+  for (const brand of ['NRNPlay\r\nBcc: other@example.com', 'NRNPlay\n', 'a'.repeat(61)]) {
+    assert.equal(createMembershipEmailSender({ ...RESEND_ENV, MEMBERSHIP_EMAIL_BRAND: brand }, request), undefined)
+    assert.equal(createMembershipEmailSender({ ...ENV, MEMBERSHIP_EMAIL_BRAND: brand }, request), undefined)
+  }
+  assert.equal(typeof createMembershipEmailSender({ ...RESEND_ENV, MEMBERSHIP_EMAIL_REPLY_TO: '' }, request), 'function')
+  assert.equal(calls.length, 0)
+})
+
+test('Resend rejects uncertain provider replies without retries or sensitive errors', async () => {
+  for (const failedResponse of [
+    () => Response.json({ error: 'resend-test-key private@example.com 123456' }, { status: 503 }),
+    () => { throw new Error('resend-test-key private@example.com 123456') },
+    () => new Response('private incomplete response'),
+    () => Response.json({}),
+    () => Response.json({ id: 'private-id\r\n' }),
+    () => Response.json({ id: 'x'.repeat(257) }),
+  ]) {
+    const { request, calls } = mockRequest(failedResponse)
+    const send = createMembershipEmailSender(RESEND_ENV, request)!
+    await assert.rejects(send('private@example.com', '123456', 'es'), { message: 'Email unavailable' })
+    assert.equal(calls.length, 1)
+  }
+})
+
+test('optional branding also updates Gmail MIME without changing its account or permissions', async () => {
+  const { request, calls } = mockRequest()
+  const send = createMembershipEmailSender({ ...ENV, MEMBERSHIP_EMAIL_BRAND: ' NRNPlay ' }, request)!
+  await send('player@example.com', '123456', 'es')
+  assert.equal(calls.length, 2)
+  const mime = Buffer.from(JSON.parse(calls[1].options.body as string).raw, 'base64url').toString('utf8')
+  const encoded = /Subject: =\?UTF-8\?B\?([^?]+)\?=/.exec(mime)![1]
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), 'Tu código de acceso · NRNPlay')
+  assert.match(mime, /^From: sender@example.com\r\nTo: player@example.com\r\n/)
+  assert.equal(calls[0].url, TOKEN_URL)
+  assert.equal(calls[1].url, SEND_URL)
 })

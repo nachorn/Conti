@@ -2,6 +2,12 @@
 .saved-games h2 { font-size: 1.2rem; margin: 0 0 8px; }
 .saved-games > p { font-size: .85rem; color: #aebeb5; line-height: 1.5; margin: 8px 0 14px; }
 .saved-empty { padding: 14px; border: 1px dashed #466353; border-radius: 14px; }
+.saved-domain-notice { padding: 14px 16px; margin-bottom: 20px; border: 1px solid #b99b4e; border-radius: 14px; background: #d2af4c0c; }
+.saved-domain-notice strong { color: #edca78; font-size: .95rem; }
+.saved-domain-notice p { color: #bdcbbf; font-size: .84rem; line-height: 1.5; margin: 6px 0; }
+.saved-domain-notice a, .saved-previous-address a { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; color: #edca78; text-decoration: underline; text-underline-offset: 3px; }
+.saved-domain-notice a { font-size: .85rem; }
+.saved-domain-notice a:focus-visible, .saved-previous-address a:focus-visible { outline: 3px solid #fff4ca; outline-offset: 3px; }
 .saved-game-list { display: grid; gap: 10px; max-height: 440px; overflow-y: auto; }
 .saved-game { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 18px; border: 1px solid #41614e; border-radius: 16px; background: #132e23; color: #f5f0df; }
 .saved-game-copy { min-width: 0; overflow-wrap: anywhere; }

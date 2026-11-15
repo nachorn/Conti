@@ -2,6 +2,34 @@
 
 You’ll deploy **two** things: the **server** (game + WebSockets) and the **client** (website). Then you’ll connect the client to the server URL.
 
+## Current production: NRNPlay on Vercel + Render
+
+The canonical public website is **[https://nrnplay.com](https://nrnplay.com)**. Vercel serves the client; the existing Render service `conti-server` remains the game and account server at `https://conti-server.onrender.com`. Changing the website domain does not require changing the database or game server.
+
+| Setting | Production value |
+|---------|------------------|
+| Vercel `VITE_SOCKET_URL` | `https://conti-server.onrender.com` |
+| Render `CLIENT_ORIGINS` | `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app` |
+| Render `PUBLIC_APP_URL` | `https://nrnplay.com` |
+| Public contact | `nacho@nrnplay.com` (Zoho mailbox) |
+
+Keep `https://conti-six.vercel.app` attached to the same Vercel project and **do not automatically redirect it**. Guest saved-game recovery tokens and remembered account sessions are stored per browser profile and origin. Players recover earlier guest games at the previous address; the client links between the two addresses without transferring credentials. NRNPlay uses the same accounts and results, but players sign in again at the new address. Both `nrnplay.com` and `www.nrnplay.com` must reach the client and remain permitted by the configured anti-bot challenge.
+
+For account verification and password recovery, configure these **server-only** values; the complete contract is in [server/membership.env.example](server/membership.env.example):
+
+```dotenv
+MEMBERSHIP_ENABLED=true
+PUBLIC_APP_URL=https://nrnplay.com
+MEMBERSHIP_EMAIL_PROVIDER=resend
+MEMBERSHIP_EMAIL_FROM="NRNPlay <no-reply@nrnplay.com>"
+MEMBERSHIP_EMAIL_REPLY_TO=nacho@nrnplay.com
+MEMBERSHIP_EMAIL_BRAND=NRNPlay
+```
+
+Keep the existing `MEMBERSHIP_AUTH_SECRET`, `DATABASE_URL` and `ADMIN_DASHBOARD_KEY` private and unchanged. Set `RESEND_API_KEY` privately on Render, using a sending-access-only key restricted to the verified `nrnplay.com` domain. Resend handles outgoing transactional codes; Zoho handles incoming contact mail. Preserve Zoho's receiving DNS records while adding the Resend domain-verification records. Never put these private keys in `VITE_*` variables or commit them to the repository. Publish the privacy page's Resend description together with the email transport switch.
+
+The walkthrough below describes an **alternative Railway deployment**. The active production server is Render; the checked-in `render.yaml` is a native Node service template, not a command to recreate or replace that existing service. For routine updates, preserve the live service's deployment configuration and use the single-writer replacement procedure below.
+
 ---
 
 ## Part 1: Deploy the server (Railway)
@@ -105,7 +133,7 @@ That’s the link you and your friend use to play (New York and Spain).
 
 ## Part 3: Restrict CORS to the deployed client
 
-The server accepts all origins when `CLIENT_ORIGINS` is unset, which makes the first deployment easy. After Vercel gives you the final client URL:
+Production startup requires an explicit `CLIENT_ORIGINS` list. After Vercel gives you the final client URL:
 
 1. Add a Railway environment variable named `CLIENT_ORIGINS`.
 2. Set it to the Vercel origin, for example `https://conti-xxxx.vercel.app` (no trailing slash).
@@ -128,9 +156,9 @@ The server accepts all origins when `CLIENT_ORIGINS` is unset, which makes the f
 
 | What        | Where |
 |------------|--------|
-| Server URL | Railway → your service → Settings → Public domain (e.g. `https://....railway.app`) |
-| Client URL | Vercel → your project → Domains (e.g. `https://....vercel.app`) |
-| Env var    | On Vercel: `VITE_SOCKET_URL` = your Railway server URL |
+| Server URL | Render `conti-server`: `https://conti-server.onrender.com` |
+| Client URL | Vercel: `https://nrnplay.com`; preserve `https://conti-six.vercel.app` for earlier guest saves |
+| Env var    | On Vercel: `VITE_SOCKET_URL=https://conti-server.onrender.com` |
 
 ---
 
@@ -138,10 +166,10 @@ The server accepts all origins when `CLIENT_ORIGINS` is unset, which makes the f
 
 The server now saves a versioned private snapshot before publishing every accepted change. It preserves room codes, seats, hands, deck order, scores, melds and turn state. A reconnect uses a private recovery token; names and room codes cannot reclaim somebody else's hand. Tokens are hashed in storage and must never be copied into bug reports or committed to Git.
 
-- Your seat is recoverable after the first successful join, through connection loss, server restarts and reloads of the **same browser tab**. Keep that tab open. Closing it, clearing browser storage or changing device does not guarantee recovery.
-- Disconnected players stay in the room. **Back to menu / Leave** explicitly gives up your seat.
+- Your seat is recoverable after the first successful join, through connection loss, server restarts and closing/reopening tabs in the **same browser profile and website origin**. Clearing browser storage deletes the recovery tokens; another browser, device or website origin does not receive them automatically. Use the previous website address to recover games saved there.
+- Disconnected players stay in the room. **Save and exit** preserves your seat; **Leave permanently** explicitly gives it up.
 - When all players disconnect, clocks pause. After restart, clocks resume relative to the last saved state with at least 10 seconds of turn grace. If some players remain online, normal configured turn timeouts still apply.
-- Abandoned rooms expire after **72 hours** without activity. This is recovery for ongoing games, not permanent game-history storage.
+- Saved rooms expire after **30 days** without activity. Account statistics and league result history are stored independently and survive room cleanup.
 - A storage failure pauses actions. The hosted process exits after the first failed action so the host supervisor can restart it and reload the last confirmed snapshot. Unconfirmed clicks are not automatically replayed. Configure Render's health check as **`/health`**: this liveness endpoint stays HTTP 200 after a passive idle-database disconnect and reports `storageReady: false`, avoiding repeated restarts that would keep a free database awake. The first failed work item makes `/health` return HTTP 503 and triggers recovery. **`/ready`** is a separate diagnostic endpoint that returns HTTP 503 whenever storage is unavailable; do not use it as Render's health-check path. Neither endpoint queries or wakes the database. Initial database loading still completes before the server starts listening.
 
 Choose **one** storage configuration:
@@ -155,7 +183,7 @@ The ordinary container filesystem is temporary. A JSON file inside it does **not
 
 Run only **one server replica** against a snapshot. Stop the previous instance before starting its replacement. The storage lock intentionally prevents two servers from corrupting a shared game. File locks recover after a hard stop in about 10 seconds; startup waits for the stale lock. PostgreSQL waits up to 20 seconds for the previous writer. With database-backed Render deployments, use manual stop/suspend, deploy/resume so the old writer is released. A normal overlapping zero-downtime deploy will be rejected by the lock. Keep a separate database/snapshot for previews.
 
-## Render fallback (website stays on Vercel)
+## Render service template (website stays on Vercel)
 
 `render.yaml` declares a **Free** Node web service only. It does not create a database, buy storage, or upgrade a plan. Authorize access to the intended GitHub repository, then supply a durable `DATABASE_URL`. Keep auto-deploy off for the single-writer replacement procedure described above.
 
@@ -166,7 +194,8 @@ If configuring manually:
 - Start: `node server/dist/index.js`
 - Health check: `/health`
 - Node: 22; `NODE_ENV=production`.
-- `CLIENT_ORIGINS=https://conti-six.vercel.app` (add separate approved origins only as needed).
+- `CLIENT_ORIGINS=https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app`.
+- `PUBLIC_APP_URL=https://nrnplay.com`; configure account email privately as described above.
 - `DATABASE_URL`: durable direct/session-mode PostgreSQL connection, server-only.
 - Compute: **Free**, one instance. Do not attach a paid disk or select a paid instance without approval.
 
@@ -178,6 +207,6 @@ Railway Free currently rejects deployments from 8 a.m. to 8 p.m. in the target r
 
 ## Updating the app later
 
-- **Code:** Run the tests, push to GitHub, and check the included CI workflow. Railway's “Wait for CI” now has a workflow to wait on. Vercel may deploy automatically. For a shared database, replace the backend using the single-writer procedure above.
-- **Server:** Keep the repository root and let `railway.toml` provide the build, start, and health-check settings.
-- **Client:** Change Root Directory = `client`, keep `VITE_SOCKET_URL` set to the same Railway URL.
+- **Code:** Run the tests, push to GitHub, and check the included CI workflow. Vercel may deploy automatically. Render replacement remains manual; for the shared database, use the single-writer procedure above.
+- **Server:** Preserve the existing Render service's build/runtime settings, durable database and private environment. Keep `/health` as its health-check path and the three approved website origins.
+- **Client:** Keep Root Directory = `client` and `VITE_SOCKET_URL=https://conti-server.onrender.com`. Check the canonical NRNPlay address and the previous address's saved-game recovery after deployment.

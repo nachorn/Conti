@@ -27,17 +27,17 @@ function resendFrom(value: string): boolean {
   return !!named && named[1].trim().length > 0 && mailbox(named[2])
 }
 
-function message(code: string, lang: Language) {
+function message(code: string, lang: Language, brand?: string) {
   return {
-    subject: lang === 'es' ? 'Tu código de acceso · Continental y Pocha' : 'Your sign-in code · Continental & Pocha',
+    subject: lang === 'es' ? `Tu código de acceso · ${brand ?? 'Continental y Pocha'}` : `Your sign-in code · ${brand ?? 'Continental & Pocha'}`,
     text: lang === 'es'
       ? `Tu código de acceso es ${code}. Caduca en 10 minutos y solo se puede usar una vez.\n\nSi no lo has solicitado, puedes ignorar este correo.`
       : `Your sign-in code is ${code}. It expires in 10 minutes and can only be used once.\n\nIf you did not request this, you can ignore this email.`,
   }
 }
 
-function rawMessage(from: string, to: string, code: string, lang: Language, now: number): string {
-  const { subject, text } = message(code, lang)
+function rawMessage(from: string, to: string, code: string, lang: Language, now: number, brand?: string): string {
+  const { subject, text } = message(code, lang, brand)
   const body = Buffer.from(text.replace(/\n/g, '\r\n'), 'utf8').toString('base64').match(/.{1,76}/g)!.join('\r\n')
   const mime = [
     `From: ${from}`,
@@ -62,6 +62,9 @@ export function createMembershipEmailSender(
   now: () => number = Date.now,
 ): EmailSender | undefined {
   const provider = env.MEMBERSHIP_EMAIL_PROVIDER?.trim().toLowerCase()
+  const brandValue = env.MEMBERSHIP_EMAIL_BRAND
+  const brand = brandValue?.trim() || undefined
+  if (brandValue && (hasControls(brandValue) || brandValue.length > 60)) return undefined
   let deliver: EmailSender
   if (provider === 'gmail') {
     const clientId = env.GOOGLE_CLIENT_ID?.trim()
@@ -91,7 +94,7 @@ export function createMembershipEmailSender(
       return refreshing
     }
     deliver = async (email, code, lang) => {
-      const raw = rawMessage(from, email, code, lang, now())
+      const raw = rawMessage(from, email, code, lang, now(), brand)
       const token = await accessToken()
       const response = await request(SEND_URL, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
@@ -109,14 +112,20 @@ export function createMembershipEmailSender(
   } else if (!provider || provider === 'resend') {
     const key = env.RESEND_API_KEY?.trim()
     const from = env.MEMBERSHIP_EMAIL_FROM
+    const replyToValue = env.MEMBERSHIP_EMAIL_REPLY_TO
+    const replyTo = replyToValue?.trim() || undefined
     if (!key || !from || !resendFrom(from)) return undefined
+    if (replyToValue && (hasControls(replyToValue) || (replyTo && !mailbox(replyTo)))) return undefined
     deliver = async (email, code, lang) => {
       const response = await request('https://api.resend.com/emails', {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-        body: JSON.stringify({ from, to: [email], ...message(code, lang) }),
+        body: JSON.stringify({ from, to: [email], ...message(code, lang, brand), ...(replyTo ? { reply_to: replyTo } : {}) }),
       })
       if (!response.ok) throw unavailable()
+      // An uncertain send is not retried: Resend may already have accepted it.
+      const result: unknown = await response.json()
+      if (!object(result) || typeof result.id !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(result.id)) throw unavailable()
     }
   } else return undefined
   return async (email, code, lang) => {

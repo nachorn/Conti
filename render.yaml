@@ -1,4 +1,5 @@
-# The website remains on Vercel. This creates only the free game server.
+# The NRNPlay website remains on Vercel. This creates only the free game server.
+# Keep the previous website origin available for guest saved-game recovery.
 # DATABASE_URL must be a durable PostgreSQL direct/session connection.
 # Never replace it with the free service's ephemeral filesystem.
 services:
@@ -18,6 +19,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: CLIENT_ORIGINS
-        value: https://conti-six.vercel.app
+        value: https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app
+      - key: PUBLIC_APP_URL
+        value: https://nrnplay.com
+      # Configure private account/email values from server/membership.env.example.
       - key: DATABASE_URL
         sync: false

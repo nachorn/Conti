@@ -9,10 +9,21 @@ export function SavedGames({ games, lang, connected, resume, forget }: {
   resume: (game: SavedGame) => void; forget: (game: SavedGame) => void
 }) {
   const es = lang === 'es'
+  const hostname = typeof window === 'undefined' ? '' : window.location.hostname
+  const previousAddress = hostname === 'conti-six.vercel.app'
+  const newAddress = hostname === 'nrnplay.com' || hostname === 'www.nrnplay.com'
   return <section className="saved-games" aria-labelledby="saved-games-title">
+    {previousAddress && <aside className="saved-domain-notice">
+      <strong>{es ? 'Ahora también estamos en NRNPlay' : 'We are now on NRNPlay too'}</strong>
+      <p>{es ? 'Las partidas que guardaste en esta dirección siguen aquí.' : 'Games saved at this address are still available here.'}</p>
+      <a href="https://nrnplay.com/">{es ? 'Ir a nrnplay.com' : 'Go to nrnplay.com'} <span aria-hidden="true">→</span></a>
+    </aside>}
     <h2 id="saved-games-title">{es ? 'Mis partidas' : 'My games'}</h2>
     <p>{es ? 'Sin cuentas. Vuelve desde este navegador; conservamos la partida durante 30 días de inactividad. Borrar los datos del navegador elimina tu acceso.' : 'No account needed. Return from this browser; games are kept for 30 days of inactivity. Clearing browser data removes your access.'}</p>
     {!games.length && <p className="saved-empty">{es ? 'Tus partidas aparecerán aquí al crear o unirte a una sala.' : 'Your games will appear here when you create or join a room.'}</p>}
+    {newAddress && !games.length && <p className="saved-previous-address">{es ? '¿Tenías una partida guardada en la dirección anterior? ' : 'Did you save a game at our previous address? '}
+      <a href="https://conti-six.vercel.app/">{es ? 'Ver mis partidas anteriores' : 'Find my previous games'}</a>.
+    </p>}
     <div className="saved-game-list">{games.map(game => <article className="saved-game" key={`${game.roomId}:${game.playerId}`}>
       <div className="saved-game-copy">
         <strong>{game.gameType === 'pocha' ? 'La Pocha' : 'Conti'} <span>· {es ? 'Sala' : 'Room'} {game.roomId}</span></strong>

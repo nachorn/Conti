@@ -51,6 +51,14 @@ The private statistics page shows completed games, individual wins, win percenta
 
 Enable accounts with `MEMBERSHIP_ENABLED=true`, a strong `MEMBERSHIP_AUTH_SECRET`, durable storage and a configured email sender; see [the environment example](server/membership.env.example). Accounts and statistics do not require enabling payments or advertising. Account records use the membership store; permanent results are saved atomically with game state and survive room cleanup. Back up both stores together. Game snapshots use format v2 once account tracking is present and v3 once leagues exist; older servers refuse these formats, so a rollback must retain support for the stored version.
 
+## Production domain and email
+
+The public website is [NRNPlay](https://nrnplay.com), hosted on Vercel. The game server remains at `https://conti-server.onrender.com`; keep that address in the client's `VITE_SOCKET_URL`.
+
+Keep [the previous address](https://conti-six.vercel.app) available without an automatic redirect. Guest recovery tokens and remembered account sessions belong to their browser profile and website origin: saved games at the previous address remain recoverable there. Existing accounts and results use the same server; players can sign in again at NRNPlay.
+
+The server allows exactly `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app` in `CLIENT_ORIGINS`, and uses `PUBLIC_APP_URL=https://nrnplay.com`. Resend sends verification and recovery codes as `NRNPlay <no-reply@nrnplay.com>`, with `nacho@nrnplay.com` as Reply-To. Contact mail is received in Zoho. Configure the private Resend key and account settings from [the environment example](server/membership.env.example); see [deployment guidance](DEPLOY.md) for the full migration checklist.
+
 ## Private leagues
 
 Open **My account → Leagues** to create a Pocha or Conti league or join one with its invitation code. Each league has its own members, standings and result history. Before dealing, the room host selects a league or a friendly game; the host can also change this choice after a game finishes. Every seat in a league game must use a different signed-in account that has already joined that league. Participants and the chosen league are fixed at the start. Friendly games still allow guests and do not change league rankings.
