@@ -1,9 +1,11 @@
 import { useState, useEffect, useLayoutEffect, type ReactNode } from 'react'
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { useSocket } from './useSocket'
 import { Lobby } from './components/Lobby'
+import { Home } from './components/Home'
+import { SiteHeader } from './components/SiteHeader'
 import { SavedGames, PausedGame, SaveExitDialog } from './components/SavedGames'
 import { RoomInvite } from './components/RoomInvite'
 import { GameBoard } from './components/GameBoard'
@@ -22,12 +24,50 @@ import { AdGate } from './components/AdGate'
 import { RoomChat } from './components/RoomChat'
 import { useTurnSound } from './useTurnSound'
 import { useRoomVerification } from './useRoomVerification'
+import { gameHref, hostedCardGame } from './lib/platform'
+import { GameSignIn } from './components/GameSignIn'
+import { beginGameSignIn, consumeGameSignIn } from './lib/gameSignIn'
+
+// Capture and scrub the one-use callback before mounting analytics, account
+// refreshes or game sockets. The settled result survives StrictMode remounts.
+const gameSignInReturn = typeof window !== 'undefined' && new URLSearchParams(window.location.hash.slice(1)).has('nrn-code')
+  ? consumeGameSignIn().then(session => ({ session, failed: false }), () => ({ session: null, failed: true })) : null
+let gameSignInReturnHandled = false
+
+function usePlatformLanguage() {
+  const [lang, setLang] = useState<Lang>(() => {
+    try {
+      const saved = window.localStorage.getItem('conti-language')
+      if (saved === 'en' || saved === 'es') return saved
+    } catch { /* Keep a session-only language when storage is blocked. */ }
+    return window.navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
+  })
+  useEffect(() => {
+    document.documentElement.lang = lang
+    try { window.localStorage.setItem('conti-language', lang) } catch { /* Session-only language. */ }
+  }, [lang])
+  return [lang, setLang] as const
+}
+
+/** Central sign-in never mounts a game socket or restores a room seat. */
+function ConnectPage() {
+  const membership = useMembership()
+  const [lang, setLang] = usePlatformLanguage()
+  const [open, setOpen] = useState(false)
+  useEffect(() => { document.title = lang === 'es' ? 'Tu cuenta · NRN Play' : 'Your account · NRN Play' }, [lang])
+  return <div className="nrn-platform">
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} />
+    <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />
+    <GameSignIn membership={membership} lang={lang} onOpenAccount={() => setOpen(true)} />
+  </div>
+}
 
 export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
   // recovery token, and monitoring must never reconnect or replace that seat.
   return <Routes>
     <Route path="/dashboard" element={<Dashboard />} />
+    <Route path="/connect" element={<ConnectPage />} />
     <Route path="/*" element={<GameApp />} />
   </Routes>
 }
@@ -38,20 +78,16 @@ function GameApp() {
   const [exitOpen, setExitOpen] = useState(false)
   const [membershipOpen, setMembershipOpen] = useState(false)
   const [adGateOpen, setAdGateOpen] = useState(false)
-  const [lang, setLang] = useState<Lang>(() => {
-    try {
-      const saved = window.localStorage.getItem('conti-language')
-      if (saved === 'en' || saved === 'es') return saved
-    } catch {
-      // Storage may be unavailable in privacy-restricted browser contexts.
-    }
-    return window.navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
-  })
+  const [lang, setLang] = usePlatformLanguage()
+  const [signInError, setSignInError] = useState(false)
+  const [signingIn, setSigningIn] = useState(!!gameSignInReturn && !gameSignInReturnHandled)
   const [showPochaDev, setShowPochaDev] = useState(false)
   const [showContinentalDev, setShowContinentalDev] = useState(false)
   const [chatPreviewTarget, setChatPreviewTarget] = useState<HTMLDivElement | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
+  const hostedGame = hostedCardGame(window.location.hostname)
+  const isPlatformPage = ['/', '/conti', '/pocha'].includes(location.pathname)
   const pochaMock = usePochaMockState({ phase: 'playing', playerCount: 4 })
   const continentalMock = useContinentalMockState()
   const {
@@ -91,6 +127,37 @@ function GameApp() {
   const turnSound = useTurnSound(state, socketId, isConnected && !showPochaDev && !showContinentalDev)
   const roomVerification = useRoomVerification(lang)
 
+  useEffect(() => {
+    if (!gameSignInReturn || gameSignInReturnHandled) return
+    let active = true
+    void gameSignInReturn.then(result => {
+      if (!active || gameSignInReturnHandled) return
+      gameSignInReturnHandled = true
+      setSignInError(result.failed || (!!result.session && !membership.adoptSession(result.session)))
+      setSigningIn(false)
+    })
+    return () => { active = false }
+  }, [membership.adoptSession])
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('nrn-signin') !== '1') return
+    query.delete('nrn-signin')
+    const search = query.toString()
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? '?' + search : ''}${window.location.hash}`)
+    setSigningIn(true)
+    void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
+  }, [])
+
+  const openAccount = () => {
+    setAdGateOpen(false)
+    if (!hostedGame || membership.account) { setMembershipOpen(true); return }
+    setSigningIn(true); setSignInError(false)
+    void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
+  }
+
+  useLayoutEffect(() => { window.scrollTo(0, 0) }, [location.pathname])
+
   useLayoutEffect(() => {
     if (!chatPreviewTarget) return
     // Share the real dock height with the game's sticky header, including text
@@ -118,13 +185,16 @@ function GameApp() {
   }, [adGate?.required])
 
   useEffect(() => {
-    document.documentElement.lang = lang
-    try {
-      window.localStorage.setItem('conti-language', lang)
-    } catch {
-      // Keep the selected language for this session even without persistence.
-    }
-  }, [lang])
+    const pageName = location.pathname === '/conti' || (location.pathname === '/' && hostedGame === 'continental') ? 'Conti'
+      : location.pathname === '/pocha' || (location.pathname === '/' && hostedGame === 'pocha') ? 'La Pocha'
+      : location.pathname === '/game' && state ? (state.gameType === 'pocha' ? 'La Pocha' : 'Conti') : null
+    document.title = pageName ? `${pageName} · NRN Play` : lang === 'es' ? 'NRN Play — Tu próxima partida empieza aquí' : 'NRN Play — Your next game starts here'
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+    if (canonical) canonical.href = hostedGame ? `${window.location.origin}/`
+      : location.pathname === '/conti' || location.pathname === '/pocha'
+        ? new URL(gameHref(location.pathname === '/conti' ? 'conti' : 'pocha'), 'https://nrnplay.com').href
+        : 'https://nrnplay.com/'
+  }, [location.pathname, lang, state?.gameType, hostedGame])
 
   // When we have a real room (joined), go to /game
   useEffect(() => {
@@ -168,17 +238,39 @@ function GameApp() {
     return true
   }
 
+  const renderLobby = (gameType: 'continental' | 'pocha') => <Lobby
+    key={gameType}
+    gameType={gameType}
+    playerName={membership.account?.name}
+    savedGames={<SavedGames games={savedGames.filter(game => game.gameType === gameType)} lang={lang}
+      connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} />}
+    onCreateContinental={handleCreateContinental}
+    onCreatePocha={handleCreatePocha}
+    onJoin={handleJoin}
+    error={error}
+    isConnected={isConnected}
+    lang={lang}
+    setLang={setLang}
+    onOpenPochaDev={openPochaPreview}
+    onOpenContinentalDev={() => { setShowContinentalDev(true); navigate('/game') }}
+  />
+
   return (
-    <>
+    <div className={isPlatformPage ? 'nrn-platform' : undefined}>
+      {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
+        onOpenAccount={openAccount} />}
+      {signingIn && <p className="nrn-sign-in-status" role="status">{lang === 'es' ? 'Conectando tu cuenta de NRN Play…' : 'Connecting your NRN Play account…'}</p>}
+      {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes seguir como invitado o volver a iniciar sesión.' : 'Your account could not be connected. You can keep playing as a guest or sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
       {roomVerification.dialog}
       {!showPochaDev && !showContinentalDev && <>
         {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen}
-          onOpen={() => { setAdGateOpen(false); setMembershipOpen(true) }} onClose={() => setMembershipOpen(false)} />}
+          hideTrigger={isPlatformPage}
+          onOpen={openAccount} onClose={() => setMembershipOpen(false)} />}
         <AdGate gate={adGate} state={state} playerId={socketId} lang={lang} connected={isConnected}
           open={adGateOpen} onOpen={() => { setMembershipOpen(false); setAdGateOpen(true) }} onClose={() => setAdGateOpen(false)}
-          onAccount={() => setMembershipOpen(true)} begin={beginAd} complete={completeAd} />
+          onAccount={openAccount} begin={beginAd} complete={completeAd} />
       </>}
-      {!showPochaDev && !showContinentalDev && (
+      {!showPochaDev && !showContinentalDev && (hostedGame || location.pathname !== '/' || recoveryRoomId !== null) && (
         <ConnectionNotice
           status={connectionStatus}
           recoveryRoomId={recoveryRoomId}
@@ -210,24 +302,13 @@ function GameApp() {
         <Route
           path="/"
           element={
-            <Lobby
-              savedGames={<SavedGames games={savedGames} lang={lang} connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} />}
-              onCreateContinental={handleCreateContinental}
-              onCreatePocha={handleCreatePocha}
-              onJoin={handleJoin}
-              error={error}
-              isConnected={isConnected}
-              lang={lang}
-              setLang={setLang}
-              initialJoinRoomId={null}
-              onOpenPochaDev={openPochaPreview}
-              onOpenContinentalDev={() => {
-                setShowContinentalDev(true)
-                navigate('/game')
-              }}
-            />
+            hostedGame ? renderLobby(hostedGame) : <Home lang={lang} accountName={membership.account?.name} signedIn={!!membership.account} error={error} onOpenAccount={openAccount}
+              savedGames={savedGames.length > 0 ? <SavedGames games={savedGames} lang={lang}
+                connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} /> : undefined} />
           }
         />
+        <Route path="/conti" element={renderLobby('continental')} />
+        <Route path="/pocha" element={renderLobby('pocha')} />
         <Route
           path="/room/:roomId"
           element={
@@ -248,7 +329,7 @@ function GameApp() {
                 gameType={state.gameType ?? 'continental'} isHost={state.players[0]?.id === socketId}
                 nextGame={state.phase === 'game_end'}
                 connected={isConnected} lang={lang} onSetLeague={configureLeague}
-                onOpenAccount={() => setMembershipOpen(true)} />}
+                onOpenAccount={openAccount} />}
               onContinueSaved={continueSavedGame}
               pochaAction={pochaAction}
               configurePocha={configurePocha}
@@ -267,11 +348,11 @@ function GameApp() {
               onLeave={leaveAndGoHome}
               onLeavePochaDev={() => {
                 setShowPochaDev(false)
-                navigate('/')
+                navigate('/pocha')
               }}
               onLeaveContinentalDev={() => {
                 setShowContinentalDev(false)
-                navigate('/')
+                navigate('/conti')
               }}
               start={(opts) => {
                 if (adGate?.required && !adGate.canStart) setAdGateOpen(true)
@@ -293,10 +374,11 @@ function GameApp() {
             />
           }
         />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Analytics />
       <SpeedInsights />
-    </>
+    </div>
   )
 }
 

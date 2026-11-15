@@ -90,6 +90,19 @@ export function useMembership() {
     setStorageAvailable(saveMembershipSession(localStorageOrNull(), next))
   }, [])
 
+  const adoptSession = useCallback((value: unknown): boolean => {
+    if (!isMembershipSession(value)) return false
+    ++authSequence.current
+    ++refreshSequence.current
+    pendingAuth.current = null
+    registration.current = null
+    remember({ token: value.token, expiresAt: value.expiresAt })
+    setAccount(value.account)
+    setBusy(false)
+    setError(null)
+    return true
+  }, [remember])
+
   const refresh = useCallback(async () => {
     const current = sessionRef.current
     const sequence = ++refreshSequence.current
@@ -228,6 +241,6 @@ export function useMembership() {
     } finally { setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, refresh, clearError: () => setError(null) }
+  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, refresh, adoptSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>

@@ -5,6 +5,7 @@ import { FileSnapshotStore, PostgresSnapshotStore, type SnapshotStore } from './
 import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
+import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
@@ -29,6 +30,8 @@ export interface MembershipOptions {
   stripePriceIdEur?: string
   stripePriceIdUsd?: string
   appUrl?: string
+  gameOrigins?: string[]
+  allowLocalGameOrigins?: boolean
   ads?: MembershipConfig['ads']
   request?: typeof fetch
   now?: () => number
@@ -121,11 +124,16 @@ export class MembershipService {
   private readonly now: () => number
   private readonly request: typeof fetch
   private readonly appUrl: string | null
+  private readonly gameSignIn: GameSignInBroker
   constructor(private readonly options: MembershipOptions) {
     if (options.authSecret.length < 32) throw new Error('MEMBERSHIP_AUTH_SECRET must contain at least 32 characters')
     this.now = options.now ?? Date.now
     this.request = options.request ?? fetch
     this.appUrl = validAppUrl(options.appUrl)
+    this.gameSignIn = new GameSignInBroker(
+      validateGameOrigins(options.gameOrigins ?? DEFAULT_GAME_ORIGINS, options.allowLocalGameOrigins === true),
+      sourceTokenHash => this.linkedSessionByHash(sourceTokenHash), this.now,
+    )
   }
   async load() { this.data = decode(await this.options.store.load()); return this }
   isHealthy() { return !this.failed && this.options.store.isHealthy?.() !== false }
@@ -178,6 +186,28 @@ export class MembershipService {
     const session = this.data.sessions.find(s => s.tokenHash === hash(token) && s.expiresAt > this.now())
     const account = session && this.data.accounts.find(a => a.id === session.accountId)
     return account ? this.publicAccount(account) : null
+  }
+  gameSignInCors(issuerOrigins: string[] = []) {
+    return this.gameSignIn.cors([...issuerOrigins, ...(this.appUrl ? [this.appUrl] : []), 'https://nrnplay.com', 'https://www.nrnplay.com'])
+  }
+  /** A new game receives a separate session; the source credential never leaves this server. */
+  linkedSession(sourceToken: string): Promise<MembershipSession> {
+    if (typeof sourceToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(sourceToken)) return Promise.reject(new MembershipError('unauthorized', 401))
+    return this.linkedSessionByHash(hash(sourceToken))
+  }
+  private linkedSessionByHash(sourceTokenHash: string): Promise<MembershipSession> {
+    return this.mutate(data => {
+      // Recheck inside the mutation queue so logout/reset before exchange revokes the proof.
+      const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
+      const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
+      if (!source || !account) throw new MembershipError('unauthorized', 401)
+      const token = randomBytes(32).toString('base64url')
+      const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
+      const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
+      data.sessions = data.sessions.filter(session => session.accountId !== account.id)
+        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt })
+      return { token, expiresAt, account: this.publicAccount(account, data) }
+    })
   }
   private requireAccount(req: Request): MembershipAccount {
     const account = this.authenticate(this.token(req))
@@ -474,7 +504,8 @@ export class MembershipService {
     const run = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store'); res.set('X-Robots-Tag', 'noindex, nofollow')
       Promise.resolve().then(() => { this.requireHealthy(); return handler(req, res) }).catch(error => {
-        if (!res.headersSent) res.status(error instanceof MembershipError ? error.status : 503).json({ error: error instanceof MembershipError ? error.code : 'server_unavailable' })
+        const known = error instanceof MembershipError || error instanceof GameSignInError
+        if (!res.headersSent) res.status(known ? error.status : 503).json({ error: known ? error.code : 'server_unavailable' })
       })
     }
     app.post('/api/membership/stripe-webhook', express.raw({ type: 'application/json', limit: '256kb' }), run(async (req, res) => {
@@ -483,6 +514,13 @@ export class MembershipService {
       await this.handleStripeEvent(event); res.json({ received: true })
     }))
     const json = express.json({ limit: '4kb' })
+    app.post('/api/membership/game-authorize', json, run((req, res) => {
+      this.requireAccount(req)
+      res.json(this.gameSignIn.authorize(this.token(req), req.body?.origin, req.body?.challenge, req.ip ?? 'unknown'))
+    }))
+    app.post('/api/membership/game-exchange', json, run(async (req, res) => {
+      res.json(await this.gameSignIn.exchange(req.body?.code, req.body?.verifier, req.get('origin'), req.ip ?? 'unknown'))
+    }))
     app.get('/api/membership/config', run(async (_req, res) => res.json(await this.config())))
     app.post('/api/membership/login', json, run(async (req, res) => {
       // Express's default socket address is deliberately used; forwarded IPs are
@@ -538,6 +576,8 @@ export async function createMembershipService(env: NodeJS.ProcessEnv = process.e
   if (!store) throw new Error('Memberships require DATABASE_URL or MEMBERSHIP_STATE_PATH on a persistent volume')
   const sendCode = createMembershipEmailSender(env)
   try {
-    return await new MembershipService({ store, authSecret: secret, dashboardKey: env.ADMIN_DASHBOARD_KEY, sendCode, stripeSecret: env.STRIPE_SECRET_KEY, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET, stripePriceId: env.STRIPE_PRICE_ID, stripePriceIdEur: env.STRIPE_PRICE_ID_EUR, stripePriceIdUsd: env.STRIPE_PRICE_ID_USD, appUrl: env.PUBLIC_APP_URL, ads: adConfigFromEnvironment(env) }).load()
+    return await new MembershipService({ store, authSecret: secret, dashboardKey: env.ADMIN_DASHBOARD_KEY, sendCode, stripeSecret: env.STRIPE_SECRET_KEY, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET, stripePriceId: env.STRIPE_PRICE_ID, stripePriceIdEur: env.STRIPE_PRICE_ID_EUR, stripePriceIdUsd: env.STRIPE_PRICE_ID_USD, appUrl: env.PUBLIC_APP_URL,
+      gameOrigins: gameOriginsFromEnvironment(env), allowLocalGameOrigins: env.NODE_ENV !== 'production' && env.RENDER !== 'true' && !env.RAILWAY_ENVIRONMENT_ID,
+      ads: adConfigFromEnvironment(env) }).load()
   } catch (error) { await store.close(); throw error }
 }

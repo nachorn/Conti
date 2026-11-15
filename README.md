@@ -1,6 +1,15 @@
-# Continental Rummy
+# NRN Play
 
-A real-time multiplayer web app for **Continental Rummy** (2–10 players). One card game, tabletop-style: shared table, hands, melds, stock, and discard.
+The NRN Play home page brings together **FootballChampion**, **Conti** and **La Pocha** with one clickable card per game and access to the existing card-game account, results and leagues.
+
+- `/`: NRN Play game catalog and profile access.
+- `/conti`: Continental Rummy rooms for 2–10 players.
+- `/pocha`: La Pocha rooms and invitations.
+- FootballChampion shares the existing NRN Play account through central sign-in; its careers remain local to each browser.
+
+Add future games to `client/src/lib/gameCatalog.ts`. Brand assets, including the selected transparent PNG and scalable SVG logos, live in `client/public/brand/`. Both card games retain the existing shared server, room invitation URLs, recovery credentials and saved-game storage; each game lobby shows its own saved rooms. Production builds prerender all three public pages, with matching Vercel routes and canonical URLs.
+
+The planned game addresses are `football.nrnplay.com`, `conti.nrnplay.com` and `pocha.nrnplay.com`, with `nrnplay.com` as the catalog and central profile. The client already selects the correct game from its hostname. Enable the catalog's `VITE_GAME_SUBDOMAINS_ENABLED=true` only after all domains and HTTPS work; until then existing destinations remain available. See [the activation and save-migration plan](NRN_PLATFORM_MIGRATION.md).
 
 ## Rules
 
@@ -29,11 +38,11 @@ npm run dev
 npm test
 ```
 
-Open **http://localhost:5173**. Create a room, share the room code, have others join, then Start game (host only). Play with 2–10 players.
+Open **http://localhost:5173**, choose a game, create a room and share its code or invitation link. The host starts once everyone has joined.
 
 ## Private player dashboard
 
-Use **Owner dashboard** in the lobby, or open `/dashboard`, to see who is online across Continental and Pocha. It refreshes automatically and requires a private server access key. See [dashboard setup](DASHBOARD.md) to enable access.
+Use **Owner dashboard** in the home page footer, or open `/dashboard`, to see who is online across Continental and Pocha. It refreshes automatically and requires a private server access key. See [dashboard setup](DASHBOARD.md) to enable access.
 
 ## Tech
 

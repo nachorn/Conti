@@ -42,6 +42,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   app.use(securityHeaders)
   const isHealthy = () => !repository.failed && store.isHealthy?.() !== false
   const corsOrigin = options.origins?.length ? options.origins : true
+  if (options.membership) app.use(['/api/membership/game-authorize', '/api/membership/game-exchange'], options.membership.gameSignInCors(options.origins ?? []))
   app.use(cors({ origin: corsOrigin }))
   registerSecurityConfig(app, options.turnstile)
   const adminAuth = new AdminAuth(options.dashboardKey, options.origins)

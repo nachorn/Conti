@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url><loc>https://nrnplay.com/</loc></url>
+  <url><loc>https://nrnplay.com/conti</loc></url>
+  <url><loc>https://nrnplay.com/pocha</loc></url>
   <url><loc>https://nrnplay.com/learn/es/continental/</loc><xhtml:link rel="alternate" hreflang="en" href="https://nrnplay.com/learn/en/continental/"/><xhtml:link rel="alternate" hreflang="es" href="https://nrnplay.com/learn/es/continental/"/></url>
   <url><loc>https://nrnplay.com/learn/en/continental/</loc><xhtml:link rel="alternate" hreflang="es" href="https://nrnplay.com/learn/es/continental/"/><xhtml:link rel="alternate" hreflang="en" href="https://nrnplay.com/learn/en/continental/"/></url>
   <url><loc>https://nrnplay.com/learn/es/pocha/</loc><xhtml:link rel="alternate" hreflang="en" href="https://nrnplay.com/learn/en/pocha/"/><xhtml:link rel="alternate" hreflang="es" href="https://nrnplay.com/learn/es/pocha/"/></url>

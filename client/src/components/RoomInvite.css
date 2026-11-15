@@ -8,8 +8,8 @@
 }
 .room-invite-shell { width: min(100%, 480px); }
 .room-invite-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
-.room-invite-toolbar > span { font-family: 'Cormorant Garamond', serif; font-size: 21px; font-weight: 600; }
-.room-invite-toolbar > span span { color: #e8ca83; }
+.room-invite-toolbar > a { display: inline-flex; align-items: center; min-height: 44px; }
+.room-invite-toolbar > a img { display: block; height: auto; }
 .room-invite-toolbar > div { display: flex; padding: 3px; border: 1px solid #ffffff24; border-radius: 10px; }
 .room-invite-toolbar button { min-height: 38px; padding: 8px 10px; background: transparent; color: #dedfd2; font-size: 12px; }
 .room-invite-toolbar button[aria-pressed=true] { background: #eed38d; color: #183326; }

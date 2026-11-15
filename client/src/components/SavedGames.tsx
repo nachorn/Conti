@@ -3,6 +3,7 @@ import type { Lang } from '../i18n'
 import type { ActionResult, GameState } from '../types'
 import type { SavedGame } from '../lib/savedGames'
 import './SavedGames.css'
+import { hostedCardGame, PLATFORM_ORIGIN } from '../lib/platform'
 
 export function SavedGames({ games, lang, connected, resume, forget }: {
   games: SavedGame[]; lang: Lang; connected: boolean
@@ -12,6 +13,7 @@ export function SavedGames({ games, lang, connected, resume, forget }: {
   const hostname = typeof window === 'undefined' ? '' : window.location.hostname
   const previousAddress = hostname === 'conti-six.vercel.app'
   const newAddress = hostname === 'nrnplay.com' || hostname === 'www.nrnplay.com'
+  const hostedGame = hostedCardGame(hostname)
   return <section className="saved-games" aria-labelledby="saved-games-title">
     {previousAddress && <aside className="saved-domain-notice">
       <strong>{es ? 'Ahora también estamos en NRNPlay' : 'We are now on NRNPlay too'}</strong>
@@ -21,6 +23,9 @@ export function SavedGames({ games, lang, connected, resume, forget }: {
     <h2 id="saved-games-title">{es ? 'Mis partidas' : 'My games'}</h2>
     <p>{es ? 'Sin cuentas. Vuelve desde este navegador; conservamos la partida durante 30 días de inactividad. Borrar los datos del navegador elimina tu acceso.' : 'No account needed. Return from this browser; games are kept for 30 days of inactivity. Clearing browser data removes your access.'}</p>
     {!games.length && <p className="saved-empty">{es ? 'Tus partidas aparecerán aquí al crear o unirte a una sala.' : 'Your games will appear here when you create or join a room.'}</p>}
+    {hostedGame && !games.length && <p className="saved-previous-address">{es ? 'Tus partidas guardadas antes del cambio siguen en la dirección anterior. ' : 'Games saved before the move remain at the previous address. '}
+      <a href={`${PLATFORM_ORIGIN}/${hostedGame === 'pocha' ? 'pocha' : 'conti'}`}>{es ? 'Ver mis partidas anteriores' : 'Find my previous games'}</a>.
+    </p>}
     {newAddress && !games.length && <p className="saved-previous-address">{es ? '¿Tenías una partida guardada en la dirección anterior? ' : 'Did you save a game at our previous address? '}
       <a href="https://conti-six.vercel.app/">{es ? 'Ver mis partidas anteriores' : 'Find my previous games'}</a>.
     </p>}

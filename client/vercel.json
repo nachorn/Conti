@@ -1,6 +1,14 @@
 {
   "headers": [
     {
+      "source": "/connect",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
       "source": "/ads.txt",
       "headers": [
         { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
@@ -38,8 +46,30 @@
   ],
   "rewrites": [
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "conti.nrnplay.com" }],
+      "destination": "/conti/index.html"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "pocha.nrnplay.com" }],
+      "destination": "/pocha/index.html"
+    },
+    {
       "source": "/api/admin/:path*",
       "destination": "https://conti-server.onrender.com/api/admin/:path*"
+    },
+    {
+      "source": "/connect",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/conti",
+      "destination": "/conti/index.html"
+    },
+    {
+      "source": "/pocha",
+      "destination": "/pocha/index.html"
     },
     {
       "source": "/dashboard",

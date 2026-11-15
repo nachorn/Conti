@@ -52,8 +52,8 @@ const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
-export function Membership({ membership, lang, open, onOpen, onClose }: {
-  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void
+export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false }: {
+  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean
 }) {
   const t = copy[lang]
   const es = lang === 'es'
@@ -165,18 +165,18 @@ export function Membership({ membership, lang, open, onOpen, onClose }: {
     } catch { /* A missing price must never turn into an invented offer. */ }
   }
 
-  if (!visible) return null
+  if (!visible && !open) return null
 
   return <>
-    <div className="membership-toolbar">
+    {!hideTrigger && <div className="membership-toolbar">
       <button type="button" className="membership-account-button" onClick={onOpen} aria-haspopup="dialog">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></svg>
         {t.account}{account?.adFree && <span className="membership-badge">{t.adFree}</span>}
       </button>
-    </div>
+    </div>}
     <dialog ref={dialog} className="membership-dialog" aria-labelledby="membership-title" onCancel={onClose} onClose={onClose}>
       <div className="membership-header">
-        <span className="membership-eyebrow">Continental &amp; Pocha</span>
+        <span className="membership-eyebrow">NRN Play</span>
         <button type="button" className="membership-close" onClick={onClose} aria-label={t.close}>×</button>
       </div>
       <h2 id="membership-title">{t.title}</h2>

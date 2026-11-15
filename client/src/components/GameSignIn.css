@@ -1,0 +1,13 @@
+.game-sign-in { display: grid; place-items: center; min-height: calc(100dvh - 96px); padding: 40px 20px; }
+.game-sign-in-card { width: min(100%, 480px); padding: clamp(26px, 6vw, 42px); background: #fff; border: 1px solid #dfe3da; border-radius: 20px; color: #182c2b; }
+.game-sign-in-symbol { display: grid; place-items: center; width: 48px; height: 48px; background: #e9f2cf; color: #526c31; border-radius: 12px; font-size: 26px; }
+.game-sign-in-eyebrow { margin: 24px 0 10px; font-size: 10px; font-weight: 600; letter-spacing: .15em; color: #636e61; }
+.game-sign-in-card h1 { margin: 0 0 14px; font-family: 'Outfit', sans-serif; font-size: clamp(26px, 5vw, 34px); font-weight: 500; letter-spacing: -.04em; line-height: 1.15; }
+.game-sign-in-card > p:not(.game-sign-in-eyebrow) { color: #636e61; font-size: 14px; line-height: 1.65; }
+.game-sign-in-target { display: grid; gap: 6px; padding: 17px 18px; border-radius: 10px; background: #f1f4e9; margin: 24px 0; font-size: 13px; overflow-wrap: anywhere; }
+.game-sign-in-target > span { color: #636e61; font-size: 11px; }
+.game-sign-in-target strong { font-weight: 500; }
+.game-sign-in-primary { display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%; min-height: 48px; padding: 12px 17px; border-radius: 9px; background: #182c2b; color: #fff; text-align: left; font-size: 14px; overflow-wrap: anywhere; }
+.game-sign-in-primary > span { flex-shrink: 0; }
+.game-sign-in-card .game-sign-in-error { color: #8d3829; background: #fff0eb; border: 1px solid #e4b4a9; border-radius: 9px; padding: 12px 15px; }
+.game-sign-in-home { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; color: #526c31; font-size: 12px; text-underline-offset: 4px; }

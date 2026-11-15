@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import type { RoomInviteInfo } from '@shared/roomInvite'
 import type { Lang } from '../i18n'
 import './RoomInvite.css'
+import { platformHomeHref } from '../lib/platform'
 
 const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
 
@@ -119,7 +120,7 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
   return <main className="room-invite">
     <div className="room-invite-shell">
       <header className="room-invite-toolbar">
-        <span>Continental <span aria-hidden="true">&</span> Pocha</span>
+        <Link to={platformHomeHref()} aria-label={L('NRN Play, inicio', 'NRN Play, home')}><img src="/brand/nrn-play-selected-light.svg" alt="NRN Play" width="155" height="33" /></Link>
         <div role="group" aria-label={L('Idioma', 'Language')}>
           <button type="button" aria-label="Español" aria-pressed={lang === 'es'} onClick={() => setLang('es')}>ES</button>
           <button type="button" aria-label="English" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>EN</button>
@@ -161,7 +162,7 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
           {L('Volver a comprobar', 'Check again')}
         </button>}
       </section>
-      <Link className="room-invite-home" to="/">{L('Ir al menú principal', 'Go to the main menu')}</Link>
+      <Link className="room-invite-home" to={platformHomeHref()}>{L('Ir al menú principal', 'Go to the main menu')}</Link>
     </div>
   </main>
 }
