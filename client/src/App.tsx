@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
@@ -48,6 +48,7 @@ function GameApp() {
   })
   const [showPochaDev, setShowPochaDev] = useState(false)
   const [showContinentalDev, setShowContinentalDev] = useState(false)
+  const [chatPreviewTarget, setChatPreviewTarget] = useState<HTMLDivElement | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const pochaMock = usePochaMockState({ phase: 'playing', playerCount: 4 })
@@ -87,6 +88,24 @@ function GameApp() {
   } = useSocket(membership.token, membership.refresh)
   const turnSound = useTurnSound(state, socketId, isConnected && !showPochaDev && !showContinentalDev)
   const roomVerification = useRoomVerification(lang)
+
+  useLayoutEffect(() => {
+    if (!chatPreviewTarget) return
+    // Share the real dock height with the game's sticky header, including text
+    // scaling and device safe areas, so neither header covers the other.
+    const updateHeight = () => document.documentElement.style.setProperty(
+      '--room-chat-dock-height', `${chatPreviewTarget.getBoundingClientRect().height}px`,
+    )
+    updateHeight()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateHeight)
+    observer?.observe(chatPreviewTarget)
+    window.addEventListener('resize', updateHeight)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateHeight)
+      document.documentElement.style.removeProperty('--room-chat-dock-height')
+    }
+  }, [chatPreviewTarget])
 
   useEffect(() => {
     if (adGateRequested) { setMembershipOpen(false); setAdGateOpen(true) }
@@ -178,9 +197,10 @@ function GameApp() {
               {turnSound.enabled ? <path d="M16 8c2 2 2 6 0 8m3-11c4 4 4 10 0 14" /> : <path d="m17 9 5 6m0-6-5 6" />}
             </svg>
           </button>
-          {socketId && <RoomChat key={`${roomId}:${socketId}`} messages={chatMessages} playerId={socketId} lang={lang} connected={isConnected} send={sendChat} />}
+          {socketId && <RoomChat key={`${roomId}:${socketId}`} messages={chatMessages} playerId={socketId} lang={lang} connected={isConnected} send={sendChat} previewTarget={chatPreviewTarget} />}
           <button className="save-subtle" disabled={!isConnected} onClick={() => setExitOpen(true)}>{lang === 'es' ? 'Guardar y salir' : 'Save and exit'}</button>
         </div>
+        <div className="room-chat-dock" ref={setChatPreviewTarget} />
         {exitOpen && <SaveExitDialog host={state.players[0]?.id === socketId} paused={state.savedGame?.paused ?? false}
           lang={lang} connected={isConnected} onSave={saveAndExit} onAbandon={leave} onClose={() => setExitOpen(false)} />}
       </>}

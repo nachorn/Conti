@@ -1,10 +1,15 @@
 /* Shared shell for game boards: sticky glass toolbar, error banner, and toast. */
 .game-shell {
   position: sticky;
-  top: 0;
+  top: var(--room-chat-dock-height, 0px);
   z-index: 30;
   width: 100%;
   padding: max(0.45rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-right, 0px)) 0.35rem max(0.5rem, env(safe-area-inset-left, 0px));
+}
+
+/* Continental's play area scrolls inside its own viewport below the chat dock. */
+.game-board-playing > .game-shell {
+  top: 0;
 }
 
 .game-shell-error {

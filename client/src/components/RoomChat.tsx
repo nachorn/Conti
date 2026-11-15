@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { CHAT_TEXT_LIMIT, type ChatMessage } from '@shared/roomChat'
 import type { ActionResult } from '../types'
 import type { Lang } from '../i18n'
@@ -6,9 +7,10 @@ import './RoomChat.css'
 
 const EMOJIS = ['👋', '😂', '👏', '❤️', '😱', '😎']
 
-export function RoomChat({ messages, playerId, lang, connected, send }: {
+export function RoomChat({ messages, playerId, lang, connected, send, previewTarget }: {
   messages: ChatMessage[]; playerId: string; lang: Lang; connected: boolean
   send: (text: string, clientId: string) => Promise<ActionResult>
+  previewTarget: HTMLDivElement | null
 }) {
   const es = lang === 'es'
   const [open, setOpen] = useState(false)
@@ -20,6 +22,7 @@ export function RoomChat({ messages, playerId, lang, connected, send }: {
   const pending = useRef(false)
   const retry = useRef<{ text: string; id: string } | null>(null)
   const button = useRef<HTMLButtonElement>(null)
+  const opener = useRef<HTMLButtonElement | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const scroll = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
@@ -40,7 +43,14 @@ export function RoomChat({ messages, playerId, lang, connected, send }: {
     }
   }, [open])
 
-  function close() { setOpen(false); button.current?.focus() }
+  const latest = messages[messages.length - 1]
+  const latestAuthor = latest?.playerId === playerId ? (es ? 'Tú' : 'You') : latest?.name
+  function openChat(trigger: HTMLButtonElement) {
+    opener.current = trigger
+    setOpen(true)
+    input.current?.focus({ preventScroll: true })
+  }
+  function close() { setOpen(false); (opener.current ?? button.current)?.focus({ preventScroll: true }) }
   async function submit(event?: FormEvent, emoji?: string) {
     event?.preventDefault()
     const text = (emoji ?? draft).trim()
@@ -68,10 +78,21 @@ export function RoomChat({ messages, playerId, lang, connected, send }: {
 
   return <>
     <button ref={button} type="button" className="save-subtle room-chat-toggle" aria-expanded={open} aria-controls="room-chat-panel"
-      aria-label={unread ? `Chat · ${unread} ${es ? 'sin leer' : 'unread'}` : 'Chat'} onClick={() => open ? close() : setOpen(true)}>
+      aria-label={unread ? `Chat · ${unread} ${es ? 'sin leer' : 'unread'}` : 'Chat'} onClick={event => {
+        if (open) { opener.current = event.currentTarget; close() }
+        else openChat(event.currentTarget)
+      }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>
       Chat {unread > 0 && <span className="room-chat-badge">{unread > 99 ? '99+' : unread}</span>}
     </button>
+    {latest && previewTarget && createPortal(<button type="button" className={'room-chat-preview' + (unread > 0 ? ' has-unread' : '')}
+      aria-expanded={open} aria-controls="room-chat-panel" aria-live={open ? 'off' : 'polite'} aria-atomic="true"
+      aria-label={`${es ? 'Abrir chat. Último mensaje de' : 'Open chat. Latest message from'} ${latestAuthor}: ${latest.text}`}
+      onClick={event => openChat(event.currentTarget)}>
+      <span className="room-chat-preview-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg></span>
+      <span className="room-chat-preview-message"><strong>{latestAuthor}:</strong>{' '}{latest.text}</span>
+      <span className="room-chat-preview-arrow" aria-hidden="true">›</span>
+    </button>, previewTarget)}
     {open && <section id="room-chat-panel" className="room-chat-panel" aria-label={es ? 'Chat de la sala' : 'Room chat'} onKeyDown={event => {
       if (event.key === 'Escape') { event.stopPropagation(); close() }
     }}>

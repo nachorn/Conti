@@ -3,6 +3,18 @@
 .saved-toolbar .sound-toggle { width: 42px; min-height: 42px; padding: 8px; display: grid; place-items: center; flex-shrink: 0; }
 .room-chat-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .room-chat-badge { border-radius: 20px; background: #edca78; color: #132e23; min-width: 20px; padding: 2px 4px; font-weight: 700; }
+/* Let the document scroll: an auto-height body scroll container traps sticky bars. */
+body:has(.room-chat-dock) { overflow-x: clip; overflow-y: visible; }
+.room-chat-dock { position: sticky; top: 0; z-index: 40; padding: max(4px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); background: #122a20; }
+.room-chat-dock:empty { display: none; }
+.room-chat-preview { min-width: 0; width: 100%; min-height: 44px; margin: 0; padding: 9px 12px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: #1b3529; color: #e6eade; border: 1px solid #496044; border-radius: 10px; text-align: left; font-size: .88rem; line-height: 1.4; cursor: pointer; }
+.room-chat-preview.has-unread { background: linear-gradient(100deg, #3b3d27, #223c2c); border-color: #b99b5e; box-shadow: inset 3px 0 #edca78; }
+.room-chat-preview-icon { display: flex; align-items: center; justify-content: center; color: #edca78; }
+.room-chat-preview-message { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.room-chat-preview-message strong { color: #efd18b; font-weight: 700; }
+.room-chat-preview-arrow { color: #efd18b; font-size: 1.5rem; line-height: 1; }
+.room-chat-preview:hover { border-color: #edca78; }
+.room-chat-preview:focus-visible { outline: 2px solid #edca78; outline-offset: 2px; }
 .room-chat-panel { position: fixed; z-index: 1100; top: 58px; right: 16px; width: min(360px, calc(100vw - 24px)); height: min(540px, calc(100dvh - 80px)); display: flex; flex-direction: column; background: #132e23; color: #f5f0df; border: 1px solid #617653; border-radius: 20px; box-shadow: 0 15px 60px #0007; text-align: left; font-size: .9rem; overflow: hidden; box-sizing: border-box; }
 .room-chat-panel header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #38513f; }
 .room-chat-panel h2 { margin: 0 0 4px; font-size: 1.1rem; }
@@ -29,6 +41,7 @@
 @media (max-width: 600px) {
   .saved-toolbar { gap: 6px; justify-content: flex-end; }
   .saved-toolbar .save-status { display: none; }
+  .room-chat-preview { gap: 8px; padding: 9px 10px; font-size: .83rem; }
   .room-chat-panel { right: 12px; top: 56px; }
 }
 @media (max-height: 480px) {
