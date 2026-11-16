@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { Lang } from '../i18n'
 import type { MembershipController, MembershipError } from '../useMembership'
-import { isMembershipCurrency, type MembershipCurrency } from '../../lib/currency.js'
 import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
 import { readAccountForm } from '../lib/accountForm'
+import { PlusPanel } from './PlusPanel'
 import './Membership.css'
 
 const copy = {
@@ -52,8 +52,8 @@ const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
-export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false, gameType = null }: {
-  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean; gameType?: 'continental' | 'pocha' | null
+export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false, gameType = null, initialSection = 'account' }: {
+  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean; gameType?: 'continental' | 'pocha' | null; initialSection?: 'account' | 'plus'
 }) {
   const t = copy[lang]
   const es = lang === 'es'
@@ -69,18 +69,19 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [mode, setMode] = useState<'password' | 'register' | 'code' | 'reset'>('password')
-  const [section, setSection] = useState<'stats' | 'leagues' | 'profile'>(gameType && !paymentReturn ? 'stats' : 'profile')
+  const [section, setSection] = useState<'stats' | 'leagues' | 'profile' | 'plus'>(initialSection === 'plus' || paymentReturn ? 'plus' : gameType ? 'stats' : 'profile')
   const [securityOpen, setSecurityOpen] = useState(false)
   const [passwordUpdated, setPasswordUpdated] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [resendAt, setResendAt] = useState(0)
   const [canResend, setCanResend] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
+  const title = useRef<HTMLHeadingElement>(null)
   const { account, config, busy, error } = membership
   const visible = config.enabled || !!account || !!membership.token
   const passwordEnabled = config.passwordLoginEnabled === true
   const activeMode = mode === 'password' && !passwordEnabled ? 'code' : mode
-  const activeSection = gameType ? section : 'profile'
+  const activeSection = section === 'plus' ? 'plus' : gameType ? section : 'profile'
   const gameName = gameType === 'pocha' ? 'La Pocha' : 'Conti'
 
   function changeMode(next: typeof mode) {
@@ -89,18 +90,18 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   }
   function finishSignIn() {
     setPasswordUpdated(activeMode === 'reset')
-    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setMode('password'); setShowPassword(false); setSection(activeMode === 'reset' || paymentReturn || !gameType ? 'profile' : 'stats'); setFormError(null)
+    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setMode('password'); setShowPassword(false); setSection(initialSection === 'plus' || paymentReturn ? 'plus' : activeMode === 'reset' || !gameType ? 'profile' : 'stats'); setFormError(null)
   }
 
   useEffect(() => {
-    setSection(gameType && !paymentReturn ? 'stats' : 'profile')
+    setSection(initialSection === 'plus' || paymentReturn ? 'plus' : gameType ? 'stats' : 'profile')
     if (open) return
     setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setFormError(null); setMode('password'); setShowPassword(false); setPasswordUpdated(false)
-  }, [open, gameType, paymentReturn])
+  }, [open, gameType, paymentReturn, initialSection])
 
   useEffect(() => {
     if (!paymentReturn) return
-    setSection('profile')
+    setSection('plus')
     onOpen()
     const query = new URLSearchParams(location.search)
     query.delete('payment')
@@ -112,9 +113,12 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   useEffect(() => {
     const node = dialog.current
     if (!node) return
-    if (open && !node.open) node.showModal()
+    if (open && !node.open) {
+      node.showModal()
+      if (initialSection === 'plus') { title.current?.focus(); node.scrollTop = 0 }
+    }
     if (!open && node.open) node.close()
-  }, [open, visible])
+  }, [open, visible, initialSection])
 
   useEffect(() => {
     if (paymentReturn !== 'success' || !membership.token || account?.adFree) return
@@ -158,17 +162,6 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
       if (ok) finishSignIn()
     }
   }
-  let price: string | null = null
-  const prices = (config.prices ?? (config.price ? [config.price] : []))
-    .filter((value): value is { amount: number; currency: MembershipCurrency } =>
-      isMembershipCurrency(value.currency) && Number.isSafeInteger(value.amount) && value.amount > 0)
-  const selectedPrice = prices.find(value => value.currency === membership.currency) ?? prices[0]
-  if (selectedPrice) {
-    try {
-      const format = new Intl.NumberFormat(lang === 'es' ? 'es-ES' : 'en-US', { style: 'currency', currency: selectedPrice.currency })
-      price = format.format(selectedPrice.amount / 100)
-    } catch { /* A missing price must never turn into an invented offer. */ }
-  }
 
   if (!visible && !open) return null
 
@@ -184,15 +177,17 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         <span className="membership-eyebrow">NRN Play</span>
         <button type="button" className="membership-close" onClick={onClose} aria-label={t.close}>×</button>
       </div>
-      <h2 id="membership-title">{account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.title}</h2>
+      <h2 ref={title} id="membership-title" tabIndex={-1}>{activeSection === 'plus' && !securityOpen ? 'NRN Plus' : account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.title}</h2>
       {(!account || !gameType || activeSection === 'profile' || securityOpen) && <p className="membership-description">{t.description}</p>}
+      {!account && initialSection === 'plus' && membership.loaded && <PlusPanel membership={membership} lang={lang} />}
       {!membership.loaded ? <p role="status">{t.waiting}</p> : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
-        {gameType && <div className="membership-tabs membership-tabs-account" role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
-          <button type="button" aria-pressed={activeSection === 'stats'} onClick={() => setSection('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
-          <button type="button" aria-pressed={activeSection === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button>
+        <div className={`membership-tabs membership-tabs-account ${gameType ? 'membership-tabs-games' : ''}`} role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
+          {gameType && <><button type="button" aria-pressed={activeSection === 'stats'} onClick={() => setSection('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
+          <button type="button" aria-pressed={activeSection === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button></>}
           <button type="button" aria-pressed={activeSection === 'profile'} onClick={() => setSection('profile')}>{es ? 'Mi perfil' : 'My profile'}</button>
-        </div>}
-        {gameType && activeSection === 'stats' ? <PersonalStats token={membership.token} gameType={gameType} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : gameType && activeSection === 'leagues' ? <Leagues key={gameType} gameType={gameType} token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : <>
+          <button type="button" aria-pressed={activeSection === 'plus'} onClick={() => setSection('plus')}>NRN Plus</button>
+        </div>
+        {activeSection === 'plus' ? <PlusPanel membership={membership} lang={lang} /> : gameType && activeSection === 'stats' ? <PersonalStats token={membership.token} gameType={gameType} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : gameType && activeSection === 'leagues' ? <Leagues key={gameType} gameType={gameType} token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : <>
         {passwordUpdated && <p className="membership-success" role="status">{es ? 'Contraseña actualizada. Las demás sesiones se han cerrado.' : 'Password updated. Your other sessions have been signed out.'}</p>}
         <dl className="membership-profile-details">
           <div><dt>{es ? 'Nombre' : 'Name'}</dt><dd>{account.name || '—'}</dd></div>
@@ -203,32 +198,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
           <p>{es ? 'Confirma el cambio con un código enviado a tu email. La nueva contraseña se usará en todos los juegos.' : 'Confirm the change with a code sent to your email. The new password will apply to every game.'}</p>
           {config.loginEnabled ? <button type="button" className="membership-secondary" onClick={() => { changeMode('reset'); setEmail(account.email); setSecurityOpen(true) }}>{account.hasPassword ? (es ? 'Cambiar contraseña' : 'Change password') : (es ? 'Crear contraseña' : 'Set a password')}</button> : <p>{es ? 'El cambio de contraseña no está disponible ahora.' : 'Password changes are currently unavailable.'}</p>}
         </section>
-        {(account.adFree || config.checkoutEnabled || paymentReturn) && <details className="membership-ad-access" open={!!paymentReturn}><summary>{t.adFree}</summary>
-        <div className="membership-benefit">{t.benefit}</div>
-        <div className={account.adFree ? 'membership-access active' : 'membership-access'}>
-          <strong>{account.adFree ? t.active : t.inactive}</strong>
-          {account.adFree && <p>{account.source === 'gift' ? t.gift : t.purchased}</p>}
-          {account.adFree && account.expiresAt && <p>{t.expires} {new Date(account.expiresAt).toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US')}</p>}
-        </div>
-        {!account.adFree && <>
-          {paymentReturn === 'success' && <p className="membership-notice" role="status">{t.pending}</p>}
-          {(paymentReturn === 'canceled' || paymentReturn === 'cancelled') && <p className="membership-notice">{t.returned}</p>}
-          {config.checkoutEnabled && price && selectedPrice ? <div className="membership-offer">
-            <fieldset className="membership-currencies" disabled={busy} aria-describedby="membership-currency-help">
-              <legend>{t.currency}</legend>
-              {(['eur', 'usd'] as const).map(value => <label key={value}>
-                <input type="radio" name="membership-currency" value={value} checked={selectedPrice.currency === value}
-                  disabled={!prices.some(option => option.currency === value)} onChange={() => membership.selectCurrency(value)} />
-                <span>{value === 'eur' ? '€ EUR' : '$ USD'}</span>
-              </label>)}
-            </fieldset>
-            <p id="membership-currency-help">{t.currencyHelp}</p>
-            <div aria-live="polite"><strong>{price}</strong><span>{t.once}</span></div>
-            <button className="membership-primary" disabled={busy || membership.currencyPending} onClick={() => void membership.checkout(selectedPrice.currency)}>{busy ? t.waiting : membership.currencyPending ? t.currencyPending : t.purchase}</button>
-            <p>{t.devices}</p>
-          </div> : <p className="membership-notice">{t.purchaseSoon}</p>}
-        </>}
-        </details>}
+        <button type="button" className="membership-secondary" onClick={() => setSection('plus')}>{es ? 'Ver NRN Plus y estilos de mesa' : 'View NRN Plus and table styles'}</button>
         <div className="membership-actions">
           <button className="membership-secondary" disabled={busy || refreshing} onClick={async () => { setRefreshing(true); await membership.refresh(); setRefreshing(false) }}>{refreshing ? t.checking : t.refresh}</button>
           <button className="membership-text" disabled={busy} onClick={() => void membership.logout()}>{t.logout}</button>
@@ -260,7 +230,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         </> : <>
           {activeMode === 'register' && <><label htmlFor="membership-name">{es ? 'Tu nombre' : 'Your name'}</label><input id="membership-name" name="nickname" autoComplete="nickname" maxLength={24} required value={name} onChange={event => setName(event.target.value)} /></>}
           <label htmlFor="membership-email">{t.email}</label>
-          <input autoFocus id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} readOnly={securityOpen} value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required />
+          <input autoFocus={initialSection !== 'plus'} id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} readOnly={securityOpen} value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required />
           {(activeMode === 'password' || activeMode === 'register') && <>
             <label htmlFor="membership-password">{es ? 'Contraseña' : 'Password'}</label>
             <input id="membership-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={activeMode === 'register' ? 'new-password' : 'current-password'} minLength={activeMode === 'register' ? 15 : undefined} maxLength={128} required value={password} onChange={event => setPassword(event.target.value)} aria-describedby={activeMode === 'register' ? 'membership-password-help' : undefined} />

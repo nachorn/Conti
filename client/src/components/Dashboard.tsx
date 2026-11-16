@@ -4,6 +4,7 @@ import type { DashboardOperations, DashboardRoom } from '@shared/dashboard'
 import type { Lang } from '../i18n'
 import './Dashboard.css'
 import { MemberAccess } from './MemberAccess'
+import { PlusAdmin } from './PlusAdmin'
 import { AdminSession, adminLoginFields } from '../lib/adminApi'
 
 const copy = {
@@ -178,6 +179,7 @@ export function Dashboard() {
         </section>
         {snapshot.operations && <OperationsPanel operations={snapshot.operations} lang={lang} />}
         <MemberAccess lang={lang} onSessionExpired={session.expire} />
+        <PlusAdmin lang={lang} onSessionExpired={session.expire} />
         <section className="dashboard-tables" aria-labelledby="dashboard-tables-title">
           <div className="dashboard-section-heading"><h2 id="dashboard-tables-title">{c.tables} <span>{rooms.length}</span></h2>
             <div className="dashboard-tabs" role="group" aria-label={c.tables}>

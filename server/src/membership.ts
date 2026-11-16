@@ -6,6 +6,7 @@ import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
+import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, parseBmcSubscriptions, parsePlusAudit, verifyBmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
@@ -16,7 +17,7 @@ type ChallengePurpose = 'login' | 'register' | 'reset'
 type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
 type Limit = { key: string; count: number; until: number }
 type Order = { id: string; accountId: string; priceId: string; amount: number; currency: string; createdAt: number; sessionId: string | null; paymentIntentId: string | null; url: string | null; state: 'pending' | 'paid' | 'revoked' }
-type Data = { version: 1; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[] }
+type Data = { version: 1 | 2; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[]; bmcSubscriptions: BmcSubscription[]; plusAudit: PlusAudit[] }
 type StripePrice = { id: string; amount: number; currency: string }
 type EmailSender = (email: string, code: string, lang: Language) => Promise<void>
 export interface MembershipOptions {
@@ -35,6 +36,7 @@ export interface MembershipOptions {
   ads?: MembershipConfig['ads']
   request?: typeof fetch
   now?: () => number
+  bmc?: BmcOptions
 }
 const DAY = 86_400_000
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -56,11 +58,11 @@ export function normalizeAccountName(value: unknown): string | null {
   const name = value.trim()
   return name.length > 0 && name.length <= 24 && !/[\u0000-\u001f\u007f]/.test(name) ? name : null
 }
-const empty = (): Data => ({ version: 1, accounts: [], sessions: [], challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [] })
+const empty = (): Data => ({ version: 1, accounts: [], sessions: [], challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [], bmcSubscriptions: [], plusAudit: [] })
 function decode(value: unknown): Data {
   if (value === null) return empty()
   const fail = () => { throw new Error('Invalid membership storage; refusing to overwrite accounts or purchases') }
-  if (!object(value) || value.version !== 1) return fail()
+  if (!object(value) || ![1, 2].includes(value.version)) return fail()
   for (const field of ['accounts', 'sessions', 'challenges', 'limits', 'grants', 'orders', 'revokedPayments', 'events']) {
     if (!Array.isArray(value[field]) || value[field].length > 100_000) return fail()
   }
@@ -81,6 +83,9 @@ function decode(value: unknown): Data {
       !v.orders.every(o => object(o) && id(o.id) && accountIds.has(o.accountId) && id(o.priceId) && time(o.amount) && /^[a-z]{3}$/.test(o.currency) && time(o.createdAt) &&
         (o.sessionId === null || id(o.sessionId)) && (o.paymentIntentId === null || id(o.paymentIntentId)) && (o.url === null || validCheckoutUrl(o.url)) && ['pending', 'paid', 'revoked'].includes(o.state)) ||
       new Set(v.orders.map(o => o.id)).size !== v.orders.length || !v.events.every(id) || !v.revokedPayments.every(id)) return fail()
+  if (value.version === 2 && (!Array.isArray(value.bmcSubscriptions) || !Array.isArray(value.plusAudit))) return fail()
+  v.bmcSubscriptions = parseBmcSubscriptions(value.bmcSubscriptions, accountIds)
+  v.plusAudit = parsePlusAudit(value.plusAudit)
   return v
 }
 function validCheckoutUrl(value: unknown): value is string {
@@ -183,6 +188,8 @@ export class MembershipService {
       next.challenges = next.challenges.filter(c => c.expiresAt > now)
       next.limits = next.limits.filter(l => l.until > now)
       const value = await work(next)
+      // Older servers refuse v2 rather than serving paid members as free users.
+      if (next.bmcSubscriptions.length) next.version = 2
       const bytes = snapshotCapacity(next).bytes
       if (bytes > MAX_SNAPSHOT_BYTES || (!useControlReserve && bytes > MAX_SNAPSHOT_BYTES - 256 * 1024 && bytes > this.committedBytes)) {
         throw new MembershipError('storage_capacity', 503)
@@ -202,7 +209,11 @@ export class MembershipService {
   private publicAccount(account: Account, data = this.data): MembershipAccount {
     const purchased = data.orders.some(o => o.accountId === account.id && o.state === 'paid')
     const gift = data.grants.find(g => g.email === account.email && g.active && (g.expiresAt === null || g.expiresAt > this.now()))
-    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: purchased || !!gift, source: purchased ? 'purchase' : gift ? 'gift' : null, expiresAt: purchased ? null : gift?.expiresAt ?? null }
+    const bmc = bmcEntitlement(data.bmcSubscriptions, account, this.now())
+    const giftWins = !!gift && (gift.expiresAt === null || !bmc.active || gift.expiresAt >= (bmc.expiresAt ?? 0))
+    const plus = purchased ? { active: true, expiresAt: null, provider: 'legacy' as const, status: 'active' as const, cancelAtPeriodEnd: false }
+      : giftWins ? { active: true, expiresAt: gift!.expiresAt, provider: 'gift' as const, status: 'active' as const, cancelAtPeriodEnd: false } : bmc
+    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: plus.active, source: purchased || bmc.active && !giftWins ? 'purchase' : giftWins ? 'gift' : null, expiresAt: plus.expiresAt, plus }
   }
   authenticate(token: string): MembershipAccount | null {
     if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
@@ -340,6 +351,9 @@ export class MembershipService {
     await this.challenge(email, lang, 'reset')
   }
   private issueSession(data: Data, account: Account): MembershipSession {
+    // Accounts only reach here after email/password proof. A webhook can never
+    // create an account, transfer another account's seat or bypass verification.
+    for (const subscription of data.bmcSubscriptions) if (subscription.accountId === null && subscription.email === account.email) subscription.accountId = account.id
     const token = randomBytes(32).toString('base64url'), expiresAt = this.now() + 30 * DAY
     const previous = data.sessions.filter(s => s.accountId === account.id).slice(-9)
     data.sessions = data.sessions.filter(s => s.accountId !== account.id).concat(previous, { accountId: account.id, tokenHash: hash(token), expiresAt })
@@ -481,12 +495,63 @@ export class MembershipService {
     return this.priceLoading
   }
   async config(): Promise<MembershipConfig> {
-    const prices = (await this.prices()).map(({ amount, currency }) => ({ amount, currency }))
-    return { enabled: true, loginEnabled: !!this.options.sendCode, passwordLoginEnabled: true, checkoutEnabled: !!prices.length && !!this.options.sendCode && this.isHealthy(), price: prices[0] ?? null, prices, ads: this.options.ads ?? { provider: 'disabled', publisherId: null } }
+    const prices = (this.options.bmc ? [] : await this.prices()).map(({ amount, currency }) => ({ amount, currency }))
+    return { enabled: true, loginEnabled: !!this.options.sendCode, passwordLoginEnabled: true, checkoutEnabled: !!prices.length && !!this.options.sendCode && this.isHealthy(), price: prices[0] ?? null, prices, ads: this.options.ads ?? { provider: 'disabled', publisherId: null },
+      ...(this.options.bmc ? { plus: bmcPublicConfig(this.options.bmc, this.isHealthy(), !!this.options.sendCode) } : {}) }
+  }
+  async plusCheckout(token: string, currency: unknown, interval: unknown = 'year'): Promise<string> {
+    const account = this.authenticate(token)
+    if (!account) throw new MembershipError('unauthorized', 401)
+    if (currency !== this.options.bmc?.currency || !['eur', 'usd'].includes(String(currency))) throw new MembershipError('invalid_currency')
+    if (interval !== 'year' && interval !== 'month') throw new MembershipError('invalid_interval')
+    if (interval === 'month' && this.options.bmc?.monthlyAmount !== 100) throw new MembershipError('invalid_interval')
+    if (!bmcReadiness(this.options.bmc, this.isHealthy(), !!this.options.sendCode).ready) throw new MembershipError('plus_not_configured', 503)
+    if (account.adFree) throw new MembershipError('already_ad_free', 409)
+    // Checkout is hosted by BMC. No credentials or email are put in its URL.
+    // A browser return URL, this click, or a donation never grants a right.
+    return bmcUrl(this.options.bmc?.membershipUrl)!
+  }
+  plusReadiness() {
+    return { ...bmcReadiness(this.options.bmc, this.isHealthy(), !!this.options.sendCode),
+      provider: this.options.bmc ? 'buymeacoffee' : 'disabled',
+      subscriptions: this.data.bmcSubscriptions.length,
+      lastSignedTestAt: this.data.plusAudit.filter(a => a.kind === 'webhook_test').at(-1)?.at ?? null,
+      refundMode: this.options.bmc?.refundMode ?? null }
+  }
+  async handleBmcWebhook(body: Buffer, signature: string) {
+    const event = verifyBmcEvent(body, signature, this.options.bmc?.secret, this.now())
+    if (!this.options.bmc?.durableStorage) throw new BmcError('durable_storage_required', 503)
+    if (!event.live_mode) {
+      await this.mutate(data => {
+        const auditId = hash(`bmc-test:${event.type}:${event.created}`)
+        if (!data.plusAudit.some(a => a.id === auditId)) data.plusAudit = [...data.plusAudit, { id: auditId, at: this.now(), kind: 'webhook_test' as const, subscriptionId: null, reason: null }].slice(-10_000)
+      }, false, true)
+      return { received: true, test: true }
+    }
+    if (!bmcReadiness(this.options.bmc, this.isHealthy(), !!this.options.sendCode).ready) throw new BmcError('plus_not_configured', 503)
+    await this.mutate(data => {
+      const result = applyBmcEvent(data.bmcSubscriptions, event, this.options.bmc!, data.accounts, this.now())
+      if (!result) return
+      data.bmcSubscriptions = data.bmcSubscriptions.filter(s => s.id !== result.record.id).concat(result.record)
+      data.plusAudit = [...data.plusAudit, result.audit].slice(-10_000)
+    }, true, true)
+    return { received: true }
+  }
+  async revokePlus(subscriptionId: unknown, reason: unknown) {
+    if (typeof subscriptionId !== 'string' || !/^\d{1,16}$/.test(subscriptionId) || !['refund', 'dispute', 'provider_correction'].includes(String(reason))) throw new MembershipError('invalid_request')
+    await this.mutate(data => {
+      const subscription = data.bmcSubscriptions.find(s => s.id === subscriptionId)
+      if (!subscription) throw new MembershipError('subscription_not_found', 404)
+      if (subscription.revokedAt !== null) return
+      subscription.revokedAt = this.now(); subscription.eligible = false
+      subscription.expiresAt = Math.min(subscription.expiresAt, this.now())
+      data.plusAudit = [...data.plusAudit, { id: hash(`owner-revoke:${subscriptionId}:${this.now()}:${randomUUID()}`), at: this.now(), kind: 'owner_revoke' as const, subscriptionId, reason: String(reason) }].slice(-10_000)
+    }, true, true)
   }
   async checkout(token: string, currency?: unknown): Promise<string> {
     const account = this.authenticate(token)
     if (!account) throw new MembershipError('unauthorized', 401)
+    if (this.options.bmc) throw new MembershipError('legacy_checkout_disabled', 409)
     if (this.committedBytes + 4 * 1024 > MAX_SNAPSHOT_BYTES - 256 * 1024) throw new MembershipError('storage_capacity', 503)
     if (currency !== undefined && currency !== 'eur' && currency !== 'usd') throw new MembershipError('invalid_currency')
     const prices = await this.prices()
@@ -541,7 +606,7 @@ export class MembershipService {
     const run = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store'); res.set('X-Robots-Tag', 'noindex, nofollow')
       Promise.resolve().then(() => { this.requireHealthy(); return handler(req, res) }).catch(error => {
-        const known = error instanceof MembershipError || error instanceof GameSignInError
+        const known = error instanceof MembershipError || error instanceof GameSignInError || error instanceof BmcError
         if (!res.headersSent) res.status(known ? error.status : 503).json({ error: known ? error.code : 'server_unavailable' })
       })
     }
@@ -549,6 +614,9 @@ export class MembershipService {
       if (!this.options.stripeWebhookSecret || !this.options.stripeSecret) throw new MembershipError('checkout_not_configured', 503)
       const event = verifyStripeEvent(req.body, req.get('stripe-signature') ?? '', this.options.stripeWebhookSecret, this.now())
       await this.handleStripeEvent(event); res.json({ received: true })
+    }))
+    app.post('/api/membership/bmc-webhook', express.raw({ type: 'application/json', limit: '256kb', inflate: false }), run(async (req, res) => {
+      res.json(await this.handleBmcWebhook(req.body, req.get('x-signature-sha256') ?? ''))
     }))
     const json = express.json({ limit: '4kb', inflate: false })
     app.post('/api/membership/game-authorize', json, run((req, res) => {
@@ -585,11 +653,24 @@ export class MembershipService {
       const tokenHash = hash(this.token(req)); await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) }); res.json({ ok: true })
     }))
     app.post('/api/membership/checkout', json, run(async (req, res) => res.json({ url: await this.checkout(this.token(req), req.body?.currency) })))
+    app.post('/api/membership/plus/checkout', json, run(async (req, res) => res.json({ url: await this.plusCheckout(this.token(req), req.body?.currency, req.body?.interval) })))
+    app.get('/api/admin/plus/readiness', run((req, res) => { this.requireAdmin(req, admin); res.json(this.plusReadiness()) }))
+    app.get('/api/admin/plus/subscriptions', run((req, res) => {
+      this.requireAdmin(req, admin)
+      res.json({ subscriptions: this.data.bmcSubscriptions.map(s => ({ id: s.id, email: s.email, accountId: s.accountId,
+        expiresAt: s.expiresAt, interval: s.interval, eligible: s.eligible, cancelAtPeriodEnd: s.cancelAtPeriodEnd, revokedAt: s.revokedAt })),
+        audit: this.data.plusAudit.slice(-100) })
+    }))
+    app.post('/api/admin/plus/revoke', json, run(async (req, res) => {
+      this.requireAdmin(req, admin)
+      if (!admin.allowWrite(req)) throw new MembershipError('invalid_request', 403)
+      await this.revokePlus(req.body?.subscriptionId, req.body?.reason); res.json({ ok: true })
+    }))
     app.get('/api/admin/memberships', run((req, res) => { this.requireAdmin(req, admin); res.json({ grants: this.data.grants.map(g => ({ ...g })).sort((a, b) => b.grantedAt - a.grantedAt) }) }))
     app.post('/api/admin/memberships/grant', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.grant(req.body?.email, req.body?.expiresAt ?? null); res.json({ ok: true }) }))
     app.post('/api/admin/memberships/revoke', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.revokeGift(req.body?.email); res.json({ ok: true }) }))
     // JSON/parser failures must not echo private input or a stack trace.
-    app.use(['/api/membership', '/api/admin/memberships'], (error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    app.use(['/api/membership', '/api/admin/memberships', '/api/admin/plus'], (error: unknown, _req: Request, res: Response, next: NextFunction) => {
       if (res.headersSent) { next(error); return }
       const tooLarge = object(error) && error.type === 'entity.too.large'
       const compressed = object(error) && error.type === 'encoding.unsupported'
@@ -616,6 +697,6 @@ export async function createMembershipService(env: NodeJS.ProcessEnv = process.e
   try {
     return await new MembershipService({ store, authSecret: secret, dashboardKey: env.ADMIN_DASHBOARD_KEY, sendCode, stripeSecret: env.STRIPE_SECRET_KEY, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET, stripePriceId: env.STRIPE_PRICE_ID, stripePriceIdEur: env.STRIPE_PRICE_ID_EUR, stripePriceIdUsd: env.STRIPE_PRICE_ID_USD, appUrl: env.PUBLIC_APP_URL,
       gameOrigins: gameOriginsFromEnvironment(env), allowLocalGameOrigins: env.NODE_ENV !== 'production' && env.RENDER !== 'true' && !env.RAILWAY_ENVIRONMENT_ID,
-      ads: adConfigFromEnvironment(env) }).load()
+      ads: adConfigFromEnvironment(env), bmc: bmcFromEnvironment(env) }).load()
   } catch (error) { await store.close(); throw error }
 }

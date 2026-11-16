@@ -3,6 +3,7 @@ import type { MembershipAccount, MembershipConfig, MembershipSession } from '@sh
 import type { Lang } from './i18n'
 import { isMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type SavedMembershipSession } from './lib/membershipSession'
 import { CURRENCY_PREFERENCE_KEY, isMembershipCurrency, preferredCurrency, readCurrencyPreference, saveCurrencyPreference, type MembershipCurrency } from '../lib/currency.js'
+import { readPlusOffer, safePlusProviderUrl } from './lib/plusOffer'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
 const disabledConfig: MembershipConfig = { enabled: false, loginEnabled: false, checkoutEnabled: false, price: null, ads: { provider: 'disabled', publisherId: null } }
@@ -54,6 +55,7 @@ export function useMembership() {
   const authSequence = useRef(0)
   const pendingAuth = useRef<number | null>(null)
   const registration = useRef<{ email: string; token: string } | null>(null)
+  const plusCheckoutPending = useRef(false)
   const [initialCurrency] = useState(() => readCurrencyPreference(localStorageOrNull()))
   const manualCurrency = useRef<MembershipCurrency | null>(initialCurrency)
   const [currency, setCurrency] = useState<MembershipCurrency>(() => preferredCurrency(initialCurrency, null, window.navigator.language))
@@ -254,6 +256,26 @@ export function useMembership() {
     } finally { setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
+  const plusCheckout = async (selectedCurrency: MembershipCurrency) => {
+    const token = sessionRef.current?.token
+    const offer = readPlusOffer(config.plus)
+    if (!token || plusCheckoutPending.current || !offer?.purchaseEnabled || account?.adFree ||
+      !offer.prices.some(price => price.currency === selectedCurrency)) return
+    plusCheckoutPending.current = true
+    setBusy(true); setError(null)
+    try {
+      const result = await request<{ url: string }>('plus/checkout', token, { currency: selectedCurrency, interval: 'year' })
+      if (sessionRef.current?.token !== token) return
+      const destination = safePlusProviderUrl(result.url, offer.provider, 'purchase')
+      if (!destination) throw new RequestError(503)
+      window.location.assign(destination)
+    } catch (failure) {
+      if (sessionRef.current?.token !== token) return
+      if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
+      setError(errorKind(failure))
+    } finally { plusCheckoutPending.current = false; setBusy(false) }
+  }
+
+  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>

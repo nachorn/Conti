@@ -7,6 +7,7 @@ import type { ActionResult } from '../types'
 import { GameShell } from './GameShell'
 import { SpanishCard, POCHA_SUIT_LABEL } from './pocha'
 import { SpanishSuitIcon } from './pocha/SpanishSuitIcon'
+import { SpanishCardBack } from './pocha/SpanishCardBack'
 import { pochaRankLong } from './pocha/pochaCardUtils'
 import './PochaBoard.css'
 
@@ -124,6 +125,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
           <div><strong title={p.name}>{p.name}{p.id === socketId ? L(' · tú', ' · you') : ''}</strong><span>{p.score} pt</span></div>
           <small>{!p.connected ? L('Sin conexión', 'Offline') : p.bid === null ? L('Por pedir', 'No prediction') : L('Bazas: ', 'Tricks: ') + p.tricksWon + ' / ' + p.bid}
             {reviewing && winner === p.id ? L(' · Ganó la baza', ' · Won the trick') : p.id === state.auctionWinnerId ? ' · ★' : ''}</small>
+          {active && p.id !== socketId && (p.handCount ?? p.hand.length) > 0 && <div className="pocha-opponent-hand"><span aria-hidden="true"><SpanishCardBack width={22} height={30} /></span><small>{p.handCount ?? p.hand.length} {L('cartas', 'cards')}</small></div>}
         </div>)}
       </div>
 

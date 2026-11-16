@@ -1,0 +1,5 @@
+.nrn-guide-ad[hidden]{display:none!important}
+.nrn-guide-ad{margin:48px 0;padding:24px 0;border-top:1px solid #c9d4cb;border-bottom:1px solid #c9d4cb;text-align:center;clear:both}
+.nrn-guide-ad>span{display:block;margin-bottom:18px;color:#58655e;font:11px/1.4 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}
+.nrn-guide-ad>ins{display:block;width:100%;height:250px;max-width:728px;margin:0 auto;overflow:hidden}
+.nrn-guide-ad>button{display:block;min-height:44px;margin:22px auto 0;padding:10px 16px;border:1px solid #88968d;border-radius:6px;background:transparent;color:inherit;font:12px/1.4 system-ui,sans-serif;cursor:pointer}

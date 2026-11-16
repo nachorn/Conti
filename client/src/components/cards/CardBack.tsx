@@ -1,49 +1,12 @@
-const CARD_W = 72
-const CARD_H = 100
-const RADIUS = 8
-
-// Shared bull-back artwork used for both Continental and Pocha.
-const BULL_BACK_SRC = '/bull-back.png'
+import { useCosmetics } from '../Cosmetics'
+import { CardBackArtwork } from './CardBackArtwork'
 
 export interface CardBackProps {
   width?: number
   height?: number
-  /** Optional fill for the back pattern (e.g. blue, red). */
   accentColor?: string
 }
-
-export function CardBack({ width = CARD_W, height = CARD_H }: CardBackProps) {
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${CARD_W} ${CARD_H}`}
-      className="card-back"
-      role="img"
-      aria-label="Card back"
-    >
-      <g>
-        <rect
-          x="0"
-          y="0"
-          width={CARD_W}
-          height={CARD_H}
-          rx={RADIUS}
-          ry={RADIUS}
-          fill="#000"
-          stroke="#c9a227"
-          strokeWidth="2"
-          opacity="0.95"
-        />
-        <image
-          href={BULL_BACK_SRC}
-          x="-2"
-          y="-2"
-          width={CARD_W + 4}
-          height={CARD_H + 4}
-          preserveAspectRatio="xMidYMid slice"
-        />
-      </g>
-    </svg>
-  )
+export function CardBack({ width = 72, height = 100 }: CardBackProps) {
+  const { selection, lang } = useCosmetics()
+  return <CardBackArtwork variant={selection.cardBack} width={width} height={height} label={lang === 'es' ? 'Reverso de carta' : 'Card back'} />
 }

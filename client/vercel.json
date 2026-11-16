@@ -1,6 +1,19 @@
 {
   "headers": [
     {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" }
+      ]
+    },
+    {
+      "source": "/site.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" },
+        { "key": "Cache-Control", "value": "no-cache" }
+      ]
+    },
+    {
       "source": "/connect",
       "headers": [
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
@@ -34,7 +47,18 @@
       ]
     }
   ],
+  "functions": {
+    "api/editorial.js": { "includeFiles": "public/learn/**" }
+  },
   "routes": [
+    {
+      "src": "^/learn/(es|en)/(continental|pocha)/?$",
+      "dest": "/api/editorial?lang=$1&game=$2"
+    },
+    {
+      "src": "^/api/editorial$",
+      "dest": "/api/editorial"
+    },
     {
       "src": "/(.*)",
       "headers": {

@@ -7,6 +7,7 @@
 .membership-eyebrow { color: var(--gold-bright); text-transform: uppercase; letter-spacing: .14em; font-size: .7rem; }
 .membership-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin: -.5rem -.6rem -.5rem 0; padding: .4rem; background: transparent; color: var(--cream-muted); font-size: 1.7rem; }
 .membership-dialog h2 { font-size: 2rem; line-height: 1.12; margin: 1rem 0 .7rem; }
+.membership-dialog h2:focus { outline: none; }
 .membership-description, .membership-dialog p { font-size: .9rem; line-height: 1.6; }
 .membership-description { color: var(--cream-muted); }
 .membership-benefit { margin: 1.2rem 0; padding: .85rem 1rem; border-left: 2px solid var(--gold); border-radius: 0 8px 8px 0; background: #c9a2270c; line-height: 1.5; font-size: .85rem; }
@@ -41,7 +42,8 @@
 .membership-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; margin: 1.2rem 0; padding: .3rem; border: 1px solid #ffffff21; border-radius: 12px; background: #071e16; }
 .membership-tabs button { min-height: 44px; min-width: 0; padding: .6rem .5rem; border: 1px solid transparent; border-radius: 8px; color: #bfcdc3; background: transparent; font-size: .86rem; }
 .membership-tabs button[aria-pressed=true] { background: #efd18b17; border-color: #efd18b77; color: #efd18b; }
-.membership-tabs-account { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.membership-tabs-account { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.membership-tabs-games { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .membership-form input { font-size: 16px; }
 .membership-password-help, .membership-dialog .membership-password-help { margin: 0 0 .25rem; color: #bfcdc3; font-size: .78rem; }
 .membership-form .membership-reveal { align-self: flex-start; min-height: 44px; }
@@ -89,3 +91,33 @@
   .personal-stats-summary dd { font-size: 1.6rem; }
   .membership-tabs button { font-size: .8rem; }
 }
+
+.nrn-plus-panel { margin: 1rem 0; }
+.nrn-plus-heading { display: flex; align-items: center; gap: .8rem; }
+.nrn-plus-heading h3 { margin: 0; font-family: 'Outfit', sans-serif; font-size: 1.3rem; }
+.nrn-plus-heading p { margin: .25rem 0 0; color: #bfcdc3; }
+.nrn-plus-symbol { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; border-radius: 12px; color: #efd18b; background: #efd18b17; font-size: 1.5rem; }
+.nrn-plus-badge { margin-left: auto; color: #d5f578; font-size: .75rem; }
+.nrn-plus-benefits { padding-left: 1.3rem; font-size: .88rem; line-height: 1.65; }
+.nrn-plus-benefits li { margin-bottom: .6rem; }
+.nrn-plus-note { color: #bfcdc3; font-size: .78rem !important; line-height: 1.6; }
+.nrn-plus-note a, .nrn-plus-manage { color: #efd18b; text-underline-offset: 3px; }
+.nrn-plus-access { padding: 1rem; border: 1px solid #9abd7a; border-radius: 12px; background: #9abd7a12; }
+.nrn-plus-access p { margin: .5rem 0 0; }
+.nrn-plus-offer { border: 1px solid #ffffff28; border-radius: 12px; padding: 1.1rem; margin-top: 1rem; }
+.nrn-plus-price { display: flex; align-items: baseline; gap: .5rem; }
+.nrn-plus-price strong { font-size: 1.8rem; color: #efd18b; }
+.nrn-plus-price span { color: #bfcdc3; font-size: .85rem; }
+.nrn-plus-email strong { display: block; margin-top: .35rem; overflow-wrap: anywhere; }
+.nrn-plus-purchase { margin-top: .7rem; width: 100%; }
+.nrn-plus-manage { display: inline-flex; align-items: center; min-height: 44px; margin-top: .6rem; font-size: .88rem; }
+.nrn-plus-invite { display: flex; align-items: center; gap: 1rem; width: min(1100px, calc(100% - 2rem)); margin: 1.5rem auto; padding: 1.15rem; box-sizing: border-box; border: 1px solid #ffffff28; border-radius: 12px; color: #faf4e5; background: #102e28; }
+.nrn-plus-invite > span { color: #efd18b; font-size: 1.3rem; }
+.nrn-plus-invite > div { flex: 1; }
+.nrn-plus-invite strong { font-size: .95rem; }
+.nrn-plus-invite p { margin: .35rem 0 0; font-size: .8rem; line-height: 1.6; }
+.nrn-plus-invite button { flex-shrink: 0; min-height: 44px; font-size: .8rem; background: #efd18b; color: #172c24; }
+.nrn-platform .nrn-plus-invite { width: 100%; color: #182c2b; background: #edf0e6; border-color: #dfe3d7; }
+.nrn-platform .nrn-plus-invite > span { color: #526e2f; }
+.nrn-platform .nrn-plus-invite button { background: #182c2b; color: #fff; }
+@media (max-width: 480px) { .nrn-plus-invite { flex-wrap: wrap; } .nrn-plus-invite button { width: 100%; } .membership-tabs-games { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

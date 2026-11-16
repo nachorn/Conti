@@ -1,0 +1,27 @@
+.nrn-cosmetic-surface { display: contents; }
+.nrn-cosmetic-surface[data-nrn-table="midnight"] .game-board,
+.nrn-cosmetic-surface[data-nrn-table="midnight"] .pocha-board { background: radial-gradient(ellipse at 45% 15%, #294966, #142a40 48%, #091925); }
+.nrn-cosmetic-surface[data-nrn-table="wine"] .game-board,
+.nrn-cosmetic-surface[data-nrn-table="wine"] .pocha-board { background: radial-gradient(ellipse at 45% 15%, #693746, #3a202d 48%, #24151e); }
+.nrn-cosmetic-surface[data-nrn-table="midnight"] > div:has(.game-board, .pocha-board) { min-height: 100dvh; background: #091925; }
+.nrn-cosmetic-surface[data-nrn-table="wine"] > div:has(.game-board, .pocha-board) { min-height: 100dvh; background: #24151e; }
+.nrn-cosmetic-surface[data-nrn-table="midnight"] .poker-table-oval { background: radial-gradient(ellipse, #3d6282, #203f5a); border-color: #142a40; }
+.nrn-cosmetic-surface[data-nrn-table="wine"] .poker-table-oval { background: radial-gradient(ellipse, #855565, #542b3b); border-color: #3a202d; }
+.nrn-cosmetic-surface[data-nrn-table="midnight"] .pocha-felt { background: radial-gradient(ellipse at 50% 40%, #3d6282, #203f5a); }
+.nrn-cosmetic-surface[data-nrn-table="wine"] .pocha-felt { background: radial-gradient(ellipse at 50% 40%, #855565, #542b3b); }
+.pocha-player .pocha-opponent-hand { display: flex; align-items: center; gap: .4rem; margin: .4rem 0 0; }
+.pocha-player .pocha-opponent-hand > span { display: flex; }
+.nrn-cosmetics { margin-top: 1.5rem; padding-top: 1.1rem; border-top: 1px solid #ffffff24; }
+.nrn-cosmetics fieldset { border: 0; padding: 0; margin: 1rem 0; }
+.nrn-cosmetics legend { margin-bottom: .6rem; font-size: .9rem; font-weight: 600; }
+.nrn-cosmetic-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+.nrn-cosmetic-options label { position: relative; display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: .8rem .35rem; border: 1px solid #ffffff30; border-radius: 10px; cursor: pointer; font-size: .8rem; text-align: center; }
+.nrn-cosmetic-options label:has(input:checked) { border-color: #efd18b; background: #efd18b16; }
+.nrn-cosmetic-options label:has(input:disabled) { cursor: default; }
+.nrn-cosmetic-options input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.nrn-cosmetic-options label:has(input:focus-visible) { outline: 3px solid #efd18b; outline-offset: 3px; }
+.nrn-cosmetic-options small { display: block; margin-top: .2rem; color: #efd18b; font-size: .67rem; }
+.nrn-table-swatch { display: block; width: 64px; max-width: 100%; height: 46px; border: 1px solid #ffffff30; border-radius: 9px; }
+.nrn-table-swatch-classic { background: radial-gradient(ellipse, #23584b, #091e1a); }
+.nrn-table-swatch-midnight { background: radial-gradient(ellipse, #294966, #091925); }
+.nrn-table-swatch-wine { background: radial-gradient(ellipse, #693746, #24151e); }

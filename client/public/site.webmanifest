@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "NRN Play",
+  "short_name": "NRN Play",
+  "description": "Conti, La Pocha and FootballChampion. Play with friends on NRN Play.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f2",
+  "theme_color": "#101827",
+  "icons": [
+    { "src": "/brand/nrn-play-selected-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Continental", "url": "/conti" },
+    { "name": "La Pocha", "url": "/pocha" }
+  ]
+}

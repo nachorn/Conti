@@ -1,5 +1,6 @@
 import type { AdOutcome } from '@shared/adGate'
 import { acquireAdConsent, type AdConsentSession } from './adConsent.ts'
+import { adFrequency } from './adFrequency.ts'
 
 export interface AdPlacementInfo { breakStatus?: string; breakFormat?: string }
 
@@ -39,6 +40,8 @@ function prepareAdProvider(publisherId: string, consent: AdConsentSession): Prom
     window.adsbygoogle = queue
     queue.push({ sound: 'off', preloadAdBreaks: 'on', onReady: () => finish(true) })
     script.async = true
+    const nonce = document.querySelector<HTMLScriptElement>('script[nonce]')?.nonce
+    if (nonce) script.nonce = nonce
     script.crossOrigin = 'anonymous'
     script.dataset.adClient = publisherId
     script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(publisherId)}`
@@ -51,6 +54,7 @@ function prepareAdProvider(publisherId: string, consent: AdConsentSession): Prom
 }
 
 export async function playStartAd(publisherId: string, onPlaying: (playing: boolean) => void, signal?: AbortSignal): Promise<AdOutcome> {
+  if (!adFrequency().allowed()) return 'unavailable'
   if (activePlacement) return 'error'
   activePlacement = true
   let consent: AdConsentSession | null = null
@@ -86,6 +90,7 @@ export async function playStartAd(publisherId: string, onPlaying: (playing: bool
           type: 'start', name: 'table-before-game',
           beforeAd: () => {
             if (finished || !consent?.allowed() || signal?.aborted) throw new Error('Ad opportunity expired or privacy choices changed')
+            if (!adFrequency().recordShown()) throw new Error('Ad frequency limit reached')
             shown = true
             window.clearTimeout(timer)
             timer = window.setTimeout(() => finish('error'), 4 * 60_000)

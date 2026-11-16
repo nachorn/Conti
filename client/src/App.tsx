@@ -24,6 +24,9 @@ import { useRoomVerification } from './useRoomVerification'
 import { gameHref, hostedCardGame } from './lib/platform'
 import { GameSignIn } from './components/GameSignIn'
 import { beginGameSignIn, consumeGameSignIn } from './lib/gameSignIn'
+import { CosmeticsProvider } from './components/Cosmetics'
+import { PlusOffer } from './components/PlusOffer'
+import { hasCosmeticAccess } from './lib/cosmetics'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
@@ -56,11 +59,11 @@ function ConnectPage() {
   const [lang, setLang] = usePlatformLanguage()
   const [open, setOpen] = useState(false)
   useEffect(() => { document.title = lang === 'es' ? 'Tu cuenta · NRN Play' : 'Your account · NRN Play' }, [lang])
-  return <div className="nrn-platform">
+  return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
     <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} />
     <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />
     <GameSignIn membership={membership} lang={lang} onOpenAccount={() => setOpen(true)} />
-  </div>
+  </div></CosmeticsProvider>
 }
 
 export default function App() {
@@ -77,7 +80,8 @@ export default function App() {
 function GameApp() {
   const membership = useMembership()
   const [exitOpen, setExitOpen] = useState(false)
-  const [membershipOpen, setMembershipOpen] = useState(false)
+  const [membershipOpen, setMembershipOpen] = useState(() => window.location.hash === '#plus')
+  const [membershipSection, setMembershipSection] = useState<'account' | 'plus'>(() => window.location.hash === '#plus' ? 'plus' : 'account')
   const [adGateOpen, setAdGateOpen] = useState(false)
   const [lang, setLang] = usePlatformLanguage()
   const [signInError, setSignInError] = useState(false)
@@ -151,13 +155,26 @@ function GameApp() {
     void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
   }, [membership.clearLocalSession])
 
-  const openAccount = () => {
+  const showAccount = () => {
     setAdGateOpen(false)
     if (!hostedGame || membership.account) { setMembershipOpen(true); return }
     membership.clearLocalSession()
     setSigningIn(true); setSignInError(false)
     void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
   }
+  const openAccount = () => { setMembershipSection('account'); showAccount() }
+  const openPlus = () => { setMembershipSection('plus'); showAccount() }
+  const closeAccount = () => {
+    setMembershipOpen(false)
+    if (window.location.hash === '#plus') window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  }
+  useEffect(() => {
+    const requested = () => {
+      if (window.location.hash === '#plus') { setMembershipSection('plus'); setMembershipOpen(true) }
+    }
+    window.addEventListener('hashchange', requested)
+    return () => window.removeEventListener('hashchange', requested)
+  }, [])
 
   useLayoutEffect(() => { window.scrollTo(0, 0) }, [location.pathname])
 
@@ -264,6 +281,7 @@ function GameApp() {
     : location.pathname === '/' ? hostedGame : null
 
   return (
+    <CosmeticsProvider account={membership.account} lang={lang}>
     <div className={isPlatformPage ? 'nrn-platform' : undefined}>
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
         onOpenAccount={openAccount} />}
@@ -273,7 +291,8 @@ function GameApp() {
       {!showPochaDev && !showContinentalDev && <>
         {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen} gameType={accountGameType}
           hideTrigger={isPlatformPage}
-          onOpen={openAccount} onClose={() => setMembershipOpen(false)} />}
+          initialSection={membershipSection}
+          onOpen={openAccount} onClose={closeAccount} />}
         <AdGate gate={adGate} state={state} playerId={socketId} lang={lang} connected={isConnected}
           open={adGateOpen} onOpen={() => { setMembershipOpen(false); setAdGateOpen(true) }} onClose={() => setAdGateOpen(false)}
           onAccount={openAccount} begin={beginAd} complete={completeAd} />
@@ -311,6 +330,7 @@ function GameApp() {
           path="/"
           element={
             hostedGame ? renderLobby(hostedGame) : <Home lang={lang} accountName={membership.account?.name} signedIn={!!membership.account} error={error} onOpenAccount={openAccount}
+              onOpenPlus={openPlus} plusActive={hasCosmeticAccess(membership.account)}
               savedGames={savedGames.length > 0 ? <SavedGames games={savedGames} lang={lang}
                 connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} /> : undefined} />
           }
@@ -384,9 +404,11 @@ function GameApp() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      {location.pathname === '/game' && state?.phase === 'game_end' && <PlusOffer lang={lang} onOpen={openPlus} active={hasCosmeticAccess(membership.account)} />}
       <Analytics />
       <SpeedInsights />
     </div>
+    </CosmeticsProvider>
   )
 }
 

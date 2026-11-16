@@ -1,66 +1,12 @@
-const CARD_W = 72
-const CARD_H = 100
-const RADIUS = 8
-
-// Static bull back artwork. Put the PNG in client/public at this path.
-const BULL_BACK_SRC = '/bull-back.png'
+import { useCosmetics } from '../Cosmetics'
+import { CardBackArtwork } from '../cards/CardBackArtwork'
 
 export interface SpanishCardBackProps {
   width?: number
   height?: number
   count?: number
 }
-
-export function SpanishCardBack({
-  width = CARD_W,
-  height = CARD_H,
-  count,
-}: SpanishCardBackProps) {
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${CARD_W} ${CARD_H}`}
-      className="card-back pocha-card-back"
-      role="img"
-      aria-label="Card back"
-    >
-      <g>
-        <rect
-          x="0"
-          y="0"
-          width={CARD_W}
-          height={CARD_H}
-          rx={RADIUS}
-          ry={RADIUS}
-          fill="#000"
-          stroke="#c9a227"
-          strokeWidth="2"
-          opacity="0.95"
-        />
-        {/* Bull artwork from static PNG */}
-        <image
-          href={BULL_BACK_SRC}
-          x="-2"
-          y="-2"
-          width={CARD_W + 4}
-          height={CARD_H + 4}
-          preserveAspectRatio="xMidYMid slice"
-        />
-        {/* Optional count badge on top-right when used as facedown stack indicator */}
-        <text
-          x={CARD_W - 6}
-          y={10}
-          textAnchor="end"
-          dominantBaseline="hanging"
-          fill={count != null ? 'rgba(255,255,255,0.98)' : 'transparent'}
-          fontSize="12"
-          fontWeight="700"
-          fontFamily="system-ui, sans-serif"
-        >
-          {count != null ? String(count) : ''}
-        </text>
-      </g>
-    </svg>
-  )
+export function SpanishCardBack({ width = 72, height = 100, count }: SpanishCardBackProps) {
+  const { selection, lang } = useCosmetics()
+  return <CardBackArtwork variant={selection.cardBack} width={width} height={height} count={count} label={lang === 'es' ? 'Reverso de carta' : 'Card back'} />
 }

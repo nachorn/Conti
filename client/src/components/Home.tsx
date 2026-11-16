@@ -7,9 +7,11 @@ import { ProfileIcon } from './SiteHeader'
 import './NRNPlay.css'
 import { gameLaunchHref } from '../lib/platform'
 import { AdPrivacyPreferences } from './AdPrivacyPreferences'
+import { PlusOffer } from './PlusOffer'
+import { InstallApp } from './InstallApp'
 
-export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccount, savedGames, error }: {
-  lang: Lang; accountName?: string | null; signedIn?: boolean; onOpenAccount: () => void; savedGames?: ReactNode; error?: string | null
+export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccount, onOpenPlus = onOpenAccount, plusActive = false, savedGames, error }: {
+  lang: Lang; accountName?: string | null; signedIn?: boolean; onOpenAccount: () => void; onOpenPlus?: () => void; plusActive?: boolean; savedGames?: ReactNode; error?: string | null
 }) {
   const es = lang === 'es'
   return <main className="nrn-home" id="main-content">
@@ -42,6 +44,7 @@ export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccoun
       <button type="button" onClick={onOpenAccount} aria-haspopup="dialog">{signedIn ? (es ? 'Ver mi perfil' : 'View my profile') : (es ? 'Entrar o crear cuenta' : 'Sign in or join')}<span aria-hidden="true">→</span></button>
     </section>
 
+    <PlusOffer lang={lang} onOpen={onOpenPlus} active={plusActive} />
     {error && <p className="nrn-home-error" role="alert">{error}</p>}
     {savedGames && <div className="nrn-home-saved">{savedGames}</div>}
     <section className="nrn-play-guide" aria-labelledby="nrn-play-guide-title">
@@ -51,6 +54,7 @@ export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccoun
       <nav aria-label={es ? 'Guías de los juegos' : 'Game guides'}><a href={`/learn/${lang}/continental/`}>{es ? 'Reglas de Continental' : 'Continental rules'}</a><a href={`/learn/${lang}/pocha/`}>{es ? 'Reglas de La Pocha' : 'La Pocha rules'}</a><a href={`/learn/${lang}/help/`}>{es ? 'Invitar, guardar y volver' : 'Inviting, saving and returning'}</a></nav>
       <p>{es ? 'FootballChampion es una carrera individual: entrenas, eliges tus decisiones y avanzas con tu futbolista. Su carrera se guarda en tu navegador; exporta una copia antes de cambiar de dispositivo o dominio. Tu cuenta NRN Play es opcional y no traslada automáticamente esa carrera.' : 'FootballChampion is a single-player career: train, make decisions and follow your footballer’s progress. Its career stays in your browser; export a backup before changing devices or domains. Your NRN Play account is optional and does not automatically transfer that career.'}</p>
     </section>
+    <InstallApp lang={lang} />
     <footer className="nrn-footer">
       <span>NRN Play</span>
       <nav aria-label={es ? 'Información y ayuda' : 'Information and help'}>
