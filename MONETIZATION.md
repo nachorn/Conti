@@ -2,9 +2,9 @@
 
 ## Primera fase: Buy Me a Coffee
 
-El propietario ha elegido empezar con apoyo voluntario usando su enlace existente de Football Champion: https://buymeacoffee.com/footballchampion. Se verificó el destino desde la portada pública de https://footballchampion.net el 12 de septiembre de 2026.
+El apoyo voluntario se tramita en la página de NRN Play: https://buymeacoffee.com/nrnplay. La cuenta existente de Football Champion se ha actualizado para representar a NRN Play y sus juegos.
 
-La portada de Continental y Pocha muestra un botón de apoyo en español e inglés. Abre Buy Me a Coffee en otra pestaña y aclara que la página receptora es Football Champion. No requiere iniciar sesión en Conti, no fija el importe, no integra un widget y no interrumpe las partidas ni las invitaciones.
+La portada de Continental y Pocha muestra un botón de apoyo en español e inglés. Abre Buy Me a Coffee en otra pestaña y aclara que la página receptora es NRN Play. No requiere iniciar sesión en Conti, no fija el importe, no integra un widget y no interrumpe las partidas ni las invitaciones.
 
 La aportación es voluntaria y **no concede automáticamente acceso sin anuncios**. La cuenta de Stripe existente se utiliza para este apoyo a través del flujo de Buy Me a Coffee. La preparación del pago directo con Stripe se detalla abajo y permanece separada de las aportaciones. La barra de cuenta permanece oculta mientras las cuentas estén desactivadas y no exista una sesión.
 

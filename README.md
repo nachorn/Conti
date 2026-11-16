@@ -80,7 +80,7 @@ The rating implementation uses `ts-trueskill` 5.1.0 (MIT/BSD), following [Micros
 
 ## Ad-free access
 
-The first monetization step is optional support through the owner's existing [Buy Me a Coffee page](https://buymeacoffee.com/footballchampion), linked from the English and Spanish lobby. Contributions do not automatically unlock ad-free access.
+The first monetization step is optional support through the owner's existing [Buy Me a Coffee page](https://buymeacoffee.com/nrnplay), linked from the English and Spanish lobby. Contributions do not automatically unlock ad-free access.
 
 Optional one-time ad-free purchases, owner-granted access and multiplayer ad readiness remain behind their separate provider configuration. Any authenticated ad-free player covers their whole table. See [monetization setup and activation limits](MONETIZATION.md).
 
