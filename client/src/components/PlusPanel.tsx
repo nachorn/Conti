@@ -15,7 +15,8 @@ export function PlusPanel({ membership, lang }: { membership: MembershipControll
   const monthlyPrice = offer?.monthlyPrices.find(item => item.currency === price?.currency)
   const format = (amount: number, currency: string) => new Intl.NumberFormat(es ? 'es-ES' : 'en-US', { style: 'currency', currency }).format(amount / 100)
   const provider = offer?.provider === 'buymeacoffee' ? 'Buy Me a Coffee' : 'Stripe'
-  const canManage = !!offer?.manageUrl && account?.plus?.provider === offer.provider
+  const complimentary = account?.plus?.complimentary === true
+  const canManage = !!offer?.manageUrl && account?.plus?.provider === offer.provider && !complimentary
   const managementLogin = canManage && offer?.provider === 'buymeacoffee' && /^\/login\/?$/.test(new URL(offer.manageUrl!).pathname)
   return <section className="nrn-plus-panel" aria-labelledby="nrn-plus-title">
     <div className="nrn-plus-heading"><span className="nrn-plus-symbol" aria-hidden="true">✦</span><div><h3 id="nrn-plus-title">NRN Plus</h3><p>{es ? 'Tu estilo. Una mesa sin anuncios.' : 'Your style. An ad-free table.'}</p></div>
@@ -29,9 +30,9 @@ export function PlusPanel({ membership, lang }: { membership: MembershipControll
     {config.ads.provider === 'disabled' && <p className="nrn-plus-note">{es ? 'Actualmente no hay anuncios de partida activos. Los estilos de Conti y La Pocha ya están disponibles con acceso Plus.' : 'Game advertising is currently inactive. Conti and La Pocha styles are available with Plus access.'}</p>}
     {active ? <div className="nrn-plus-access" role="status">
       <strong>{es ? 'Tu acceso Plus está activo' : 'Your Plus access is active'}</strong>
-      {account?.source === 'gift' && <p>{es ? 'Acceso de cortesía del propietario.' : 'Complimentary access from the owner.'}</p>}
+      {account?.source === 'gift' && <p>{complimentary ? (es ? 'Cortesía de NRN Plus recibida a través de Buy Me a Coffee. Este regalo no tiene cobros ni renovación automática.' : 'NRN Plus courtesy received through Buy Me a Coffee. This gift has no charges or automatic renewal.') : (es ? 'Acceso de cortesía del propietario.' : 'Complimentary access from the owner.')}</p>}
       {account?.expiresAt && <p>{es ? 'Disponible hasta ' : 'Available until '}{new Date(account.expiresAt).toLocaleDateString(es ? 'es-ES' : 'en-US')}</p>}
-      {account?.plus?.cancelAtPeriodEnd && <p>{es ? 'La renovación está cancelada. Conservas el acceso hasta el final del periodo actual de membresía.' : 'Renewal is cancelled. Your access remains available until the current membership period ends.'}</p>}
+      {!complimentary && account?.plus?.cancelAtPeriodEnd && <p>{es ? 'La renovación está cancelada. Conservas el acceso hasta el final del periodo actual de membresía.' : 'Renewal is cancelled. Your access remains available until the current membership period ends.'}</p>}
     </div> : <div className="nrn-plus-offer">
       <div className="nrn-plus-price"><strong>{price ? format(price.amount, price.currency) : es ? 'Plan anual' : 'Annual plan'}</strong>{price && <span>{es ? '/ año' : '/ year'}</span>}</div>
       {price?.currency === 'usd' && offer?.provider === 'buymeacoffee' && <p className="nrn-plus-note">{es ? 'Precio base en USD. Buy Me a Coffee puede mostrar un precio en moneda local; revisa el importe final y la frecuencia de cobro antes de confirmar.' : 'Base price in USD. Buy Me a Coffee may display a local-currency price; check the final amount and billing frequency before confirming.'}</p>}

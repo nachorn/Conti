@@ -4,6 +4,7 @@ import type { Lang } from './i18n'
 import { isMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type SavedMembershipSession } from './lib/membershipSession'
 import { CURRENCY_PREFERENCE_KEY, isMembershipCurrency, preferredCurrency, readCurrencyPreference, saveCurrencyPreference, type MembershipCurrency } from '../lib/currency.js'
 import { readPlusOffer, safePlusProviderUrl } from './lib/plusOffer'
+import { subscribeMembershipRefresh } from './lib/membershipRefresh'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
 const disabledConfig: MembershipConfig = { enabled: false, loginEnabled: false, checkoutEnabled: false, price: null, ads: { provider: 'disabled', publisherId: null } }
@@ -147,7 +148,7 @@ export function useMembership() {
 
   useEffect(() => {
     void refresh()
-    const onFocus = () => { void refresh() }
+    const lifecycle = subscribeMembershipRefresh(() => { void refresh() }, window, document)
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === CURRENCY_PREFERENCE_KEY) {
         const next = readCurrencyPreference(localStorageOrNull())
@@ -166,10 +167,9 @@ export function useMembership() {
       setAccount(null)
       void refresh()
     }
-    window.addEventListener('focus', onFocus)
     window.addEventListener('storage', onStorage)
-    const timer = window.setInterval(onFocus, 60_000)
-    return () => { window.removeEventListener('focus', onFocus); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null }
+    const timer = window.setInterval(lifecycle.refreshVisible, 60_000)
+    return () => { lifecycle.dispose(); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null }
   }, [refresh])
 
   const login = (email: string, lang: Lang) => requestCode('login', { email: email.trim(), lang })

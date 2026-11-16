@@ -218,6 +218,211 @@ test('signed configured-level access supports localized currency, higher contrib
   assert.equal(h.store.value.bmcSubscriptions.length, variants.length)
 })
 
+test('an explicit signed BMC giveaway grants its exact five-year expiry only after matching email proof and survives restart', async t => {
+  const h = await harness(t)
+  // Synthetic identity with the timing and explicit duration observed in the
+  // provider's real giveaway envelope; no live receipt or signing key is replayed.
+  h.clock.now = 1_794_796_996_000
+  const giveaway = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0,
+    current_period_start: 1_794_796_994, current_period_end: 1_952_563_394 })
+  await h.deliver({ ...giveaway, live_mode: false })
+  assert.equal(h.store.value.bmcSubscriptions.length, 0)
+  await h.deliver(giveaway)
+  assert.equal(h.store.value.bmcSubscriptions[0].id, 'giveaway:501')
+  assert.equal(h.store.value.bmcSubscriptions[0].accountId, null)
+  const other = await h.login('other@example.test')
+  assert.equal(other.account.adFree, false)
+  const session = await h.login()
+  const response = await h.call('/api/membership/me', undefined, session.token)
+  assert.equal(response.status, 200)
+  const { account } = await response.json() as any
+  assert.equal(account.adFree, true)
+  assert.equal(account.source, 'gift')
+  assert.equal(account.expiresAt, 1_952_563_394_000)
+  assert.equal(account.plus.provider, 'buymeacoffee')
+  assert.equal(account.plus.complimentary, true)
+  assert.equal(account.plus.billingInterval, undefined)
+  await h.deliver({ ...giveaway, event_id: 1002, attempt: 2 })
+  assert.equal(h.store.value.bmcSubscriptions.length, 1)
+  const restarted = await new MembershipService(h.options).load()
+  assert.equal(restarted.authenticate(session.token)?.expiresAt, account.expiresAt)
+  assert.equal(restarted.authenticate(session.token)?.source, 'gift')
+  await restarted.close()
+  h.clock.now = account.expiresAt
+  assert.equal((await h.login()).account.adFree, false)
+})
+
+test('giveaways require the explicit marker, zero amount, configured level and positive period of at most five calendar years', async t => {
+  const h = await harness(t), session = await h.login()
+  const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+  const base = { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000) }
+  const invalid = [{ amount: 1 }, { amount: -1 }, { amount: '0' }, { amount: null }, { membership_level_id: 78 },
+    { duration_type: 'year' }, { duration_type: 'month' }, { duration_type: 'giveaway' }, { currency: 'EURO' },
+    { current_period_end: base.current_period_end + 1 }, { current_period_end: Math.floor(h.clock.now / 1000) },
+    { current_period_start: Math.floor(h.clock.now / 1000) + 301 }]
+  for (const fields of invalid) await h.deliver(h.event('membership.started', { ...base, ...fields }))
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  assert.equal(h.store.value.bmcSubscriptions.length, 0)
+  await h.deliver(h.event('membership.started', base))
+  assert.equal(h.service.authenticate(session.token)?.adFree, true)
+})
+
+test('giveaway and paid numeric IDs cannot collide; owner revocation stays separate and cannot remove a manual courtesy grant', async t => {
+  const h = await harness(t), session = await h.login(), paid = h.event()
+  await h.deliver(paid)
+  const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+  const gift = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000) })
+  await h.deliver(gift)
+  assert.deepEqual(h.store.value.bmcSubscriptions.map((record: { id: string }) => record.id).sort(), ['501', 'giveaway:501'])
+  assert.equal(h.service.authenticate(session.token)?.source, 'gift')
+  const revoke = await h.call('/api/admin/plus/revoke', { subscriptionId: 'giveaway:501', reason: 'provider_correction' }, ADMIN, true)
+  assert.equal(revoke.status, 200)
+  assert.equal(h.service.authenticate(session.token)?.source, 'purchase')
+  assert.equal(h.service.authenticate(session.token)?.expiresAt, paid.data.current_period_end * 1000)
+  h.clock.now += 1_000
+  await h.deliver(h.event('membership.updated', { ...gift.data }))
+  assert.equal(h.service.authenticate(session.token)?.source, 'purchase')
+  await h.service.grant('ana@example.test', null)
+  await h.service.revokePlus('501', 'refund')
+  assert.equal(h.service.authenticate(session.token)?.adFree, true)
+  assert.equal(h.service.authenticate(session.token)?.plus?.provider, 'gift')
+  assert.equal(h.service.authenticate(session.token)?.expiresAt, null)
+  assert.ok(h.store.value.plusAudit.some((entry: { kind: string; subscriptionId: string }) => entry.kind === 'owner_revoke' && entry.subscriptionId === 'giveaway:501'))
+  const restarted = await new MembershipService(h.options).load()
+  assert.equal(restarted.authenticate(session.token)?.plus?.provider, 'gift')
+  await restarted.close()
+})
+
+test('giveaway cancellation preserves event ordering and cannot extend its accepted expiry or transfer ownership', async t => {
+  const h = await harness(t), session = await h.login(), other = await h.login('other@example.test')
+  const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+  const gift = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000) })
+  await h.deliver(gift)
+  h.clock.now += 1_000
+  await h.deliver(h.event('membership.updated', { ...gift.data, supporter_email: 'other@example.test' }))
+  assert.equal(h.service.authenticate(other.token)?.adFree, false)
+  h.clock.now += 1_000
+  await h.deliver(h.event('membership.cancelled', { ...gift.data, status: 'canceled', canceled: 'true', cancel_at_period_end: 'true', current_period_end: gift.data.current_period_end + DAY / 1000 }))
+  assert.equal(h.service.authenticate(session.token)?.expiresAt, gift.data.current_period_end * 1000)
+  await h.deliver(h.event('membership.updated', { ...gift.data }))
+  assert.equal(h.service.authenticate(session.token)?.plus?.status, 'cancelling')
+  h.clock.now += 1_000
+  await h.deliver(h.event('membership.cancelled', { ...gift.data, status: 'canceled', canceled: 'true', cancel_at_period_end: 'false', canceled_at: Math.floor(h.clock.now / 1000) }))
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  await h.deliver(gift)
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+})
+
+test('an ambiguous duration cannot cancel or modify a giveaway or a paid record with the same provider ID', async t => {
+  for (const withPaid of [false, true]) {
+    const h = await harness(t); await h.login()
+    const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+    await h.deliver(h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000) }))
+    if (withPaid) await h.deliver(h.event())
+    const before = structuredClone(h.store.value), saves = h.store.saves
+    h.clock.now += 1_000
+    for (const duration_type of [undefined, 'unknown-giveaway']) {
+      const response = await h.webhook(h.event('membership.cancelled', { duration_type, canceled: 'true', status: 'canceled' }))
+      assert.equal(response.status, 409)
+      assert.deepEqual(await response.json(), { error: 'ambiguous_membership' })
+      assert.equal(h.store.saves, saves)
+      assert.deepEqual(h.store.value, before)
+    }
+  }
+})
+
+test('an explicit giveaway pause cuts access immediately even at period end while paid cancellation policy stays unchanged', async t => {
+  for (const giveaway of [false, true]) {
+    const h = await harness(t), session = await h.login()
+    const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+    const first = h.event('membership.started', giveaway ? { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000) } : {})
+    await h.deliver(first)
+    h.clock.now += 1_000
+    await h.deliver(h.event('membership.paused', { ...first.data, paused: 'true', status: 'paused', cancel_at_period_end: 'true' }))
+    assert.equal(h.service.authenticate(session.token)?.adFree, !giveaway)
+    assert.equal(h.service.authenticate(session.token)?.expiresAt, giveaway ? h.clock.now : first.data.current_period_end * 1000)
+    await h.deliver(first)
+    assert.equal(h.service.authenticate(session.token)?.adFree, !giveaway)
+  }
+})
+
+test('owner recovery imports only an attested giveaway into the same provider record with a distinct audit and no manual grant', async t => {
+  const h = await harness(t), session = await h.login()
+  const end = new Date(h.clock.now); end.setUTCFullYear(end.getUTCFullYear() + 5)
+  const event = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0, current_period_end: Math.floor(end.getTime() / 1000), support_note: 'private-note-not-retained' })
+  h.clock.now += DAY
+  const payload = { event, reason: 'provider_delivery_recovery' }
+  const path = '/api/admin/plus/giveaways/import'
+  for (const token of [undefined, session.token]) assert.equal((await h.call(path, payload, token, true)).status, 401)
+  assert.equal((await h.call(path, payload, ADMIN)).status, 403)
+  assert.equal(h.store.value.bmcSubscriptions.length, 0)
+  const response = await h.call(path, payload, ADMIN, true)
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true, subscriptionId: 'giveaway:501', imported: true })
+  assert.equal(h.service.authenticate(session.token)?.source, 'gift')
+  assert.equal(h.service.authenticate(session.token)?.expiresAt, event.data.current_period_end * 1000)
+  assert.equal(h.store.value.grants.length, 0)
+  assert.deepEqual(h.store.value.plusAudit.map((entry: { kind: string; reason: string }) => [entry.kind, entry.reason]), [['owner_import', 'provider_delivery_recovery']])
+  assert.ok(!JSON.stringify(h.store.value).includes('private-note-not-retained'))
+  const duplicate = await h.call(path, payload, ADMIN, true)
+  assert.deepEqual(await duplicate.json(), { ok: true, subscriptionId: 'giveaway:501', imported: false })
+  await h.deliver(event)
+  assert.equal(h.store.value.plusAudit.length, 1)
+  h.clock.now += 1_000
+  await h.deliver(h.event('membership.cancelled', { ...event.data, canceled: 'true', status: 'canceled', canceled_at: Math.floor(h.clock.now / 1000) }))
+  assert.equal(h.service.authenticate(session.token)?.adFree, false, 'real provider cancellation affects the imported record')
+  const stale = await h.call(path, payload, ADMIN, true)
+  assert.deepEqual(await stale.json(), { ok: true, subscriptionId: 'giveaway:501', imported: false })
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  const restarted = await new MembershipService(h.options).load()
+  assert.equal(restarted.authenticate(session.token)?.adFree, false)
+  await restarted.close()
+})
+
+test('owner giveaway recovery rejects payments, test events, invalid or expired gifts, wrong reasons and unconfigured storage', async t => {
+  const h = await harness(t), session = await h.login()
+  const event = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0 })
+  const path = '/api/admin/plus/giveaways/import', saves = h.store.saves
+  const historicalStart = Math.floor((h.clock.now - 366 * DAY) / 1000)
+  const expiredPeriod = { ...event, created: historicalStart + 1, data: { ...event.data,
+    current_period_start: historicalStart, current_period_end: Math.floor((h.clock.now - DAY) / 1000) } }
+  const invalid = [null, h.event(), { ...event, live_mode: false }, { ...event, type: 'membership.updated' },
+    { ...event, data: { ...event.data, amount: 1 } }, { ...event, data: { ...event.data, membership_level_id: 78 } },
+    { ...event, data: { ...event.data, paused: 'true' } }, { ...event, data: { ...event.data, cancel_at_period_end: 'true' } },
+    { ...event, data: { ...event.data, current_period_end: Math.floor((h.clock.now - DAY) / 1000) } }, expiredPeriod,
+    { ...event, data: { ...event.data, current_period_start: Math.floor(h.clock.now / 1000) + 1 } }]
+  for (const value of invalid) {
+    const response = await h.call(path, { event: value, reason: 'provider_delivery_recovery' }, ADMIN, true)
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { error: 'invalid_giveaway' })
+  }
+  assert.equal((await h.call(path, { event, reason: 'refund' }, ADMIN, true)).status, 400)
+  assert.equal(h.store.saves, saves)
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  const unavailable = await harness(t, { durableStorage: false })
+  assert.equal((await unavailable.call(path, { event, reason: 'provider_delivery_recovery' }, ADMIN, true)).status, 503)
+  assert.equal(unavailable.store.saves, 0)
+})
+
+test('owner recovery cannot resurrect a giveaway tombstone or publish an unconfirmed durable import', async t => {
+  const h = await harness(t), session = await h.login()
+  const event = h.event('membership.started', { duration_type: 'lifetime-giveaway', amount: 0 })
+  const path = '/api/admin/plus/giveaways/import', payload = { event, reason: 'provider_delivery_recovery' }
+  await h.deliver(event)
+  await h.service.revokePlus('giveaway:501', 'provider_correction')
+  const response = await h.call(path, payload, ADMIN, true)
+  assert.equal(response.status, 409)
+  assert.deepEqual(await response.json(), { error: 'giveaway_revoked' })
+  assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  const failing = await harness(t), other = await failing.login()
+  failing.store.fail = true
+  const failed = await failing.call(path, payload, ADMIN, true)
+  assert.equal(failed.status, 503)
+  assert.equal(failing.service.authenticate(other.token), null)
+  assert.equal(failing.store.value.bmcSubscriptions.length, 0)
+  assert.equal(failing.store.value.plusAudit.length, 0)
+})
+
 test('invalid tier, malformed currency, nonpositive amount, trial-length or overlong periods cannot grant access; email updates cannot transfer ownership', async t => {
   const h = await harness(t), ana = await h.login(), other = await h.login('other@example.test')
   const invalid = [{ membership_level_id: 78 }, { currency: 'EURO' }, { currency: 'US1' }, { currency: ' US' }, { currency: 123 },
@@ -349,6 +554,8 @@ test('corrupt Plus records and incomplete v2 snapshots refuse startup without ov
     { ...valid, bmcSubscriptions: [valid.bmcSubscriptions[0], valid.bmcSubscriptions[0]] },
     { ...valid, bmcSubscriptions: [{ ...valid.bmcSubscriptions[0], accountId: 'foreign-account' }] },
     { ...valid, bmcSubscriptions: [{ ...valid.bmcSubscriptions[0], revokedAt: -1 }] },
+    { ...valid, bmcSubscriptions: [{ ...valid.bmcSubscriptions[0], interval: 'giveaway' }] },
+    { ...valid, bmcSubscriptions: [{ ...valid.bmcSubscriptions[0], id: 'giveaway:501' }] },
   ]) {
     h.store.value = corrupt
     const before = h.store.saves

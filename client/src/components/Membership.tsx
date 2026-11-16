@@ -84,6 +84,10 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const activeSection = section === 'plus' ? 'plus' : gameType ? section : 'profile'
   const gameName = gameType === 'pocha' ? 'La Pocha' : 'Conti'
 
+  useEffect(() => {
+    if (open && membership.token) void membership.refresh()
+  }, [open, membership.token, membership.refresh])
+
   function changeMode(next: typeof mode) {
     setMode(next); setSent(false); setCode(''); setPassword(''); setConfirmation(''); setShowPassword(false); setFormError(null); setPasswordUpdated(false)
     membership.clearError()

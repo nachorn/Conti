@@ -64,14 +64,14 @@ export function MemberAccess({ lang, onSessionExpired }: { lang: Lang; onSession
     success: L('Acceso actualizado.', 'Access updated.'),
   }
   return <section className="member-access" aria-labelledby="member-access-title">
-    <div className="member-access-heading"><div><h2 id="member-access-title">{L('Accesos de cortesía', 'Complimentary access')}</h2><p>{L('Concede partidas sin anuncios por email. Cuando esa persona inicie sesión, toda su mesa se beneficiará.', 'Give someone ad-free games by email. When they sign in, everyone at their table benefits.')}</p></div><button className="dashboard-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{L('Actualizar', 'Refresh')}</button></div>
+    <div className="member-access-heading"><div><h2 id="member-access-title">{L('Cortesías de NRN Plus', 'NRN Plus complimentary access')}</h2><p>{L('Concede Plus directamente por email: estilos de mesa y reversos en Conti y La Pocha, y exención de anuncios de partida para toda su mesa cuando haya publicidad. No crea un cobro ni una renovación.', 'Give Plus directly by email: Conti and La Pocha table styles and card backs, plus game-ad exemption for their whole table when advertising is enabled. This creates no charge or renewal.')}</p></div><button className="dashboard-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{L('Actualizar', 'Refresh')}</button></div>
     {status && <p className="member-access-notice" role={status === 'success' ? 'status' : 'alert'}>{messages[status]}</p>}
     <form className="member-access-form" onSubmit={submit}>
       <label><span>{L('Correo electrónico', 'Email address')}</span><input type="email" autoComplete="email" maxLength={254} required value={email} onChange={event => setEmail(event.target.value)} disabled={!configured || busy} /></label>
       <label><span>{L('Acceso hasta', 'Access until')}</span><input type="date" value={until} onChange={event => setUntil(event.target.value)} aria-describedby="member-access-expiry" disabled={!configured || busy} /></label>
       <button className="dashboard-primary" disabled={!configured || busy || !email.trim()}>{busy ? L('Guardando…', 'Saving…') : L('Conceder acceso', 'Give access')}</button>
     </form>
-    <p id="member-access-expiry" className="member-access-hint">{L('Deja la fecha vacía para conceder acceso permanente.', 'Leave the date empty for permanent access.')}</p>
+    <p id="member-access-expiry" className="member-access-hint">{L('Deja la fecha vacía para conceder acceso permanente. Si ya enviaste una invitación en Buy Me a Coffee, usa «Recuperar invitación» en su sección para conservar el ID y la fecha originales.', 'Leave the date empty for permanent access. If you already sent a Buy Me a Coffee invitation, use “Recover invitation” in its section to preserve the original ID and expiry.')}</p>
     {grants.length > 0 && <label className="member-access-search"><span>{L('Buscar email', 'Find an email')}</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>}
     <ul className="member-access-list">{grants.filter(g => g.email.includes(search.trim().toLowerCase())).map(grant => {
       const active = grant.active && (grant.expiresAt === null || grant.expiresAt > Date.now())

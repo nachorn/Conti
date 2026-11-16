@@ -17,6 +17,8 @@ export interface PlusEntitlement {
   status: 'active' | 'cancelling' | 'expired' | 'revoked' | 'none'
   cancelAtPeriodEnd: boolean
   billingInterval?: 'month' | 'year'
+  /** Provider-issued complimentary access has no recurring billing interval. */
+  complimentary?: boolean
 }
 
 export interface PlusConfig {

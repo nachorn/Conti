@@ -45,15 +45,27 @@ provider secret.
   localized currency conversion, higher contributions and any price adjustments;
   the webhook has no documented canonical/base-amount field. Its amount must be
   finite and positive and its currency must have a three-letter code, but neither
-  is compared with the displayed base price. Zero is rejected because the approved
-  level has no free trial. Monthly periods are bounded to 27–32 days; annual
+  is compared with the displayed base price. Zero is rejected for ordinary
+  monthly/yearly memberships because the approved level has no free trial.
+  Monthly periods are bounded to 27–32 days; annual
   periods to 364–367. This is provider access verification, not invoice verification.
+- A BMC owner giveaway is a separate complimentary entitlement, recognized only
+  by the explicit signed `duration_type: "lifetime-giveaway"` marker observed in
+  the provider's actual delivery. It requires the configured level, amount zero,
+  a positive finite period of at most five calendar years and the same verified
+  email binding. Its exact provider expiry is retained; it has no billing interval.
+  Other zero amounts, donations and trial/unknown duration markers cannot grant
+  this right. The public account reports `source: "gift"` and
+  `plus.complimentary: true`. This marker is not in BMC's published OpenAPI enum;
+  future unrecognized provider variants require validation before being supported.
 - A newer eligible active period can renew access. Older events cannot rewind
   or resurrect state. Conservative same-time ordering gives cancellation
   precedence. Attempts and delivery IDs do not create duplicate entitlements.
 - Period-end cancellation or pause retains only the current accepted period;
   it cannot extend expiry. Immediate cancellation/pause cuts access at the event
   or cancellation time, even if the payload carries a later period end.
+  For complimentary BMC giveaways, an explicit pause always cuts access
+  immediately, including when `cancel_at_period_end` is true.
 - Expiry is evaluated on the server whenever an account is authenticated.
   Checkout clicks, query parameters and browser return URLs grant nothing.
 - Legacy permanent purchases and active owner gifts remain independent. The
@@ -61,6 +73,45 @@ provider secret.
   rights retain a null expiry.
 - Selecting BMC as the primary provider disables new legacy one-time Stripe
   checkout offers. It does not revoke any existing permanent purchase or gift.
+
+Use the NRN owner dashboard's courtesy grant when the owner wants to grant NRN
+access directly, with an explicit expiry or no expiry. BMC's membership giveaway
+is an external operation whose signed delivery must arrive successfully; a
+historic delivery previously acknowledged by an older build is not automatically
+replayed. Recover that provider entitlement with the procedure below, keeping it
+linked to subsequent provider cancellation/revocation. Never manufacture or
+re-sign a provider receipt to repair such a delivery.
+
+## Recovering an acknowledged BMC giveaway
+
+The authenticated owner may recover a real giveaway delivery that an older build
+acknowledged without recognizing it. In the BMC dashboard, verify the original
+delivery's membership level, recipient email, ID, creation time and exact period.
+Use the observed event envelope, not a reconstructed payment or a fabricated
+signature, with `POST /api/admin/plus/giveaways/import` and
+`{ "event": <observed-envelope>, "reason": "provider_delivery_recovery" }`.
+
+This private endpoint requires owner authentication and `X-Admin-Request: 1`,
+rejects compressed/oversized JSON and accepts only a live `membership.started`
+event with the explicit giveaway marker, zero amount, active unpaused/uncancelled
+state and a currently valid period within the same five-year bound. It cannot
+import payments, tests, trials, refunds or arbitrary grants. Existing account email
+proof and the configured level/durable-storage readiness still apply.
+
+The operation is recorded as `owner_import` with reason
+`provider_delivery_recovery`, rather than claiming HMAC authentication. Only the
+minimal subscription/audit fields are retained; provider notes/full bodies are
+not stored. The result is `{ ok: true, subscriptionId: "giveaway:<id>",
+imported: true|false }`. A duplicate or superseded event is a no-op. A revoked
+subscription returns `409 giveaway_revoked`. Invalid input returns
+`400 invalid_giveaway`.
+
+Recovery uses the same namespaced provider record and ordering/tombstone rules.
+Later BMC cancellation or owner revocation therefore removes that right; no
+independent NRN courtesy grant is created. A provider event without a recognized
+duration cannot safely identify a known giveaway versus an overlapping paid ID;
+it returns `409 ambiguous_membership` without modifying either. The owner must
+review the actual delivery and revoke the exact namespaced record if necessary.
 
 ## Refund/dispute procedure
 
@@ -75,6 +126,9 @@ provider secret.
    `X-Admin-Request: 1`. It saves an audited, irreversible tombstone for that
    subscription ID. Later BMC updates cannot restore it. A separate new
    subscription may qualify; unrelated gifts/permanent purchases are preserved.
+   Paid IDs remain numeric; giveaway IDs use `giveaway:<numeric-provider-id>` so
+   overlapping BMC numeric IDs cannot revoke each other's rights. For a free gift,
+   use `provider_correction` when no financial refund/dispute exists.
 4. This NRN action **does not refund money or cancel BMC billing**. Verify both
    systems. If storage fails, the API returns failure and grants nothing from
    uncertain memory; restore/restart from the durable state before retrying.
@@ -98,6 +152,10 @@ stored, the snapshot is v2. A pre-Plus server refuses v2 rather than silently
 denying or erasing paid rights. Roll back only to a build that preserves this
 schema; never replace the store with an older snapshot just to start an old build.
 Test-event diagnostics alone do not upgrade the schema or grant rights.
+Giveaway records extend v2 with namespaced IDs and `interval: "giveaway"`. Earlier
+Plus builds reject these unsupported records during validation before writing;
+rollbacks must preserve giveaway support too. Existing v1/v2 paid records remain
+readable without conversion.
 
 ## Official references
 

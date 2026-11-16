@@ -6,7 +6,7 @@ import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
-import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, parseBmcSubscriptions, parsePlusAudit, verifyBmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
+import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, isBmcSubscriptionId, parseBmcSubscriptions, parsePlusAudit, validateBmcEvent, verifyBmcEvent, type BmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
@@ -213,7 +213,8 @@ export class MembershipService {
     const giftWins = !!gift && (gift.expiresAt === null || !bmc.active || gift.expiresAt >= (bmc.expiresAt ?? 0))
     const plus = purchased ? { active: true, expiresAt: null, provider: 'legacy' as const, status: 'active' as const, cancelAtPeriodEnd: false }
       : giftWins ? { active: true, expiresAt: gift!.expiresAt, provider: 'gift' as const, status: 'active' as const, cancelAtPeriodEnd: false } : bmc
-    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: plus.active, source: purchased || bmc.active && !giftWins ? 'purchase' : giftWins ? 'gift' : null, expiresAt: plus.expiresAt, plus }
+    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: plus.active,
+      source: purchased ? 'purchase' : giftWins || bmc.active && bmc.complimentary ? 'gift' : bmc.active ? 'purchase' : null, expiresAt: plus.expiresAt, plus }
   }
   authenticate(token: string): MembershipAccount | null {
     if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
@@ -538,7 +539,7 @@ export class MembershipService {
     return { received: true }
   }
   async revokePlus(subscriptionId: unknown, reason: unknown) {
-    if (typeof subscriptionId !== 'string' || !/^\d{1,16}$/.test(subscriptionId) || !['refund', 'dispute', 'provider_correction'].includes(String(reason))) throw new MembershipError('invalid_request')
+    if (!isBmcSubscriptionId(subscriptionId) || !['refund', 'dispute', 'provider_correction'].includes(String(reason))) throw new MembershipError('invalid_request')
     await this.mutate(data => {
       const subscription = data.bmcSubscriptions.find(s => s.id === subscriptionId)
       if (!subscription) throw new MembershipError('subscription_not_found', 404)
@@ -546,6 +547,31 @@ export class MembershipService {
       subscription.revokedAt = this.now(); subscription.eligible = false
       subscription.expiresAt = Math.min(subscription.expiresAt, this.now())
       data.plusAudit = [...data.plusAudit, { id: hash(`owner-revoke:${subscriptionId}:${this.now()}:${randomUUID()}`), at: this.now(), kind: 'owner_revoke' as const, subscriptionId, reason: String(reason) }].slice(-10_000)
+    }, true, true)
+  }
+  /** An owner attests to a real provider giveaway delivery, never to a payment. */
+  async importBmcGiveaway(eventValue: unknown, reason: unknown) {
+    if (reason !== 'provider_delivery_recovery') throw new MembershipError('invalid_giveaway')
+    if (!bmcReadiness(this.options.bmc, this.isHealthy(), !!this.options.sendCode).ready) throw new MembershipError('plus_not_configured', 503)
+    let event: BmcEvent
+    try { event = validateBmcEvent(eventValue, this.now()) } catch { throw new MembershipError('invalid_giveaway') }
+    if (event.type !== 'membership.started' || !event.live_mode || event.data.duration_type !== 'lifetime-giveaway' ||
+        event.data.status !== 'active' || event.data.canceled !== 'false' || event.data.paused !== 'false' || event.data.cancel_at_period_end !== 'false') throw new MembershipError('invalid_giveaway')
+    return this.mutate(data => {
+      // Validate independently before looking at existing state; malformed input
+      // must not turn into a successful no-op or disable a previous entitlement.
+      let candidate: ReturnType<typeof applyBmcEvent>
+      try { candidate = applyBmcEvent([], event, this.options.bmc!, data.accounts, this.now()) } catch { throw new MembershipError('invalid_giveaway') }
+      if (!candidate?.record.eligible || candidate.record.interval !== 'giveaway' || candidate.record.periodStart > this.now() || candidate.record.expiresAt <= this.now()) throw new MembershipError('invalid_giveaway')
+      const subscriptionId = candidate.record.id
+      const previous = data.bmcSubscriptions.find(record => record.id === subscriptionId)
+      if (previous && previous.revokedAt !== null) throw new MembershipError('giveaway_revoked', 409)
+      if (previous && previous.email !== candidate.record.email) throw new MembershipError('invalid_giveaway')
+      const result = applyBmcEvent(data.bmcSubscriptions, event, this.options.bmc!, data.accounts, this.now())
+      if (!result) return { ok: true as const, subscriptionId, imported: false }
+      data.bmcSubscriptions = data.bmcSubscriptions.filter(record => record.id !== subscriptionId).concat(result.record)
+      data.plusAudit = [...data.plusAudit, { ...result.audit, kind: 'owner_import' as const, reason: 'provider_delivery_recovery' }].slice(-10_000)
+      return { ok: true as const, subscriptionId, imported: true }
     }, true, true)
   }
   async checkout(token: string, currency?: unknown): Promise<string> {
@@ -665,6 +691,11 @@ export class MembershipService {
       this.requireAdmin(req, admin)
       if (!admin.allowWrite(req)) throw new MembershipError('invalid_request', 403)
       await this.revokePlus(req.body?.subscriptionId, req.body?.reason); res.json({ ok: true })
+    }))
+    app.post('/api/admin/plus/giveaways/import', json, run(async (req, res) => {
+      this.requireAdmin(req, admin)
+      if (!admin.allowWrite(req)) throw new MembershipError('invalid_request', 403)
+      res.json(await this.importBmcGiveaway(req.body?.event, req.body?.reason))
     }))
     app.get('/api/admin/memberships', run((req, res) => { this.requireAdmin(req, admin); res.json({ grants: this.data.grants.map(g => ({ ...g })).sort((a, b) => b.grantedAt - a.grantedAt) }) }))
     app.post('/api/admin/memberships/grant', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.grant(req.body?.email, req.body?.expiresAt ?? null); res.json({ ok: true }) }))
