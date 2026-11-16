@@ -146,10 +146,14 @@ export function applyBmcEvent(records: BmcSubscription[], event: BmcEvent, optio
   const start = stamp(p.current_period_start) ? p.current_period_start * 1000 : -1
   const end = stamp(p.current_period_end) ? p.current_period_end * 1000 : -1
   const maxDays = interval === 'month' ? 32 : 367, minDays = interval === 'month' ? 27 : 364
-  const expected = interval === 'year' ? 1000 : options.monthlyAmount === 100 ? 100 : undefined
-  const amount = typeof p.amount === 'number' && Number.isFinite(p.amount) ? options.amountUnits === 'major' ? p.amount * 100 : p.amount : -1
-  const qualified = numericId(p.membership_level_id) === options.levelId && typeof p.currency === 'string' && p.currency.toLowerCase() === options.currency &&
-    ['month', 'year'].includes(p.duration_type) && typeof expected === 'number' && amount === expected &&
+  // The signed level and access period are authoritative. BMC permits localized
+  // currencies and higher contributions, and documents no canonical base amount
+  // in this payload. Amount units and configured base prices are readiness/display
+  // checks, not an exchange-rate calculation or an independent invoice receipt.
+  const validAmount = typeof p.amount === 'number' && Number.isFinite(p.amount) && p.amount > 0
+  const validCurrency = typeof p.currency === 'string' && /^[a-z]{3}$/i.test(p.currency)
+  const qualified = numericId(p.membership_level_id) === options.levelId && validCurrency && validAmount &&
+    ['month', 'year'].includes(p.duration_type) &&
     start >= 0 && start <= at + 300_000 && end - start >= minDays * DAY && end - start <= maxDays * DAY && end <= now + maxDays * DAY + 300_000
   if (!old && !qualified) return null
   const boundEmail = old?.email ?? supporterEmail!

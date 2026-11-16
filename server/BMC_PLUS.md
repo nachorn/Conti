@@ -17,7 +17,8 @@ Use the BMC section in `membership.env.example`. The endpoint is
 `POST /api/membership/bmc-webhook`, with raw JSON, a 256 KiB limit and
 `x-signature-sha256` HMAC-SHA256 verification. Keep the signing secret only in
 server environment/private files. No API bearer token or abandoned BMC REST API
-is needed. `BMC_AMOUNT_UNITS` must match the actual provider payload.
+is needed. `BMC_AMOUNT_UNITS` records the observed provider payload units for
+readiness checks; it does not calculate exchange rates or authorize an entitlement.
 
 `BMC_VALIDATION_CONFIRMED=true` confirms the access lifecycle has been tested;
 it does not certify individual invoices as paid. Enable it only after testing
@@ -40,8 +41,13 @@ provider secret.
 - The first binding is retained: a later provider-email change cannot transfer
   the right to a different NRN account. A receipt may arrive before registration;
   email proof is still required before that account receives access.
-- Only the configured level and exact USD 1 monthly / USD 10 annual amounts
-  qualify. Monthly periods are bounded to 27–32 days; annual periods to 364–367.
+- Only the configured signed level qualifies. BMC owns its checkout pricing,
+  localized currency conversion, higher contributions and any price adjustments;
+  the webhook has no documented canonical/base-amount field. Its amount must be
+  finite and positive and its currency must have a three-letter code, but neither
+  is compared with the displayed base price. Zero is rejected because the approved
+  level has no free trial. Monthly periods are bounded to 27–32 days; annual
+  periods to 364–367. This is provider access verification, not invoice verification.
 - A newer eligible active period can renew access. Older events cannot rewind
   or resurrect state. Conservative same-time ordering gives cancellation
   precedence. Attempts and delivery IDs do not create duplicate entitlements.

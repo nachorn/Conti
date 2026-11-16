@@ -165,7 +165,10 @@ test('one-dollar monthly access expires at its provider boundary and monthly per
   const expired = await h.login()
   assert.equal(expired.account.adFree, false)
   assert.equal(expired.account.plus?.status, 'expired')
-  for (const fields of [{ id: 502, duration_type: 'year', amount: 1 }, { id: 503, duration_type: 'month', amount: 1 }]) {
+  for (const fields of [
+    { id: 502, duration_type: 'year', current_period_end: Math.floor((h.clock.now + 30 * DAY) / 1000) },
+    { id: 503, duration_type: 'month', current_period_end: Math.floor((h.clock.now + 365 * DAY) / 1000) },
+  ]) {
     await h.deliver(h.event('membership.started', fields))
   }
   assert.equal(h.service.authenticate(expired.token)?.adFree, false)
@@ -200,9 +203,25 @@ test('immediate cancellation or pause cuts access rather than keeping a newly ad
   }
 })
 
-test('invalid tier, currency, amount, trial-length or overlong periods cannot grant access; email updates cannot transfer ownership', async t => {
+test('signed configured-level access supports localized currency, higher contributions and provider price adjustments', async t => {
+  const h = await harness(t), session = await h.login()
+  const variants = [{ currency: 'EUR', amount: 9.4 }, { currency: 'GBP', amount: 7.8 },
+    { currency: 'JPY', amount: 1500 }, { currency: 'USD', amount: 20 }, { currency: 'USD', amount: 9.99 }]
+  for (const [index, fields] of variants.entries()) {
+    const event = h.event('membership.started', { ...fields, id: 600 + index })
+    await h.deliver(event)
+    const receipt = h.store.value.bmcSubscriptions.find((record: { id: string }) => record.id === String(600 + index))
+    assert.equal(receipt?.eligible, true, `${fields.currency} ${fields.amount} belongs to the approved provider level`)
+    assert.equal(receipt?.expiresAt, event.data.current_period_end * 1000)
+  }
+  assert.equal(h.service.authenticate(session.token)?.adFree, true)
+  assert.equal(h.store.value.bmcSubscriptions.length, variants.length)
+})
+
+test('invalid tier, malformed currency, nonpositive amount, trial-length or overlong periods cannot grant access; email updates cannot transfer ownership', async t => {
   const h = await harness(t), ana = await h.login(), other = await h.login('other@example.test')
-  const invalid = [{ membership_level_id: 78 }, { currency: 'EUR' }, { amount: 9.99 }, { duration_type: 'week' },
+  const invalid = [{ membership_level_id: 78 }, { currency: 'EURO' }, { currency: 'US1' }, { currency: ' US' }, { currency: 123 },
+    { amount: -1 }, { amount: 0 }, { amount: '10' }, { amount: null }, { amount: Number.POSITIVE_INFINITY }, { amount: Number.NaN }, { duration_type: 'week' },
     { current_period_end: Math.floor((h.clock.now + 7 * DAY) / 1000) }, { current_period_end: Math.floor((h.clock.now + 368 * DAY) / 1000) }]
   for (const fields of invalid) await h.deliver(h.event('membership.started', fields))
   assert.equal(h.service.authenticate(ana.token)?.adFree, false)
