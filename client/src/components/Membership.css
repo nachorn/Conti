@@ -41,10 +41,18 @@
 .membership-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; margin: 1.2rem 0; padding: .3rem; border: 1px solid #ffffff21; border-radius: 12px; background: #071e16; }
 .membership-tabs button { min-height: 44px; min-width: 0; padding: .6rem .5rem; border: 1px solid transparent; border-radius: 8px; color: #bfcdc3; background: transparent; font-size: .86rem; }
 .membership-tabs button[aria-pressed=true] { background: #efd18b17; border-color: #efd18b77; color: #efd18b; }
+.membership-tabs-account { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .membership-form input { font-size: 16px; }
 .membership-password-help, .membership-dialog .membership-password-help { margin: 0 0 .25rem; color: #bfcdc3; font-size: .78rem; }
 .membership-form .membership-reveal { align-self: flex-start; min-height: 44px; }
 .membership-profile-name { margin: 1.1rem 0 .2rem; color: #efd18b; font-size: 1.3rem; overflow-wrap: anywhere; }
+.membership-profile-details { display: grid; gap: 1rem; margin: 1.2rem 0; padding: 1rem; border: 1px solid #ffffff21; border-radius: 12px; }
+.membership-profile-details dt { color: #bfcdc3; font-size: .8rem; }
+.membership-profile-details dd { margin: .3rem 0 0; overflow-wrap: anywhere; }
+.membership-security { margin: 1.3rem 0; }
+.membership-security h3 { margin-bottom: .4rem; font-size: 1rem; }
+.membership-security p { color: #bfcdc3; }
+.membership-success { padding: .8rem 1rem; border: 1px solid #9abd7a; border-radius: 10px; background: #9abd7a15; }
 .membership-ad-access { margin-top: 1.4rem; padding: .9rem 1rem; border: 1px solid #ffffff21; border-radius: 12px; }
 .membership-ad-access > summary { min-height: 24px; cursor: pointer; font-size: .9rem; color: #efd18b; }
 .personal-stats-heading { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }

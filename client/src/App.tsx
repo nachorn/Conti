@@ -190,7 +190,7 @@ function GameApp() {
     const pageName = location.pathname === '/conti' || (location.pathname === '/' && hostedGame === 'continental') ? 'Conti'
       : location.pathname === '/pocha' || (location.pathname === '/' && hostedGame === 'pocha') ? 'La Pocha'
       : location.pathname === '/game' && state ? (state.gameType === 'pocha' ? 'La Pocha' : 'Conti') : null
-    document.title = pageName ? `${pageName} · NRN Play` : lang === 'es' ? 'NRN Play — Tu próxima partida empieza aquí' : 'NRN Play — Your next game starts here'
+    document.title = pageName ? `${pageName} · NRN Play` : 'NRN Play'
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
     if (canonical) canonical.href = hostedGame ? `${window.location.origin}/`
       : location.pathname === '/conti' || location.pathname === '/pocha'
@@ -257,6 +257,11 @@ function GameApp() {
     onOpenContinentalDev={() => { setShowContinentalDev(true); navigate('/game') }}
   />
 
+  const accountGameType = location.pathname === '/conti' ? 'continental'
+    : location.pathname === '/pocha' ? 'pocha'
+    : location.pathname === '/game' && state ? state.gameType ?? 'continental'
+    : location.pathname === '/' ? hostedGame : null
+
   return (
     <div className={isPlatformPage ? 'nrn-platform' : undefined}>
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
@@ -265,7 +270,7 @@ function GameApp() {
       {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes volver a iniciar sesión.' : 'Your account could not be connected. You can sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
       {roomVerification.dialog}
       {!showPochaDev && !showContinentalDev && <>
-        {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen}
+        {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen} gameType={accountGameType}
           hideTrigger={isPlatformPage}
           onOpen={openAccount} onClose={() => setMembershipOpen(false)} />}
         <AdGate gate={adGate} state={state} playerId={socketId} lang={lang} connected={isConnected}

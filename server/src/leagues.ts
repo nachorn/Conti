@@ -75,11 +75,13 @@ export function makeLeague(leagues: Map<string, StoredLeague>, account: Identity
     minGames: Number(minGames), ratingVersion: 1, members: [{ id: randomUUID(), accountId: account.id, name: name(account.name, 24) ? account.name : 'Jugador', joinedAt: now }] }
 }
 
-export function joinedLeague(leagues: Map<string, StoredLeague>, account: Identity, code: unknown, now = Date.now()): StoredLeague {
+export function joinedLeague(leagues: Map<string, StoredLeague>, account: Identity, code: unknown, now = Date.now(), expectedGameType?: unknown): StoredLeague {
+  if (expectedGameType !== undefined && !game(expectedGameType)) throw new LeagueError('invalid_game_type')
   const normalized = typeof code === 'string' ? code.trim().toUpperCase() : ''
   if (!/^[A-F0-9]{10}$/.test(normalized)) throw new LeagueError('invalid_invite_code')
   const league = [...leagues.values()].find(l => l.inviteCode === normalized)
   if (!league) throw new LeagueError('league_not_found', 404)
+  if (expectedGameType !== undefined && league.gameType !== expectedGameType) throw new LeagueError('league_wrong_game', 409)
   if (league.members.some(m => m.accountId === account.id)) return league
   if (league.closedAt !== null) throw new LeagueError('league_closed', 409)
   if (league.members.length >= 200) throw new LeagueError('league_full', 409)
@@ -197,7 +199,7 @@ export function registerLeagues(app: Express, options: {
   }))
   app.post('/api/leagues/join', json, run(async (req, res, account) => {
     budget(joins, account, res); budget(writes, account, res)
-    res.json(await options.runMutation(() => options.repository.joinLeague(account, req.body?.code)))
+    res.json(await options.runMutation(() => options.repository.joinLeague(account, req.body?.code, req.body?.expectedGameType)))
   }))
   app.get('/api/leagues/:id', run((req, res, account) => {
     const value = options.repository.getLeagueDetail(req.params.id, account.id)

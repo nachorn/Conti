@@ -3,15 +3,15 @@ import './SupportProject.css'
 
 const copy = {
   es: {
-    title: '¿Te gusta jugar aquí?',
-    description: 'Si te apetece, una pequeña aportación ayuda a mantener esta web activa. Jugar sigue siendo gratis.',
-    action: 'Apoyar la web',
+    title: 'Apoyar el proyecto',
+    description: 'Aportaciones voluntarias para mantener la web. Jugar es gratis.',
+    action: 'Apoyar el proyecto',
     destination: 'Aportación voluntaria a través de la página de Football Champion en Buy Me a Coffee. Se abre en otra pestaña.',
   },
   en: {
-    title: 'Enjoy playing here?',
-    description: 'If you would like to help, a small contribution keeps this website running. Playing remains free.',
-    action: 'Support this website',
+    title: 'Support the project',
+    description: 'Voluntary contributions help maintain the website. Playing is free.',
+    action: 'Support the project',
     destination: 'Optional contribution through Football Champion’s page on Buy Me a Coffee. Opens in a new tab.',
   },
 }

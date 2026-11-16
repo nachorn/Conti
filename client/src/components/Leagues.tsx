@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { LeagueDetail } from '@shared/leagues'
+import type { LeagueDetail, LeagueGameType } from '@shared/leagues'
 import type { Lang } from '../i18n'
 import { useLeagues, type LeagueError } from '../useLeagues'
 import './Leagues.css'
@@ -8,10 +8,11 @@ const errorCopy: Record<LeagueError, [string, string]> = {
   unauthorized: ['Vuelve a entrar en tu cuenta para ver las ligas.', 'Sign in again to see your leagues.'],
   unavailable: ['No hemos podido actualizar la liga. Inténtalo de nuevo.', 'We could not update the league. Please try again.'],
   league_not_found: ['No encontramos esa liga. Comprueba el código o tu acceso.', 'League not found. Check the code or your access.'],
+  league_wrong_game: ['Esta liga pertenece a otro juego. Abre ese juego para unirte.', 'This league belongs to another game. Open that game to join.'],
   league_closed: ['Esta liga está cerrada y no acepta nuevas incorporaciones ni partidas.', 'This league is closed to new members and games.'],
   league_full: ['Esta liga ha alcanzado su límite de miembros.', 'This league has reached its member limit.'],
   invalid_league_name: ['Escribe un nombre de hasta 60 caracteres.', 'Enter a name of up to 60 characters.'],
-  invalid_game_type: ['Elige Pocha o Conti.', 'Choose Pocha or Conti.'],
+  invalid_game_type: ['No hemos podido identificar el juego de esta liga.', 'We could not identify this league’s game.'],
   invalid_min_games: ['El mínimo para clasificarse debe estar entre 1 y 50 partidas.', 'The qualifying minimum must be between 1 and 50 games.'],
   invalid_invite_code: ['Comprueba el código de invitación de diez caracteres.', 'Check the ten-character invitation code.'],
   league_owner_required: ['Solo quien creó la liga puede cerrarla.', 'Only the league creator can close it.'],
@@ -21,19 +22,18 @@ const errorCopy: Record<LeagueError, [string, string]> = {
 export const leagueErrorText = (error: LeagueError, lang: Lang) => errorCopy[error][lang === 'es' ? 0 : 1]
 const gameName = (game: 'pocha' | 'continental') => game === 'pocha' ? 'La Pocha' : 'Conti'
 
-export function Leagues({ token, lang, active, onSignIn }: { token: string | null; lang: Lang; active: boolean; onSignIn: () => void }) {
+export function Leagues({ token, gameType, lang, active, onSignIn }: { token: string | null; gameType: LeagueGameType; lang: Lang; active: boolean; onSignIn: () => void }) {
   const es = lang === 'es'
-  const leagues = useLeagues(token, active)
+  const leagues = useLeagues(token, active, gameType)
   const [form, setForm] = useState<'create' | 'join' | null>(null)
   const [name, setName] = useState('')
-  const [game, setGame] = useState<'pocha' | 'continental'>('pocha')
   const [minGames, setMinGames] = useState(5)
   const [code, setCode] = useState('')
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const fields = new FormData(event.currentTarget)
     const ok = form === 'create'
-      ? await leagues.createLeague(String(fields.get('leagueName') ?? '').trim(), fields.get('gameType') === 'continental' ? 'continental' : 'pocha', Number(fields.get('minGames')))
+      ? await leagues.createLeague(String(fields.get('leagueName') ?? '').trim(), gameType, Number(fields.get('minGames')))
       : await leagues.joinLeague(String(fields.get('inviteCode') ?? '').trim().toUpperCase())
     if (ok) { setForm(null); setName(''); setCode('') }
   }
@@ -42,20 +42,19 @@ export function Leagues({ token, lang, active, onSignIn }: { token: string | nul
     {leagues.detail ? <LeagueView league={leagues.detail} lang={lang} busy={leagues.busy}
       onBack={() => { leagues.back(); setForm(null) }} onRefresh={() => void leagues.openLeague(leagues.detail!.id)}
       onClose={() => leagues.closeLeague(leagues.detail!.id)} /> : <>
-      <div className="leagues-heading"><h3 id="leagues-title">{es ? 'Tus ligas' : 'Your leagues'}</h3>
+      <div className="leagues-heading"><h3 id="leagues-title">{es ? `Tus ligas de ${gameName(gameType)}` : `Your ${gameName(gameType)} leagues`}</h3>
         <button type="button" className="membership-text" disabled={leagues.loading || leagues.busy} onClick={() => void leagues.refresh()}>{es ? 'Actualizar' : 'Refresh'}</button></div>
-      <p className="leagues-intro">{es ? 'Reúne a tu grupo y compara los resultados, aunque en cada partida juguéis personas diferentes.' : 'Bring your group together and compare results, even when each game has different players.'}</p>
+      <p className="leagues-intro">{es ? `Clasificaciones privadas de ${gameName(gameType)}.` : `Private ${gameName(gameType)} standings.`}</p>
       <div className="leagues-entry-actions">
         <button className="membership-primary" type="button" disabled={leagues.busy} aria-expanded={form === 'create'} onClick={() => changeForm(form === 'create' ? null : 'create')}>{es ? 'Crear liga' : 'Create league'}</button>
         <button className="membership-secondary" type="button" disabled={leagues.busy} aria-expanded={form === 'join'} onClick={() => changeForm(form === 'join' ? null : 'join')}>{es ? 'Unirme con un código' : 'Join with a code'}</button>
       </div>
       {form && <form className="league-form" onSubmit={submit}>
-        <h4>{form === 'create' ? (es ? 'Una liga para vuestro grupo' : 'A league for your group') : (es ? 'Introduce la invitación' : 'Enter your invitation')}</h4>
+        <h4>{form === 'create' ? (es ? 'Crear liga' : 'Create league') : (es ? 'Unirse a una liga' : 'Join a league')}</h4>
         {form === 'create' ? <>
           <label htmlFor="league-name">{es ? 'Nombre de la liga' : 'League name'}</label>
           <input id="league-name" name="leagueName" autoComplete="off" required maxLength={60} value={name} onChange={event => setName(event.target.value)} placeholder={es ? 'Las cartas del domingo' : 'Sunday card club'} />
-          <label htmlFor="league-game">{es ? 'Juego' : 'Game'}</label>
-          <select id="league-game" name="gameType" value={game} onChange={event => setGame(event.target.value === 'continental' ? 'continental' : 'pocha')}><option value="pocha">La Pocha</option><option value="continental">Conti</option></select>
+          <p><strong>{es ? 'Juego' : 'Game'}:</strong> {gameName(gameType)}</p>
           <label htmlFor="league-min-games">{es ? 'Partidas mínimas para clasificarse' : 'Games needed to qualify'}</label>
           <input id="league-min-games" name="minGames" type="number" inputMode="numeric" required min={1} max={50} value={minGames} onChange={event => setMinGames(Number(event.target.value))} aria-describedby="league-min-games-help" />
           <p id="league-min-games-help">{es ? 'Hasta completar este mínimo, el jugador aparece como provisional. El juego y este mínimo quedan fijados al crear la liga.' : 'Players stay provisional until they complete this minimum. The game and minimum are fixed when you create the league.'}</p>
@@ -67,7 +66,7 @@ export function Leagues({ token, lang, active, onSignIn }: { token: string | nul
         <div className="leagues-entry-actions"><button className="membership-primary" type="submit" disabled={leagues.busy}>{leagues.busy ? (es ? 'Un momento…' : 'One moment…') : form === 'create' ? (es ? 'Crear mi liga' : 'Create my league') : (es ? 'Unirme a la liga' : 'Join the league')}</button><button className="membership-text" type="button" disabled={leagues.busy} onClick={() => changeForm(null)}>{es ? 'Cancelar' : 'Cancel'}</button></div>
       </form>}
       {leagues.loading && !leagues.leagues && <p role="status">{es ? 'Cargando tus ligas…' : 'Loading your leagues…'}</p>}
-      {leagues.leagues && !leagues.leagues.length && <div className="personal-stats-empty"><strong>{es ? 'La próxima rivalidad empieza aquí' : 'Your next rivalry starts here'}</strong><p>{es ? 'Crea una liga o únete con una invitación. Después, el anfitrión podrá elegirla dentro del lobby de la partida.' : 'Create a league or join with an invitation. The game host can then select it in the waiting lobby.'}</p></div>}
+      {leagues.leagues && !leagues.leagues.length && <div className="personal-stats-empty"><strong>{es ? 'Todavía no tienes ligas.' : 'No leagues yet.'}</strong><p>{es ? 'Crea una liga o únete con una invitación. Después, el anfitrión podrá elegirla dentro del lobby de la partida.' : 'Create a league or join with an invitation. The game host can then select it in the waiting lobby.'}</p></div>}
       {!!leagues.leagues?.length && <ul className="league-list">{leagues.leagues.map(league => <li key={league.id}><button type="button" disabled={leagues.busy} onClick={() => void leagues.openLeague(league.id)}>
         <span><strong>{league.name}</strong><small>{gameName(league.gameType)} · {league.memberCount} {es ? 'miembros' : 'members'} · {league.gameCount} {es ? 'partidas' : 'games'}</small></span><span className="league-list-status">{league.closedAt !== null ? (es ? 'Cerrada' : 'Closed') : league.isOwner ? (es ? 'Tu liga' : 'Your league') : (es ? 'Ver liga' : 'View league')} <span aria-hidden="true">→</span></span>
       </button></li>)}</ul>}

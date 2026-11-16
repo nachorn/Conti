@@ -184,8 +184,8 @@ export class GameRepository {
     await this.persist(next)
   }
 
-  getPersonalStats(accountId: string, limit = 50): PersonalStatsResponse {
-    return personalStats(this.results.values(), accountId, limit)
+  getPersonalStats(accountId: string, limit = 50, gameType?: DurableGameResult['gameType']): PersonalStatsResponse {
+    return personalStats(this.results.values(), accountId, limit, Date.now(), gameType)
   }
 
   getLeagueSummary(id: string): RoomLeagueSummary | null {
@@ -227,9 +227,9 @@ export class GameRepository {
     return this.getLeagueDetail(league.id, account.id)!
   }
 
-  async joinLeague(account: Pick<MembershipAccount, 'id' | 'name'>, code: unknown): Promise<LeagueDetail> {
+  async joinLeague(account: Pick<MembershipAccount, 'id' | 'name'>, code: unknown, expectedGameType?: unknown): Promise<LeagueDetail> {
     if (this.failed) throw new Error('Game storage unavailable')
-    const league = joinedLeague(this.leagues, account, code)
+    const league = joinedLeague(this.leagues, account, code, Date.now(), expectedGameType)
     if (league !== this.leagues.get(league.id)) await this.persist(this.records, this.results, new Map(this.leagues).set(league.id, league))
     return this.getLeagueDetail(league.id, account.id)!
   }

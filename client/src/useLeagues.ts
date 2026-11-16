@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { LeagueDetail, LeagueSummary } from '@shared/leagues'
+import type { LeagueDetail, LeagueGameType, LeagueSummary } from '@shared/leagues'
 import { isLeagueDetail, isLeagueList } from './lib/leagues'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
-export type LeagueError = 'unauthorized' | 'unavailable' | 'league_not_found' | 'league_closed' | 'league_full' | 'invalid_league_name' | 'invalid_game_type' | 'invalid_min_games' | 'invalid_invite_code' | 'league_owner_required' | 'rate_limited' | 'league_limit'
-const errorCodes = new Set<LeagueError>(['unauthorized', 'league_not_found', 'league_closed', 'league_full', 'invalid_league_name', 'invalid_game_type', 'invalid_min_games', 'invalid_invite_code', 'league_owner_required', 'rate_limited', 'league_limit'])
+export type LeagueError = 'unauthorized' | 'unavailable' | 'league_not_found' | 'league_wrong_game' | 'league_closed' | 'league_full' | 'invalid_league_name' | 'invalid_game_type' | 'invalid_min_games' | 'invalid_invite_code' | 'league_owner_required' | 'rate_limited' | 'league_limit'
+const errorCodes = new Set<LeagueError>(['unauthorized', 'league_not_found', 'league_wrong_game', 'league_closed', 'league_full', 'invalid_league_name', 'invalid_game_type', 'invalid_min_games', 'invalid_invite_code', 'league_owner_required', 'rate_limited', 'league_limit'])
 class RequestError extends Error { constructor(readonly code: LeagueError) { super('League request failed') } }
 
-export function useLeagues(token: string | null, enabled = true) {
-  const [list, setList] = useState<{ token: string; leagues: LeagueSummary[] } | null>(null)
-  const [selected, setSelected] = useState<{ token: string; league: LeagueDetail } | null>(null)
+export function useLeagues(token: string | null, enabled = true, gameType?: LeagueGameType) {
+  const [list, setList] = useState<{ token: string; gameType?: LeagueGameType; leagues: LeagueSummary[] } | null>(null)
+  const [selected, setSelected] = useState<{ token: string; gameType?: LeagueGameType; league: LeagueDetail } | null>(null)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const [loading, setLoading] = useState(false)
@@ -17,8 +17,10 @@ export function useLeagues(token: string | null, enabled = true) {
   const [error, setError] = useState<LeagueError | null>(null)
   const activeToken = useRef(token)
   const activeEnabled = useRef(enabled)
+  const activeGameType = useRef(gameType)
   activeToken.current = token
   activeEnabled.current = enabled
+  activeGameType.current = gameType
   const listSequence = useRef(0)
   const actionSequence = useRef(0)
   const actionPending = useRef(false)
@@ -44,20 +46,21 @@ export function useLeagues(token: string | null, enabled = true) {
     if (!token || !enabled) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const selectedId = selectedRef.current?.token === token ? selectedRef.current.league.id : null
+      const selectedId = selectedRef.current?.token === token && selectedRef.current.gameType === gameType ? selectedRef.current.league.id : null
       const [value, detail] = await Promise.all([request('', token), selectedId ? request('/' + encodeURIComponent(selectedId), token) : Promise.resolve(null)])
-      if (sequence !== listSequence.current || activeToken.current !== token || !activeEnabled.current) return
+      if (sequence !== listSequence.current || activeToken.current !== token || activeGameType.current !== gameType || !activeEnabled.current) return
       if (!isLeagueList(value) || (selectedId && !isLeagueDetail(detail))) throw new RequestError('unavailable')
-      setList({ token, leagues: value.leagues })
-      if (selectedId && isLeagueDetail(detail)) setSelected({ token, league: detail })
+      if (selectedId && isLeagueDetail(detail) && gameType !== undefined && detail.gameType !== gameType) throw new RequestError('league_wrong_game')
+      setList({ token, gameType, leagues: value.leagues.filter(league => gameType === undefined || league.gameType === gameType) })
+      if (selectedId && isLeagueDetail(detail)) setSelected({ token, gameType, league: detail })
     } catch (failure) {
-      if (sequence !== listSequence.current || activeToken.current !== token || !activeEnabled.current) return
+      if (sequence !== listSequence.current || activeToken.current !== token || activeGameType.current !== gameType || !activeEnabled.current) return
       const code = failure instanceof RequestError ? failure.code : 'unavailable'
       setError(code)
       if (code === 'unauthorized') { setList(null); setSelected(null) }
-      if (code === 'league_not_found') setSelected(null)
+      if (code === 'league_not_found' || code === 'league_wrong_game') setSelected(null)
     } finally { if (sequence === listSequence.current) setLoading(false) }
-  }, [token, enabled])
+  }, [token, enabled, gameType])
 
   useEffect(() => {
     setError(null); setBusy(false)
@@ -81,14 +84,15 @@ export function useLeagues(token: string | null, enabled = true) {
     setLoading(false); setBusy(true); setError(null)
     try {
       const value = await request(path, currentToken, body)
-      if (sequence !== actionSequence.current || activeToken.current !== currentToken || !activeEnabled.current) return false
+      if (sequence !== actionSequence.current || activeToken.current !== currentToken || activeGameType.current !== gameType || !activeEnabled.current) return false
       if (!isLeagueDetail(value)) throw new RequestError('unavailable')
-      setSelected({ token: currentToken, league: value })
-      setList(previous => ({ token: currentToken, leagues: [value, ...(previous?.token === currentToken ? previous.leagues.filter(league => league.id !== value.id) : [])] }))
+      if (gameType !== undefined && value.gameType !== gameType) throw new RequestError('league_wrong_game')
+      setSelected({ token: currentToken, gameType, league: value })
+      setList(previous => ({ token: currentToken, gameType, leagues: [value, ...(previous?.token === currentToken && previous.gameType === gameType ? previous.leagues.filter(league => league.id !== value.id) : [])] }))
       if (body !== undefined) window.dispatchEvent(new Event('conti-leagues-updated'))
       return true
     } catch (failure) {
-      if (sequence !== actionSequence.current || activeToken.current !== currentToken || !activeEnabled.current) return false
+      if (sequence !== actionSequence.current || activeToken.current !== currentToken || activeGameType.current !== gameType || !activeEnabled.current) return false
       const code = failure instanceof RequestError ? failure.code : 'unavailable'
       setError(code)
       if (code === 'unauthorized') { setList(null); setSelected(null) }
@@ -98,12 +102,12 @@ export function useLeagues(token: string | null, enabled = true) {
     }
   }
   return {
-    leagues: list?.token === token ? list.leagues : null,
-    detail: selected?.token === token ? selected.league : null,
+    leagues: list?.token === token && list.gameType === gameType ? list.leagues : null,
+    detail: selected?.token === token && selected.gameType === gameType ? selected.league : null,
     loading, busy, error, refresh,
     openLeague: (id: string) => action('/' + encodeURIComponent(id)),
-    createLeague: (name: string, gameType: 'pocha' | 'continental', minGames: number) => action('', { name, gameType, minGames }),
-    joinLeague: (code: string) => action('/join', { code }),
+    createLeague: (name: string, requestedGame: LeagueGameType, minGames: number) => action('', { name, gameType: gameType ?? requestedGame, minGames }),
+    joinLeague: (code: string) => action('/join', { code, ...(gameType === undefined ? {} : { expectedGameType: gameType }) }),
     closeLeague: (id: string) => action('/' + encodeURIComponent(id) + '/close', {}),
     back: () => { ++actionSequence.current; ++listSequence.current; actionPending.current = false; setBusy(false); setLoading(false); setSelected(null); setError(null) },
     clearError: () => setError(null),

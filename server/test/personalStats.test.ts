@@ -344,4 +344,74 @@ test('aggregate percentages use all games while recent history is bounded, order
   assert.equal(results.at(-1)!.players[0].name, 'My name')
   assert.equal(results.at(-2)!.settings!.missPenalty, 2)
   assert.equal(personalStats(results, 'unrelated').overall.played, 0)
+  for (const gameType of ['pocha', 'continental'] as const) {
+    const scoped = personalStats(results, 'me', 2, 100, gameType)
+    assert.deepEqual(scoped.overall, stats.byGame[gameType], 'scoped totals still include games beyond the history limit')
+    assert.deepEqual(scoped.byGame[gameType], scoped.overall)
+    assert.deepEqual(scoped.byGame[gameType === 'pocha' ? 'continental' : 'pocha'], { played: 0, wins: 0, draws: 0, losses: 0, winRate: 0 })
+    assert.equal(scoped.recentGames.length, 2)
+    assert.ok(scoped.recentGames.every(game => game.gameType === gameType))
+  }
+})
+
+test('game-scoped HTTP statistics retain older matches before limiting history and keep account privacy', async t => {
+  const store = new MemoryStore(), repo = new GameRepository(store)
+  const results: DurableGameResult[] = Array.from({ length: 51 }, (_, i) => ({
+    id: `game-${i}`, gameType: i === 0 ? 'continental' : 'pocha', startedAt: 0, finishedAt: i + 1,
+    players: [
+      { accountId: 'account-0', name: 'My name', score: i === 0 ? 0 : 20, position: 1 },
+      { accountId: 'account-1', name: 'Their name', score: i === 0 ? 20 : 0, position: 2 },
+    ],
+  }))
+  store.value = { version: 2, savedAt: 100, rooms: [], results }
+  await repo.load()
+  const app = express()
+  let healthy = true
+  registerPersonalStats(app, { repository: repo, isHealthy: () => healthy, authenticate: token => token === 'test-A' ? 'account-0' : token === 'test-B' ? 'unrelated' : null })
+  const http = createServer(app)
+  await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise<void>(resolve => http.close(() => resolve())))
+  const base = `http://127.0.0.1:${(http.address() as { port: number }).port}/api/membership/stats`
+  const get = (query: string, token = 'test-A') => fetch(base + query, { headers: { Authorization: `Bearer ${token}` } })
+
+  const unscoped = await (await get('')).json() as any
+  assert.equal(unscoped.overall.played, 51)
+  assert.equal(unscoped.byGame.continental.played, 1)
+  assert.equal(unscoped.byGame.pocha.played, 50)
+  assert.equal(unscoped.recentGames.length, 50)
+  assert.equal(unscoped.recentGames[0].id, 'game-50')
+  assert.equal(unscoped.recentGames.at(-1).id, 'game-1')
+
+  const contiResponse = await get('?gameType=continental&accountId=unrelated')
+  assert.equal(contiResponse.status, 200)
+  assert.equal(contiResponse.headers.get('cache-control'), 'no-store')
+  assert.equal(contiResponse.headers.get('x-robots-tag'), 'noindex, nofollow')
+  const conti = await contiResponse.json() as any
+  assert.deepEqual(conti.overall, { played: 1, wins: 1, draws: 0, losses: 0, winRate: 100 })
+  assert.deepEqual(conti.byGame.continental, conti.overall)
+  assert.deepEqual(conti.byGame.pocha, { played: 0, wins: 0, draws: 0, losses: 0, winRate: 0 })
+  assert.deepEqual(conti.recentGames.map((game: any) => game.id), ['game-0'])
+  assert.equal(conti.recentGames[0].gameType, 'continental')
+  for (const secret of ['test-A', 'account-0', 'account-1', 'accountId', 'email', 'tokenHash', 'playerId']) assert.equal(JSON.stringify(conti).includes(secret), false)
+
+  const pocha = await (await get('?gameType=pocha')).json() as any
+  assert.deepEqual(pocha.overall, { played: 50, wins: 50, draws: 0, losses: 0, winRate: 100 })
+  assert.deepEqual(pocha.byGame.pocha, pocha.overall)
+  assert.deepEqual(pocha.byGame.continental, { played: 0, wins: 0, draws: 0, losses: 0, winRate: 0 })
+  assert.equal(pocha.recentGames.length, 50)
+  assert.ok(pocha.recentGames.every((game: any) => game.gameType === 'pocha'))
+  const other = await (await get('?gameType=continental&accountId=account-0', 'test-B')).json() as any
+  assert.equal(other.overall.played, 0)
+  assert.deepEqual(other.recentGames, [])
+  assert.equal((await get('?gameType=continental', 'invalid')).status, 401)
+
+  for (const query of ['?gameType=', '?gameType=football', '?gameType=Pocha', '?gameType=pocha&gameType=continental', '?gameType=pocha&gameType=pocha', '?gameType[]=pocha', '?gameType[name]=pocha']) {
+    const response = await get(query)
+    assert.equal(response.status, 400, query)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await response.json(), { error: 'invalid_game_type' })
+  }
+  healthy = false
+  assert.equal((await get('?gameType=continental')).status, 503)
+  assert.equal(store.saves, 0, 'statistics reads never change stored history')
 })

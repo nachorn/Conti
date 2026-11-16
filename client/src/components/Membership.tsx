@@ -10,8 +10,8 @@ import './Membership.css'
 
 const copy = {
   es: {
-    account: 'Mi cuenta', adFree: 'Sin anuncios', close: 'Cerrar', title: 'Una cuenta, todas tus mesas',
-    description: 'Guarda tus resultados de Pocha y Conti y consulta tu historial desde cualquier dispositivo.',
+    account: 'Mi cuenta', adFree: 'Sin anuncios', close: 'Cerrar', title: 'Tu cuenta de NRN Play',
+    description: 'Usa la misma cuenta en FootballChampion, Conti y La Pocha.',
     benefit: 'Cuando alguien de la mesa tiene acceso sin anuncios, toda la mesa juega sin publicidad.',
     soon: 'Próximamente', unavailable: 'El acceso con email todavía no está disponible. Puedes seguir creando salas y jugando como siempre.',
     email: 'Tu email', send: 'Enviarme un código', sent: 'Te hemos enviado un código. Revisa también la carpeta de spam.',
@@ -20,16 +20,16 @@ const copy = {
     inactive: 'Tu cuenta aún no tiene acceso sin anuncios.', expires: 'Disponible hasta',
     purchase: 'Quitar anuncios', once: 'Pago único', devices: 'Tu compra se guarda en tu cuenta. En otro dispositivo, entra con el mismo email.',
     currency: 'Moneda del pago', currencyHelp: 'Puedes elegir euros o dólares estadounidenses antes de pagar.', currencyPending: 'Preparando la moneda…',
-    purchaseSoon: 'La compra de acceso sin anuncios estará disponible próximamente.', refresh: 'Actualizar mi acceso',
-    logout: 'Cerrar sesión', waiting: 'Un momento…', checking: 'Estamos consultando tu acceso.',
+    purchaseSoon: 'La compra de acceso sin anuncios estará disponible próximamente.', refresh: 'Actualizar perfil',
+    logout: 'Cerrar sesión', waiting: 'Un momento…', checking: 'Actualizando perfil…',
     pending: 'Si acabas de pagar, la confirmación puede tardar unos instantes. Tu acceso aparecerá cuando recibamos la confirmación del pago.',
     returned: 'Has vuelto del pago. Puedes actualizar tu acceso para consultar su estado.',
     storage: 'Este navegador no permite guardar tu sesión. Puede que tengas que volver a entrar al cerrar la página.',
-    guest: 'Puedes cerrar esta ventana y seguir jugando sin una cuenta.',
+    guest: 'También puedes jugar sin cuenta.',
   },
   en: {
-    account: 'My account', adFree: 'Ad-free', close: 'Close', title: 'One account, all your tables',
-    description: 'Save your Pocha and Conti results and see your history on any device.',
+    account: 'My account', adFree: 'Ad-free', close: 'Close', title: 'Your NRN Play account',
+    description: 'Use the same account in FootballChampion, Conti and La Pocha.',
     benefit: 'When someone at the table has ad-free access, the whole table plays without ads.',
     soon: 'Coming soon', unavailable: 'Email sign-in is not available yet. You can keep creating rooms and playing as usual.',
     email: 'Your email', send: 'Email me a code', sent: 'We sent you a code. Please check your spam folder too.',
@@ -38,12 +38,12 @@ const copy = {
     inactive: 'Your account does not have ad-free access yet.', expires: 'Available until',
     purchase: 'Remove ads', once: 'One-time payment', devices: 'Your purchase is saved to your account. On another device, sign in with the same email.',
     currency: 'Payment currency', currencyHelp: 'You can choose euros or US dollars before paying.', currencyPending: 'Preparing your currency…',
-    purchaseSoon: 'Ad-free purchases will be available soon.', refresh: 'Refresh my access',
-    logout: 'Sign out', waiting: 'One moment…', checking: 'Checking your access.',
+    purchaseSoon: 'Ad-free purchases will be available soon.', refresh: 'Refresh profile',
+    logout: 'Sign out', waiting: 'One moment…', checking: 'Refreshing profile…',
     pending: 'If you have just paid, confirmation may take a moment. Your access will appear once we receive payment confirmation.',
     returned: 'You returned from checkout. Refresh your access to check its status.',
     storage: 'This browser cannot save your session. You may need to sign in again after closing the page.',
-    guest: 'You can close this window and keep playing without an account.',
+    guest: 'You can also play without an account.',
   },
 }
 const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
@@ -52,8 +52,8 @@ const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
-export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false }: {
-  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean
+export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false, gameType = null }: {
+  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean; gameType?: 'continental' | 'pocha' | null
 }) {
   const t = copy[lang]
   const es = lang === 'es'
@@ -69,8 +69,9 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [mode, setMode] = useState<'password' | 'register' | 'code' | 'reset'>('password')
-  const [section, setSection] = useState<'stats' | 'leagues' | 'profile'>('stats')
+  const [section, setSection] = useState<'stats' | 'leagues' | 'profile'>(gameType && !paymentReturn ? 'stats' : 'profile')
   const [securityOpen, setSecurityOpen] = useState(false)
+  const [passwordUpdated, setPasswordUpdated] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [resendAt, setResendAt] = useState(0)
   const [canResend, setCanResend] = useState(false)
@@ -79,19 +80,23 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const visible = config.enabled || !!account || !!membership.token
   const passwordEnabled = config.passwordLoginEnabled === true
   const activeMode = mode === 'password' && !passwordEnabled ? 'code' : mode
+  const activeSection = gameType ? section : 'profile'
+  const gameName = gameType === 'pocha' ? 'La Pocha' : 'Conti'
 
   function changeMode(next: typeof mode) {
-    setMode(next); setSent(false); setCode(''); setPassword(''); setConfirmation(''); setShowPassword(false); setFormError(null)
+    setMode(next); setSent(false); setCode(''); setPassword(''); setConfirmation(''); setShowPassword(false); setFormError(null); setPasswordUpdated(false)
     membership.clearError()
   }
   function finishSignIn() {
-    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setMode('password'); setShowPassword(false); setSection(paymentReturn ? 'profile' : 'stats'); setFormError(null)
+    setPasswordUpdated(activeMode === 'reset')
+    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setMode('password'); setShowPassword(false); setSection(activeMode === 'reset' || paymentReturn || !gameType ? 'profile' : 'stats'); setFormError(null)
   }
 
   useEffect(() => {
+    setSection(gameType && !paymentReturn ? 'stats' : 'profile')
     if (open) return
-    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setFormError(null); setMode('password')
-  }, [open])
+    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setFormError(null); setMode('password'); setShowPassword(false); setPasswordUpdated(false)
+  }, [open, gameType, paymentReturn])
 
   useEffect(() => {
     if (!paymentReturn) return
@@ -179,20 +184,26 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         <span className="membership-eyebrow">NRN Play</span>
         <button type="button" className="membership-close" onClick={onClose} aria-label={t.close}>×</button>
       </div>
-      <h2 id="membership-title">{t.title}</h2>
-      <p className="membership-description">{t.description}</p>
+      <h2 id="membership-title">{account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.title}</h2>
+      {(!account || !gameType || activeSection === 'profile' || securityOpen) && <p className="membership-description">{t.description}</p>}
       {!membership.loaded ? <p role="status">{t.waiting}</p> : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
-        <div className="membership-tabs membership-tabs-account" role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
-          <button type="button" aria-pressed={section === 'stats'} onClick={() => setSection('stats')}>{es ? 'Mis estadísticas' : 'My statistics'}</button>
-          <button type="button" aria-pressed={section === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button>
-          <button type="button" aria-pressed={section === 'profile'} onClick={() => setSection('profile')}>{es ? 'Mi perfil' : 'My profile'}</button>
-        </div>
-        {section === 'stats' ? <PersonalStats token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : section === 'leagues' ? <Leagues token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : <>
-        <h3 className="membership-profile-name">{account.name || (es ? 'Mi perfil' : 'My profile')}</h3>
-        <p className="membership-email">{account.email}</p>
-        <p className="membership-notice">{es ? 'Tu sesión se recuerda en este navegador. En otro dispositivo, entra con el mismo email para ver tus resultados.' : 'This browser remembers your session. Sign in with the same email on another device to see your results.'}</p>
-        {config.loginEnabled && <button type="button" className="membership-secondary" onClick={() => { changeMode('reset'); setEmail(account.email); setSecurityOpen(true) }}>{account.hasPassword ? (es ? 'Cambiar contraseña' : 'Change password') : (es ? 'Crear contraseña' : 'Set a password')}</button>}
-        <details className="membership-ad-access" open={!!paymentReturn}><summary>{t.adFree}</summary>
+        {gameType && <div className="membership-tabs membership-tabs-account" role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
+          <button type="button" aria-pressed={activeSection === 'stats'} onClick={() => setSection('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
+          <button type="button" aria-pressed={activeSection === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button>
+          <button type="button" aria-pressed={activeSection === 'profile'} onClick={() => setSection('profile')}>{es ? 'Mi perfil' : 'My profile'}</button>
+        </div>}
+        {gameType && activeSection === 'stats' ? <PersonalStats token={membership.token} gameType={gameType} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : gameType && activeSection === 'leagues' ? <Leagues key={gameType} gameType={gameType} token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : <>
+        {passwordUpdated && <p className="membership-success" role="status">{es ? 'Contraseña actualizada. Las demás sesiones se han cerrado.' : 'Password updated. Your other sessions have been signed out.'}</p>}
+        <dl className="membership-profile-details">
+          <div><dt>{es ? 'Nombre' : 'Name'}</dt><dd>{account.name || '—'}</dd></div>
+          <div><dt>Email</dt><dd>{account.email}</dd></div>
+        </dl>
+        <section className="membership-security" aria-labelledby="membership-security-title">
+          <h3 id="membership-security-title">{es ? 'Contraseña' : 'Password'}</h3>
+          <p>{es ? 'Confirma el cambio con un código enviado a tu email. La nueva contraseña se usará en todos los juegos.' : 'Confirm the change with a code sent to your email. The new password will apply to every game.'}</p>
+          {config.loginEnabled ? <button type="button" className="membership-secondary" onClick={() => { changeMode('reset'); setEmail(account.email); setSecurityOpen(true) }}>{account.hasPassword ? (es ? 'Cambiar contraseña' : 'Change password') : (es ? 'Crear contraseña' : 'Set a password')}</button> : <p>{es ? 'El cambio de contraseña no está disponible ahora.' : 'Password changes are currently unavailable.'}</p>}
+        </section>
+        {(account.adFree || config.checkoutEnabled || paymentReturn) && <details className="membership-ad-access" open={!!paymentReturn}><summary>{t.adFree}</summary>
         <div className="membership-benefit">{t.benefit}</div>
         <div className={account.adFree ? 'membership-access active' : 'membership-access'}>
           <strong>{account.adFree ? t.active : t.inactive}</strong>
@@ -217,7 +228,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
             <p>{t.devices}</p>
           </div> : <p className="membership-notice">{t.purchaseSoon}</p>}
         </>}
-        </details>
+        </details>}
         <div className="membership-actions">
           <button className="membership-secondary" disabled={busy || refreshing} onClick={async () => { setRefreshing(true); await membership.refresh(); setRefreshing(false) }}>{refreshing ? t.checking : t.refresh}</button>
           <button className="membership-text" disabled={busy} onClick={() => void membership.logout()}>{t.logout}</button>
@@ -228,7 +239,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
           <button type="button" disabled={busy} aria-pressed={activeMode === 'password' || activeMode === 'code'} onClick={() => changeMode('password')}>{es ? 'Entrar' : 'Sign in'}</button>
           {config.loginEnabled && <button type="button" disabled={busy} aria-pressed={activeMode === 'register'} onClick={() => changeMode('register')}>{es ? 'Crear cuenta' : 'Create account'}</button>}
         </div>}
-        {activeMode === 'reset' && <h3>{es ? 'Recuperar contraseña' : 'Reset your password'}</h3>}
+        {activeMode === 'reset' && (securityOpen ? <p className="membership-notice">{es ? 'Al guardar la nueva contraseña se cerrarán las demás sesiones, también en los otros juegos.' : 'Saving a new password will sign out your other sessions, including those in other games.'}</p> : <h3>{es ? 'Recuperar contraseña' : 'Reset your password'}</h3>)}
         <form className="membership-form" onSubmit={submit}>
         {sent ? <>
           <p className="membership-notice" role="status">{activeMode === 'register' ? (es ? 'Si puedes crear esta cuenta, recibirás un código por email. Si ya tienes cuenta, entra o recupera tu contraseña.' : 'If you can create this account, you will receive an email code. If you already have an account, sign in or reset your password.') : activeMode === 'reset' ? (es ? 'Si hay una cuenta con ese email, recibirás un código para cambiar la contraseña.' : 'If an account uses that email, you will receive a password-reset code.') : t.sent}<br /><span className="membership-email">{email}</span></p>
@@ -241,7 +252,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
             <input id="membership-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={15} maxLength={128} required value={confirmation} onChange={event => setConfirmation(event.target.value)} />
             <p id="membership-password-help" className="membership-password-help">{es ? 'Entre 15 y 128 caracteres. Una frase larga es fácil de recordar.' : '15–128 characters. A long phrase is easy to remember.'}</p>
           </>}
-          <button className="membership-primary" disabled={busy} type="submit">{busy ? t.waiting : activeMode === 'reset' ? (es ? 'Guardar contraseña y entrar' : 'Save password and sign in') : t.verify}</button>
+          <button className="membership-primary" disabled={busy} type="submit">{busy ? t.waiting : activeMode === 'reset' ? securityOpen ? (es ? 'Guardar contraseña' : 'Save password') : (es ? 'Guardar contraseña y entrar' : 'Save password and sign in') : t.verify}</button>
           <div className="membership-actions">
             <button className="membership-text" type="button" disabled={busy} onClick={() => { setSent(false); setCode(''); membership.clearError() }}>{es ? 'Volver al formulario' : 'Back to the form'}</button>
             <button className="membership-text" type="button" disabled={busy || !canResend} onClick={() => void send()}>{t.resend}</button>
@@ -249,7 +260,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         </> : <>
           {activeMode === 'register' && <><label htmlFor="membership-name">{es ? 'Tu nombre' : 'Your name'}</label><input id="membership-name" name="nickname" autoComplete="nickname" maxLength={24} required value={name} onChange={event => setName(event.target.value)} /></>}
           <label htmlFor="membership-email">{t.email}</label>
-          <input autoFocus id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required />
+          <input autoFocus id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} readOnly={securityOpen} value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required />
           {(activeMode === 'password' || activeMode === 'register') && <>
             <label htmlFor="membership-password">{es ? 'Contraseña' : 'Password'}</label>
             <input id="membership-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={activeMode === 'register' ? 'new-password' : 'current-password'} minLength={activeMode === 'register' ? 15 : undefined} maxLength={128} required value={password} onChange={event => setPassword(event.target.value)} aria-describedby={activeMode === 'register' ? 'membership-password-help' : undefined} />
@@ -266,7 +277,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
       {formError && <p className="membership-error" role="alert">{formError}</p>}
       {error && <p className="membership-error" role="alert">{errors[lang][error]}</p>}
       {!membership.storageAvailable && <p className="membership-notice">{t.storage}</p>}
-      <p className="membership-footnote">{t.guest}</p>
+      {!account && <p className="membership-footnote">{t.guest}</p>}
     </dialog>
   </>
 }

@@ -173,11 +173,13 @@ export function finishedPersonalMatch(record: RoomRecord, now = Date.now()): Dur
   }
 }
 
-export function personalStats(results: Iterable<DurableGameResult>, account: string, limit = 50, now = Date.now()): PersonalStatsResponse {
+export function personalStats(results: Iterable<DurableGameResult>, account: string, limit = 50, now = Date.now(), gameType?: DurableGameResult['gameType']): PersonalStatsResponse {
   const empty = (): PersonalStatsTotals => ({ played: 0, wins: 0, draws: 0, losses: 0, winRate: 0 })
   const overall = empty(), byGame = { pocha: empty(), continental: empty() }
   const recentGames: PersonalGameWithMetadata[] = []
-  const all = [...results].filter(result => result.players.some(p => p.accountId === account)).sort((a, b) => b.finishedAt - a.finishedAt || a.id.localeCompare(b.id))
+  // Scope before both aggregation and the history limit so other games cannot
+  // displace this game's older results from its private panel.
+  const all = [...results].filter(result => (gameType === undefined || result.gameType === gameType) && result.players.some(p => p.accountId === account)).sort((a, b) => b.finishedAt - a.finishedAt || a.id.localeCompare(b.id))
   const recentLimit = Number.isSafeInteger(limit) ? Math.max(0, Math.min(50, limit)) : 50
   for (const result of all) {
     const me = result.players.find(p => p.accountId === account)!
@@ -212,6 +214,10 @@ export function registerPersonalStats(app: Express, options: {
     const authorization = req.get('authorization') ?? ''
     const account = authorization.startsWith('Bearer ') ? options.authenticate(authorization.slice(7)) : null
     if (!account) { res.status(401).json({ error: 'unauthorized' }); return }
-    res.json(options.repository.getPersonalStats(account))
+    const gameType = req.query.gameType
+    if (gameType !== undefined && gameType !== 'pocha' && gameType !== 'continental') {
+      res.status(400).json({ error: 'invalid_game_type' }); return
+    }
+    res.json(options.repository.getPersonalStats(account, 50, gameType))
   })
 }

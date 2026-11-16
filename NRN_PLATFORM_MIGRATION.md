@@ -19,6 +19,8 @@ Different subdomains have separate browser storage. A game creates a temporary P
 
 The central profile stays outside the game socket owner so signing in cannot reconnect or replace a saved room seat. Guest play remains available. Signing into FootballChampion does not upload or claim a local career, and does not create cloud saves. Each game's sign-out ends its own session.
 
+The root profile opens account settings, including password changes through the existing email-code flow. Each card game opens its own statistics and leagues. `GET /api/membership/stats?gameType=continental|pocha` scopes totals and history before the 50-game limit; calls without a game retain the older combined response. League creation uses the panel's game, and a scoped join supplies `expectedGameType` so a code for another game is rejected before membership changes. Password changes preserve the account and results while revoking other sessions. FootballChampion keeps its own career statistics.
+
 ## Activation order
 
 1. Deploy the game server with the shared-account endpoints and preserve the existing membership store, auth secret, game store and email configuration.

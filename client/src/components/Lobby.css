@@ -17,9 +17,7 @@
 .lobby-header { display: flex; align-items: center; gap: 30px; margin: 28px 0 36px; }
 .lobby-game-mark { display: grid; place-items: center; flex-shrink: 0; width: 132px; height: 144px; border-radius: 22px; background: #f0ded8; color: #683c51; font-family: Georgia, serif; font-size: 5rem; transform: rotate(-5deg); }
 .lobby-pocha .lobby-game-mark { background: #eddfa6; color: #26464f; transform: rotate(5deg); }
-.lobby-eyebrow { font-size: .66rem; font-weight: 600; letter-spacing: .15em; color: var(--lobby-muted); }
 .lobby-header h1 { margin: 5px 0 10px; font-family: 'Outfit', sans-serif; font-size: clamp(2.7rem, 5vw, 4.4rem); font-weight: 600; line-height: 1; letter-spacing: -.055em; }
-.lobby-title-dot { color: #87aa3e; }
 .lobby-intro { margin: 0 0 8px; color: var(--lobby-muted); font-size: 1rem; line-height: 1.6; }
 .lobby-rule-link { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; font-size: .83rem; font-weight: 500; }
 .lobby-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
@@ -41,7 +39,6 @@
 .lobby-card > .lobby-secondary { background: #182c2b; color: #fff; }
 .lobby-card > .lobby-setup-note { margin: 0 0 auto; padding-block: 3px; font-size: .78rem; }
 .lobby-guest-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 19px 0 34px; color: var(--lobby-muted); font-size: .78rem; line-height: 1.6; }
-.lobby-guest-note > span { color: #58772e; }
 .lobby-error { padding: 14px 18px; margin-bottom: 24px; border: 1px solid #e4b4a9; border-radius: 10px; background: #fff0eb; color: #8d3829; line-height: 1.6; }
 .lobby-learn { margin-top: 30px; border: 1px solid var(--lobby-line); border-radius: 14px; background: #fdfdf9; }
 .lobby-learn > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px; list-style: none; cursor: pointer; font-size: .95rem; }
@@ -88,7 +85,6 @@
   .lobby { padding: 20px 20px 24px; }
   .lobby-header { gap: 20px; margin: 22px 0 28px; }
   .lobby-game-mark { width: 88px; height: 104px; border-radius: 16px; font-size: 3.5rem; }
-  .lobby-eyebrow { font-size: .58rem; letter-spacing: .11em; }
   .lobby-header h1 { font-size: 3rem; }
   .lobby-intro { font-size: .87rem; }
   .lobby-cards { grid-template-columns: 1fr; gap: 16px; }
