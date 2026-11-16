@@ -1,8 +1,30 @@
 import { randomBytes } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const guides = new Map(['es', 'en'].flatMap(lang => ['continental', 'pocha'].map(game => [`${lang}/${game}`, `${lang}/${game}/index.html`])))
+// Literal URLs are visible to Node File Trace and remain relative to this module
+// when a monorepo function is packaged below /var/task/client/api.
+const guides = new Map([
+  ['es/continental', { relative: 'es/continental/index.html', url: new URL('../public/learn/es/continental/index.html', import.meta.url) }],
+  ['en/continental', { relative: 'en/continental/index.html', url: new URL('../public/learn/en/continental/index.html', import.meta.url) }],
+  ['es/pocha', { relative: 'es/pocha/index.html', url: new URL('../public/learn/es/pocha/index.html', import.meta.url) }],
+  ['en/pocha', { relative: 'en/pocha/index.html', url: new URL('../public/learn/en/pocha/index.html', import.meta.url) }],
+])
+
+async function readGuide(guide, { publicRoot, cwd, load }) {
+  const candidates = publicRoot ? [join(publicRoot, guide.relative)] : [
+    fileURLToPath(guide.url),
+    join(cwd, 'client', 'public', 'learn', guide.relative),
+    join(cwd, 'public', 'learn', guide.relative),
+  ]
+  let missing
+  for (const path of new Set(candidates)) {
+    try { return await load(path, 'utf8') }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; missing = error }
+  }
+  throw missing
+}
 export const BASELINE_EDITORIAL_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://va.vercel-scripts.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://conti-server.onrender.com wss://conti-server.onrender.com https://vitals.vercel-insights.com https://vitals.vercel-analytics.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; upgrade-insecure-requests"
 
 function httpsUrl(value) {
@@ -36,7 +58,7 @@ export function renderEditorialGuide(html, config, nonce) {
   return html.replace(/<script\b/gi, `<script nonce="${nonce}"`).replace(/<head\b[^>]*>/i, match => `${match}${meta}${cmp}`)
 }
 
-export function createEditorialHandler({ env = process.env, publicRoot = join(process.cwd(), 'public', 'learn'), load = readFile, nonce = () => randomBytes(16).toString('base64') } = {}) {
+export function createEditorialHandler({ env = process.env, publicRoot, cwd = process.cwd(), load = readFile, nonce = () => randomBytes(16).toString('base64') } = {}) {
   return async function handler(request, response) {
     response.setHeader('Cache-Control', 'private, no-store')
     response.setHeader('CDN-Cache-Control', 'no-store')
@@ -51,7 +73,7 @@ export function createEditorialHandler({ env = process.env, publicRoot = join(pr
     const file = typeof lang === 'string' && typeof game === 'string' ? guides.get(`${lang}/${game}`) : undefined
     if (!file) return response.status(404).end()
     try {
-      const html = await load(join(publicRoot, file), 'utf8')
+      const html = await readGuide(file, { publicRoot, cwd, load })
       const config = editorialAdConfig(env, request.headers?.host)
       const value = config ? nonce() : null
       if (config) response.setHeader('Content-Security-Policy', editorialAdCsp(value, config))

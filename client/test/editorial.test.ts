@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { BASELINE_EDITORIAL_CSP, createEditorialHandler, editorialAdConfig } from '../api/editorial.js'
 import { consentAllowsAds } from '../src/lib/adConsent.ts'
 import { GUIDE_MEMBERSHIP_KEY, guideConsentAllowsAds, startGuideAdvertising, verifyGuideVisitor } from '../public/ads/guide.js'
@@ -14,6 +17,55 @@ function output() {
   return { res, result }
 }
 const request = (query = { lang: 'es', game: 'continental' }) => ({ method: 'GET', headers: { host: 'nrnplay.com' }, query })
+
+test('default guide paths work from a function cwd outside the client source directory', () => {
+  // The previous cwd/public/learn implementation returned 503 in this layout.
+  // Use a separate process so no concurrent test's working directory changes.
+  const moduleUrl = new URL('../api/editorial.js', import.meta.url).href
+  const script = `
+    const { createEditorialHandler } = await import(${JSON.stringify(moduleUrl)});
+    const handler = createEditorialHandler({ env: {} });
+    const result = [];
+    for (const lang of ['es','en']) for (const game of ['continental','pocha']) {
+      let status = 0, body = '';
+      const response = { setHeader() {}, status(value) { status = value; return this }, end(value = '') { body = value } };
+      await handler({ method:'GET', headers:{host:'nrnplay.com'}, query:{lang,game} }, response);
+      result.push({ status, guide:body.includes('data-nrn-guide-ad'), title:body.includes('<title>') });
+    }
+    process.stdout.write(JSON.stringify(result));
+  `
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: tmpdir(), encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), Array.from({ length: 4 }, () => ({ status: 200, guide: true, title: true })))
+})
+
+test('packaged fallback tries only the two exact public guide roots after ENOENT', async () => {
+  const cwd = join(tmpdir(), 'editorial-package-fixture')
+  for (const relativeRoot of [['client', 'public', 'learn'], ['public', 'learn']]) {
+    const expected = join(cwd, ...relativeRoot, 'es', 'continental', 'index.html')
+    const calls: string[] = []
+    const handler = createEditorialHandler({ env: {}, cwd, load: async (path: string) => {
+      calls.push(path)
+      if (path === expected) return '<html>packaged guide</html>'
+      throw Object.assign(new Error('missing fixture'), { code: 'ENOENT' })
+    } })
+    const { res, result } = output(); await handler(request(), res)
+    assert.equal(result.status, 200)
+    assert.equal(result.body, '<html>packaged guide</html>')
+    assert.equal(calls[0], fileURLToPath(new URL('../public/learn/es/continental/index.html', import.meta.url)))
+    assert.deepEqual(calls.slice(1), [join(cwd, 'client', 'public', 'learn', 'es', 'continental', 'index.html'), ...(relativeRoot.length === 2 ? [expected] : [])])
+  }
+})
+
+test('permission and malformed-directory errors do not trigger a broader fallback', async () => {
+  for (const code of ['EACCES', 'EPERM', 'ENOTDIR']) {
+    let reads = 0
+    const handler = createEditorialHandler({ env: {}, load: async () => { reads++; throw Object.assign(new Error('fixture error'), { code }) } })
+    const { res, result } = output(); await handler(request(), res)
+    assert.equal(result.status, 503)
+    assert.equal(reads, 1)
+  }
+})
 
 test('editorial routes are exact and leave the restrictive private/global policy intact', async () => {
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'))
