@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { Server, type Socket } from 'socket.io'
 import { Room } from './room.js'
 import type { Card, Meld } from './types.js'
-import type { SnapshotStore } from './storage.js'
+import { SnapshotCapacityError, type SnapshotStore } from './storage.js'
 import { registerDashboard, type RoomCleanupResult } from './dashboard.js'
 import { registerRoomInvites } from './roomInvite.js'
 import { GameRepository, authenticate, cloneRecord, issueCredential, parseCredential, pauseRoom, resumeRoom, type ResumeCredential, type RoomRecord } from './recovery.js'
@@ -23,6 +23,7 @@ type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; 
 type ActionAck = (result: Result) => void
 const ACTION_QUEUE_FULL = 'Too many pending actions. Please wait before trying again.'
 const ACTION_SAVE_FAILED = 'The server could not save your game. Actions are paused; please reconnect after the server recovers.'
+const STORAGE_CAPACITY_MESSAGE = 'El servidor necesita liberar espacio antes de admitir otra partida. Las partidas ya guardadas se conservan. / The server needs more storage capacity before starting another game. Existing saved games are preserved.'
 const leagueErrorMessages: Record<string, string> = {
   league_not_found: 'Esta liga no está disponible. / This league is unavailable.',
   league_closed: 'Esta liga está cerrada. Elige otra o juega una amistosa. / This league is closed. Choose another league or play a friendly game.',
@@ -114,6 +115,15 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   registerDashboard(app, {
     key: options.dashboardKey, origins: options.origins, repository, isHealthy,
     isOnline: isPlayerOnline,
+    operations: () => {
+      const memory = process.memoryUsage()
+      return {
+        healthy: isHealthy() && (!options.membership || options.membership.isHealthy()),
+        storage: { games: repository.storageCapacity(), accounts: options.membership?.storageCapacity() ?? null },
+        email: options.membership?.emailDeliveryStatus() ?? null,
+        process: { uptimeSeconds: Math.floor(process.uptime()), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed },
+      }
+    },
     cleanupRooms: selection => new Promise<RoomCleanupResult>(resolve => {
       const unavailable = () => resolve({ ok: false, error: 'server_unavailable', status: 503 })
       if (closing || pending >= 200) { unavailable(); return }
@@ -246,9 +256,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (store.isHealthy?.() === false) repository.failed = true
       if (repository.failed) throw new Error('Storage unavailable')
       await task()
-    }).catch(() => {
+    }).catch((error: unknown) => {
       onError?.()
-      socket?.emit('error', { message: ACTION_SAVE_FAILED })
+      socket?.emit('error', { message: error instanceof SnapshotCapacityError ? STORAGE_CAPACITY_MESSAGE : ACTION_SAVE_FAILED,
+        ...(error instanceof SnapshotCapacityError ? { code: 'storage_capacity' } : {}) })
       if (repository.failed) {
         for (const timer of timers.values()) clearTimeout(timer)
         timers.clear()
@@ -499,13 +510,17 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (!current) { reject('Room not found', ack); return }
       if (current.manualPaused) { reject('La partida está guardada. El anfitrión debe continuarla cuando estéis todos.', ack); return }
       if (hostOnly && current.room.players[0]?.id !== playerId) { reject('Only the host can do that', ack); return }
+      const dealsNewGame = event === 'start' || (event === 'rematch' && current.room.gameType !== 'pocha')
+      if (dealsNewGame && !repository.canStartNewGame()) {
+        reject(STORAGE_CAPACITY_MESSAGE, ack, 'storage_capacity')
+        return
+      }
       if ((event === 'start' || event === 'rematch') && !adGate.snapshot(gateRoom(current.room), roomExempt(current.room)).canStart) {
         broadcastGate(roomId)
         io.to(roomId).emit('ad_gate_prompt', { roomId })
         reject('Everyone must complete the short ad break before the game can start.', ack, 'ad_pending')
         return
       }
-      const dealsNewGame = event === 'start' || (event === 'rematch' && current.room.gameType !== 'pocha')
       if (dealsNewGame && current.leagueId) {
         const error = repository.validateLeagueStart(current.leagueId, current.room.gameType,
           current.room.players.map(player => {
@@ -538,7 +553,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       try {
         await repository.commit(roomId, next)
       } catch (error) {
-        ack?.({ ok: false, error: ACTION_SAVE_FAILED })
+        ack?.({ ok: false, error: error instanceof SnapshotCapacityError ? STORAGE_CAPACITY_MESSAGE : ACTION_SAVE_FAILED,
+          ...(error instanceof SnapshotCapacityError ? { code: 'storage_capacity' } : {}) })
         throw error
       }
       // Pocha's rematch opens its setup lobby; keep the completed break until the
@@ -552,7 +568,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       if (socket.data.roomId) { reject('Leave the current room before creating another'); return }
       let roomId: string
       try { roomId = repository.newRoomCode() }
-      catch { reject('Server has too many saved rooms. Try again later.'); return }
+      catch (error) { reject(error instanceof SnapshotCapacityError ? STORAGE_CAPACITY_MESSAGE : 'Server has too many saved rooms. Try again later.', undefined,
+        error instanceof SnapshotCapacityError ? 'storage_capacity' : undefined); return }
       const room = new Room({ roomId, gameType: payload?.gameType === 'pocha' ? 'pocha' : 'continental', pochaDeckSize: isPochaDeckSize(payload?.pochaDeckSize) ? payload.pochaDeckSize : 40, maxPlayers: 10, deckCount: payload?.deckCount === 3 ? 3 : 2,
         discardOptionDelaySeconds: seconds(payload?.discardOptionDelaySeconds, 10, 30),
         secondsPerTurn: seconds(payload?.secondsPerTurn, 0, 120) })

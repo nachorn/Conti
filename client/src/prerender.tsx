@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { StaticRouter } from 'react-router-dom/server'
+import { StaticRouter } from 'react-router-dom'
 import { Home } from './components/Home'
 import { SiteHeader } from './components/SiteHeader'
 import { Lobby } from './components/Lobby'

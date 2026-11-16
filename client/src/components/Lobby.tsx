@@ -7,6 +7,7 @@ import { copyReportToClipboard } from '../lib/reportBug'
 import { SupportProject } from './SupportProject'
 import './Lobby.css'
 import { platformHomeHref } from '../lib/platform'
+import { AdPrivacyPreferences } from './AdPrivacyPreferences'
 
 interface LobbyProps {
   gameType: 'continental' | 'pocha'
@@ -173,6 +174,7 @@ export function Lobby({
             <a href={`/learn/${lang}/about/`}>{es ? 'Contacto' : 'Contact'}</a>
             <a href={`/privacy.html#${lang}`}>{es ? 'Privacidad' : 'Privacy'}</a>
             <a href={`/terms.html#${lang}`}>{es ? 'Términos' : 'Terms'}</a>
+            <AdPrivacyPreferences lang={lang} />
             <button type="button" className="lobby-report-bug-btn" onClick={async () => {
               if (await copyReportToClipboard({ screen: `${gameType}-lobby`, error: error ?? undefined })) {
                 setReportCopied(true)

@@ -190,7 +190,7 @@ export function registerLeagues(app: Express, options: {
     const retry = limiter.take(account.id)
     if (retry) { res.set('Retry-After', String(retry)); throw new LeagueError('rate_limited', 429) }
   }
-  const json = express.json({ limit: '2kb' })
+  const json = express.json({ limit: '2kb', inflate: false })
   app.get('/api/leagues', run((_req, res, account) => res.json({ leagues: options.repository.listLeagues(account.id) })))
   app.post('/api/leagues', json, run(async (req, res, account) => {
     budget(creates, account, res); budget(writes, account, res)
@@ -211,6 +211,6 @@ export function registerLeagues(app: Express, options: {
     res.json(await options.runMutation(() => options.repository.closeLeague(req.params.id, account.id)))
   }))
   app.use('/api/leagues', (error: unknown, _req: Request, res: Response, _next: unknown) => {
-    if (!res.headersSent) res.status(object(error) && error.type === 'entity.too.large' ? 413 : 400).json({ error: 'invalid_request' })
+    if (!res.headersSent) res.status(object(error) && error.type === 'entity.too.large' ? 413 : object(error) && error.type === 'encoding.unsupported' ? 415 : 400).json({ error: 'invalid_request' })
   })
 }

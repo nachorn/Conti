@@ -4,6 +4,7 @@ import type { PersonalGameResult, PersonalStats, PersonalStatsTotals } from '../
 import { isPochaDeckSize, type PochaDeckSize, type PochaSettings } from './game/pocha/pochaTypes.js'
 import { roundSchedule } from './game/pocha/pochaRules.js'
 import type { GameRepository, RoomRecord } from './recovery.js'
+import { RateLimiter, requestLimit } from './security.js'
 
 export interface MatchParticipant { playerId: string; accountId: string | null; name: string }
 export interface PersonalMatch {
@@ -208,12 +209,20 @@ export function registerPersonalStats(app: Express, options: {
   authenticate: (token: string) => string | null
   isHealthy: () => boolean
 }): void {
-  app.get('/api/membership/stats', (req, res) => {
+  const peers = requestLimit(new RateLimiter(240, 60_000))
+  const accounts = new RateLimiter(30, 60_000)
+  app.get('/api/membership/stats', (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    peers(req, res, next)
+  }, (req, res) => {
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     const authorization = req.get('authorization') ?? ''
     const account = authorization.startsWith('Bearer ') ? options.authenticate(authorization.slice(7)) : null
     if (!account) { res.status(401).json({ error: 'unauthorized' }); return }
+    const retryAfter = accounts.take(account)
+    if (retryAfter) {
+      res.set('Retry-After', String(retryAfter)).status(429).json({ error: 'rate_limited' }); return
+    }
     const gameType = req.query.gameType
     if (gameType !== undefined && gameType !== 'pocha' && gameType !== 'continental') {
       res.status(400).json({ error: 'invalid_game_type' }); return

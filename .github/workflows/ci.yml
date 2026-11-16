@@ -15,9 +15,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm --prefix server install
+      - run: npm ci --ignore-scripts
+      - run: npm --prefix server ci
+      - run: npm audit --audit-level=high
+      - run: npm --prefix server audit --audit-level=high
       - run: npm --prefix server test
       - run: npm --prefix server run build
-      - run: npm --prefix client install
+      - run: npm --prefix client ci
+      - run: npm --prefix client audit --audit-level=high
       - run: npm --prefix client test
       - run: npm --prefix client run build

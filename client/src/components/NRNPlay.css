@@ -10,6 +10,11 @@
   color-scheme: light;
 }
 .nrn-platform h1, .nrn-platform h2 { font-family: 'Outfit', sans-serif; }
+.nrn-play-guide { max-width: 820px; margin-top: 42px; padding-top: 26px; border-top: 1px solid var(--nrn-line); }
+.nrn-play-guide h2 { font-size: 21px; font-weight: 500; }
+.nrn-play-guide p { color: var(--nrn-muted); font-size: 14px; line-height: 1.75; }
+.nrn-play-guide nav { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 13px; margin: 20px 0; }
+.nrn-play-guide a { color: #526e2f; text-underline-offset: 3px; }
 .nrn-platform a:focus-visible, .nrn-platform button:focus-visible { outline: 3px solid #526e2f; outline-offset: 5px; }
 .nrn-header { border-bottom: 1px solid var(--nrn-line); }
 .nrn-header-inner { width: min(1160px, calc(100% - 80px)); margin: auto; min-height: 94px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }

@@ -8,7 +8,7 @@ services:
     runtime: node
     plan: free
     branch: main
-    buildCommand: npm --prefix server install --include=dev && npm --prefix server run build
+    buildCommand: npm --prefix server ci --include=dev && npm --prefix server run build
     startCommand: node server/dist/index.js
     healthCheckPath: /health
     # One writer owns the game snapshot. Stop old server before manual replacement.
@@ -19,7 +19,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: CLIENT_ORIGINS
-        value: https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app
+        value: https://nrnplay.com,https://www.nrnplay.com,https://conti.nrnplay.com,https://pocha.nrnplay.com,https://football.nrnplay.com,https://footballchampion.net,https://conti-six.vercel.app
       - key: PUBLIC_APP_URL
         value: https://nrnplay.com
       # Configure private account/email values from server/membership.env.example.

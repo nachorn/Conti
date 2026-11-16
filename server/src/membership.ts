@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express'
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { resolve } from 'node:path'
-import { FileSnapshotStore, PostgresSnapshotStore, type SnapshotStore } from './storage.js'
+import { FileSnapshotStore, PostgresSnapshotStore, MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, type SnapshotStore } from './storage.js'
 import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
@@ -119,6 +119,9 @@ export class MembershipService {
   private failed = false
   private listeners = new Set<() => void>()
   private resetDeliveries = new Set<Promise<void>>()
+  private reservedDeliveries = 0
+  private deliveryFailures = 0
+  private committedBytes = 0
   private priceCache: { prices: StripePrice[]; at: number } | null = null
   private priceLoading: Promise<StripePrice[]> | null = null
   private readonly now: () => number
@@ -135,9 +138,21 @@ export class MembershipService {
       sourceTokenHash => this.linkedSessionByHash(sourceTokenHash), this.now,
     )
   }
-  async load() { this.data = decode(await this.options.store.load()); return this }
+  async load() {
+    this.data = decode(await this.options.store.load())
+    this.committedBytes = snapshotCapacity(this.data).bytes
+    return this
+  }
   isHealthy() { return !this.failed && this.options.store.isHealthy?.() !== false }
   hasFailedOperation() { return this.failed }
+  /** Counts only: never expose recipients, codes or provider errors in diagnostics. */
+  emailDeliveryStatus() { return { pending: this.reservedDeliveries, failures: this.deliveryFailures } }
+  storageCapacity() {
+    return { bytes: this.committedBytes, limitBytes: MAX_SNAPSHOT_BYTES,
+      usedPercent: Math.round(this.committedBytes / MAX_SNAPSHOT_BYTES * 1000) / 10,
+      warning: this.committedBytes >= MAX_SNAPSHOT_BYTES * 0.75,
+      growthAllowed: this.committedBytes < MAX_SNAPSHOT_BYTES - 256 * 1024 }
+  }
   onChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private notify() { for (const listener of this.listeners) { try { listener() } catch { /* A UI listener cannot undo a committed payment. */ } } }
   private requireHealthy() {
@@ -157,7 +172,7 @@ export class MembershipService {
     }
     await this.options.store.close()
   }
-  private mutate<T>(work: (data: Data) => T | Promise<T>, notify = true): Promise<T> {
+  private mutate<T>(work: (data: Data) => T | Promise<T>, notify = true, useControlReserve = false): Promise<T> {
     if (this.pending >= 100) return Promise.reject(new MembershipError('rate_limited', 429))
     this.pending++
     const result = this.queue.then(async () => {
@@ -168,8 +183,16 @@ export class MembershipService {
       next.challenges = next.challenges.filter(c => c.expiresAt > now)
       next.limits = next.limits.filter(l => l.until > now)
       const value = await work(next)
-      try { await this.options.store.save(next) } catch { this.failed = true; this.notify(); throw new MembershipError('server_unavailable', 503) }
+      const bytes = snapshotCapacity(next).bytes
+      if (bytes > MAX_SNAPSHOT_BYTES || (!useControlReserve && bytes > MAX_SNAPSHOT_BYTES - 256 * 1024 && bytes > this.committedBytes)) {
+        throw new MembershipError('storage_capacity', 503)
+      }
+      try { await this.options.store.save(next) } catch (error) {
+        if (error instanceof SnapshotCapacityError) throw new MembershipError('storage_capacity', 503)
+        this.failed = true; this.notify(); throw new MembershipError('server_unavailable', 503)
+      }
       this.data = next
+      this.committedBytes = bytes
       if (notify) this.notify()
       return value
     }).finally(() => { this.pending-- })
@@ -251,31 +274,41 @@ export class MembershipService {
     catch (error) { if (error instanceof PasswordWorkBusy) throw new MembershipError('rate_limited', 429); throw error }
   }
   private async challenge(email: string, lang: Language, purpose: ChallengePurpose, registration?: { name: string; passwordHash: string; registrationTokenHash: string }): Promise<void> {
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-    const send = await this.mutate(data => {
-      const exists = data.accounts.some(a => a.email === email)
-      // A signup request can never replace an existing verified account.
-      // Unknown reset emails get the same public acknowledgement, without a new account.
-      if ((purpose === 'register' && exists) || (purpose === 'reset' && !exists)) return false
-      const salt = randomBytes(16).toString('hex')
-      data.challenges = data.challenges.filter(c => c.email !== email)
-      data.challenges.push({ email, salt, codeHash: this.codeHash(email, salt, code, purpose), expiresAt: this.now() + 10 * 60_000,
-        attempts: 0, purpose, ...(registration ?? {}) })
-      return true
-    }, false)
-    if (send) {
-      if (purpose === 'reset') {
-        // SMTP/provider latency must not reveal whether a recovery email exists.
-        // Delivery is bounded, independent of account/game mutations and never logged.
-        if (this.resetDeliveries.size < 16) {
+    // Reserve before the account lookup and the durable queue. A successful
+    // acknowledgement must never silently drop a send when capacity changes.
+    const asynchronous = purpose !== 'login'
+    if (asynchronous && this.reservedDeliveries >= 16) throw new MembershipError('rate_limited', 429)
+    if (asynchronous) this.reservedDeliveries++
+    let deliveryOwnsSlot = false
+    try {
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+      const send = await this.mutate(data => {
+        const exists = data.accounts.some(a => a.email === email)
+        // A signup request can never replace an existing verified account.
+        // Unknown reset emails get the same acknowledgement without a new account.
+        if ((purpose === 'register' && exists) || (purpose === 'reset' && !exists)) return false
+        const salt = randomBytes(16).toString('hex')
+        data.challenges = data.challenges.filter(c => c.email !== email)
+        data.challenges.push({ email, salt, codeHash: this.codeHash(email, salt, code, purpose), expiresAt: this.now() + 10 * 60_000,
+          attempts: 0, purpose, ...(registration ?? {}) })
+        return true
+      }, false)
+      if (send) {
+        if (asynchronous) {
+          // Registration and reset acknowledge the durable challenge independently
+          // of mail latency/failure. Failures remain visible as anonymous metrics.
           const delivery = Promise.resolve().then(() => this.options.sendCode!(email, code, lang))
-            .catch(() => undefined).finally(() => { this.resetDeliveries.delete(delivery) })
+            .catch(() => { this.deliveryFailures++ }).finally(() => {
+              this.resetDeliveries.delete(delivery)
+              this.reservedDeliveries--
+            })
           this.resetDeliveries.add(delivery)
+          deliveryOwnsSlot = true
+          return
         }
-        return
+        try { await this.options.sendCode!(email, code, lang) } catch { throw new MembershipError('email_unavailable', 503) }
       }
-      try { await this.options.sendCode!(email, code, lang) } catch { throw new MembershipError('email_unavailable', 503) }
-    }
+    } finally { if (asynchronous && !deliveryOwnsSlot) this.reservedDeliveries-- }
   }
   async requestCode(emailValue: unknown, lang: Language, remoteAddress: string): Promise<void> {
     if (!this.options.sendCode) throw new MembershipError('email_not_configured', 503)
@@ -290,6 +323,7 @@ export class MembershipService {
     if (!email) throw new MembershipError('invalid_email')
     if (!name) throw new MembershipError('invalid_name')
     if (!passwordIsAcceptable(password)) throw new MembershipError('invalid_password')
+    if (this.reservedDeliveries >= 16) throw new MembershipError('rate_limited', 429)
     await this.reserveSend(email, remoteAddress)
     const passwordHash = await this.passwordWork(() => hashPassword(password))
     const registrationToken = randomBytes(32).toString('base64url')
@@ -301,7 +335,7 @@ export class MembershipService {
     const email = normalizeMembershipEmail(emailValue)
     if (!email) throw new MembershipError('invalid_email')
     // Apply backpressure before looking up the email, with the same response for everyone.
-    if (this.resetDeliveries.size >= 16) throw new MembershipError('rate_limited', 429)
+    if (this.reservedDeliveries >= 16) throw new MembershipError('rate_limited', 429)
     await this.reserveSend(email, remoteAddress)
     await this.challenge(email, lang, 'reset')
   }
@@ -408,7 +442,7 @@ export class MembershipService {
   async revokeGift(emailValue: unknown) {
     const email = normalizeMembershipEmail(emailValue)
     if (!email) throw new MembershipError('invalid_email')
-    await this.mutate(data => { const grant = data.grants.find(g => g.email === email); if (grant) grant.active = false })
+    await this.mutate(data => { const grant = data.grants.find(g => g.email === email); if (grant) grant.active = false }, true, true)
   }
   private async stripe(path: string, form?: URLSearchParams, idempotencyKey?: string): Promise<Record<string, any>> {
     if (!this.options.stripeSecret) throw new MembershipError('checkout_not_configured', 503)
@@ -453,11 +487,14 @@ export class MembershipService {
   async checkout(token: string, currency?: unknown): Promise<string> {
     const account = this.authenticate(token)
     if (!account) throw new MembershipError('unauthorized', 401)
+    if (this.committedBytes + 4 * 1024 > MAX_SNAPSHOT_BYTES - 256 * 1024) throw new MembershipError('storage_capacity', 503)
     if (currency !== undefined && currency !== 'eur' && currency !== 'usd') throw new MembershipError('invalid_currency')
     const prices = await this.prices()
     const price = currency === undefined ? prices[0] : prices.find(p => p.currency === currency)
     if (!price || !this.appUrl) throw new MembershipError('checkout_not_configured', 503)
     return this.mutate(async data => {
+      // Recheck after prior queued account writes, before the external order.
+      if (snapshotCapacity(data).bytes + 4 * 1024 > MAX_SNAPSHOT_BYTES - 256 * 1024) throw new MembershipError('storage_capacity', 503)
       const current = data.accounts.find(a => a.id === account.id)!
       if (this.publicAccount(current, data).adFree) throw new MembershipError('already_ad_free', 409)
       const existing = data.orders.find(o => o.accountId === account.id && o.state === 'pending' && o.priceId === price.id && o.amount === price.amount && o.currency === price.currency && this.now() - o.createdAt < 23 * 60 * 60_000 && o.url)
@@ -497,7 +534,7 @@ export class MembershipService {
       data.events.push(event.id)
       // Order state and revoked payment IDs are the lasting replay protection.
       data.events = data.events.slice(-10_000)
-    })
+    }, true, true)
   }
   registerRoutes(app: Express, origins: string[] = []) {
     const admin = new AdminAuth(this.options.dashboardKey, [...origins, ...(this.appUrl ? [this.appUrl] : [])], this.now)
@@ -508,12 +545,12 @@ export class MembershipService {
         if (!res.headersSent) res.status(known ? error.status : 503).json({ error: known ? error.code : 'server_unavailable' })
       })
     }
-    app.post('/api/membership/stripe-webhook', express.raw({ type: 'application/json', limit: '256kb' }), run(async (req, res) => {
+    app.post('/api/membership/stripe-webhook', express.raw({ type: 'application/json', limit: '256kb', inflate: false }), run(async (req, res) => {
       if (!this.options.stripeWebhookSecret || !this.options.stripeSecret) throw new MembershipError('checkout_not_configured', 503)
       const event = verifyStripeEvent(req.body, req.get('stripe-signature') ?? '', this.options.stripeWebhookSecret, this.now())
       await this.handleStripeEvent(event); res.json({ received: true })
     }))
-    const json = express.json({ limit: '4kb' })
+    const json = express.json({ limit: '4kb', inflate: false })
     app.post('/api/membership/game-authorize', json, run((req, res) => {
       this.requireAccount(req)
       res.json(this.gameSignIn.authorize(this.token(req), req.body?.origin, req.body?.challenge, req.ip ?? 'unknown'))
@@ -555,15 +592,16 @@ export class MembershipService {
     app.use(['/api/membership', '/api/admin/memberships'], (error: unknown, _req: Request, res: Response, next: NextFunction) => {
       if (res.headersSent) { next(error); return }
       const tooLarge = object(error) && error.type === 'entity.too.large'
-      res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : 400).json({ error: 'invalid_request' })
+      const compressed = object(error) && error.type === 'encoding.unsupported'
+      res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : compressed ? 415 : 400).json({ error: 'invalid_request' })
     })
   }
 }
 
 export function adConfigFromEnvironment(env: NodeJS.ProcessEnv): MembershipConfig['ads'] {
-  if (env.ADS_PROVIDER !== 'google-h5') return { provider: 'disabled', publisherId: null }
+  if (env.ADS_PROVIDER !== 'google-h5' || env.ADS_CONSENT_READY !== 'true') return { provider: 'disabled', publisherId: null }
   if (!/^ca-pub-\d{16}$/.test(env.ADSENSE_PUBLISHER_ID ?? '')) return { provider: 'disabled', publisherId: null }
-  return { provider: 'google-h5', publisherId: env.ADSENSE_PUBLISHER_ID! }
+  return { provider: 'google-h5', publisherId: env.ADSENSE_PUBLISHER_ID!, consentReady: true }
 }
 export async function createMembershipService(env: NodeJS.ProcessEnv = process.env): Promise<MembershipService | undefined> {
   if (env.MEMBERSHIP_ENABLED !== 'true') return undefined

@@ -1,4 +1,5 @@
 import type { AdOutcome } from '@shared/adGate'
+import { acquireAdConsent, type AdConsentSession } from './adConsent.ts'
 
 export interface AdPlacementInfo { breakStatus?: string; breakFormat?: string }
 
@@ -12,13 +13,14 @@ export function placementOutcome(info: AdPlacementInfo, shown: boolean, closed: 
 }
 
 declare global {
-  interface Window { adsbygoogle?: { push: (options: Record<string, unknown>) => unknown } }
+  interface Window { adsbygoogle?: { push: (options: Record<string, unknown>) => unknown; pauseAdRequests?: 0 | 1 } }
 }
 let sdk: { publisherId: string; ready: Promise<void> } | null = null
 let activePlacement = false
 
 /** Google H5 production SDK; disabled rooms never call or download this. */
-export function prepareAdProvider(publisherId: string): Promise<void> {
+function prepareAdProvider(publisherId: string, consent: AdConsentSession): Promise<void> {
+  if (!consent.allowed()) return Promise.reject(new Error('Ad privacy choices unavailable'))
   if (!/^ca-pub-\d{16}$/.test(publisherId)) return Promise.reject(new Error('Ad provider unavailable'))
   if (sdk?.publisherId === publisherId) return sdk.ready
   if (sdk) return Promise.reject(new Error('Ad provider configuration changed; reload required'))
@@ -51,9 +53,17 @@ export function prepareAdProvider(publisherId: string): Promise<void> {
 export async function playStartAd(publisherId: string, onPlaying: (playing: boolean) => void, signal?: AbortSignal): Promise<AdOutcome> {
   if (activePlacement) return 'error'
   activePlacement = true
+  let consent: AdConsentSession | null = null
+  let privacyRevoked: (() => void) | undefined
   try {
-    await prepareAdProvider(publisherId)
+    consent = await acquireAdConsent(allowed => {
+      if (window.adsbygoogle) window.adsbygoogle.pauseAdRequests = allowed ? 0 : 1
+      if (!allowed) privacyRevoked?.()
+    }, signal)
+    if (!consent) return 'privacy'
+    await prepareAdProvider(publisherId, consent)
     if (signal?.aborted) return 'unavailable'
+    if (!consent.allowed()) return 'privacy'
     return await new Promise<AdOutcome>(resolve => {
       let shown = false
       let closed = false
@@ -63,14 +73,19 @@ export async function playStartAd(publisherId: string, onPlaying: (playing: bool
         if (finished) return
         finished = true
         window.clearTimeout(timer)
+        signal?.removeEventListener('abort', aborted)
+        privacyRevoked = undefined
         onPlaying(false)
         resolve(outcome)
       }
+      const aborted = () => finish('unavailable')
+      signal?.addEventListener('abort', aborted, { once: true })
+      privacyRevoked = () => finish('privacy')
       try {
         window.adsbygoogle?.push({
           type: 'start', name: 'table-before-game',
           beforeAd: () => {
-            if (finished) return
+            if (finished || !consent?.allowed() || signal?.aborted) throw new Error('Ad opportunity expired or privacy choices changed')
             shown = true
             window.clearTimeout(timer)
             timer = window.setTimeout(() => finish('error'), 4 * 60_000)
@@ -82,5 +97,9 @@ export async function playStartAd(publisherId: string, onPlaying: (playing: bool
       } catch { finish('error') }
     })
   } catch { return 'unavailable' }
-  finally { activePlacement = false; onPlaying(false) }
+  finally {
+    consent?.close()
+    if (typeof window !== 'undefined' && window.adsbygoogle) window.adsbygoogle.pauseAdRequests = 1
+    activePlacement = false; onPlaying(false)
+  }
 }

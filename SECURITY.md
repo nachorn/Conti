@@ -1,5 +1,13 @@
 # Conti security
 
+## Maintenance update 15 November 2026
+
+The local improvement release locks all dependency graphs, patches Engine.IO/body-parser/proxy-addr/qs and uses mathjs 15.2 through a tested override. Request-body decompression is disabled on JSON and webhook parsers. Registration acknowledges a durable challenge independently of email-provider latency; a bounded delivery queue exposes anonymous failure counts only to the owner.
+
+Personal statistics use per-account indexes, bounded caching and request budgets. New room/match growth is refused before the snapshot limit, with private capacity measurements on the owner dashboard. Deterministic capacity refusal does not poison storage or restart the server. This is conservative backpressure, not a migration to unlimited history: see [backup guidance](BACKUPS.md).
+
+Accounts and the shared game domains are active. The original Turnstile activation record below describes the old hostname; keep the approved current root, www and game hostnames in the real widget's configuration. Do not replace that provider configuration from the historical description. Payments and advertising remain disabled; advertising additionally requires a real configured CMP and hosted approval/QA.
+
 ## Application safeguards
 
 - Player seats require server-issued random recovery tokens; stored tokens are hashed and opponents' cards are redacted.

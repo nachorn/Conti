@@ -11,12 +11,12 @@ import type { MembershipAccount } from '../../shared/membership.js'
 import type { AdGateState as SharedGate } from '../../shared/adGate.js'
 import { publicPochaState } from '../src/game/pocha/pochaEngine.js'
 
-const configured: AdConfig = { provider: 'google-h5', publisherId: 'ca-pub-1234567890123456' }
+const configured: AdConfig = { provider: 'google-h5', publisherId: 'ca-pub-1234567890123456', consentReady: true }
 const fixture = (roomId = '1234') => ({ roomId, phase: 'lobby' as const, players: [{ id: 'host', connected: true }, { id: 'guest', connected: true }] })
 
 test('unconfigured ads preserve play; completed breaks require every connected seat', () => {
   const room = fixture()
-  for (const config of [undefined, { provider: 'google-h5', publisherId: null }, { provider: 'google-h5', publisherId: 'not-a-publisher' }] as (AdConfig | undefined)[]) {
+  for (const config of [undefined, { provider: 'google-h5', publisherId: null, consentReady: true }, { provider: 'google-h5', publisherId: 'not-a-publisher', consentReady: true }, { ...configured, consentReady: false }, { ...configured, consentReady: undefined }] as (AdConfig | undefined)[]) {
     const gate = new AdGate(config)
     assert.equal(gate.snapshot(room, false).required, false)
     assert.equal(gate.snapshot(room, false).canStart, true)
@@ -60,7 +60,7 @@ test('ad attempts are private, one-use, age-bounded and scoped to room, cycle an
   assert.equal(gate.complete(room, 'host', { attemptId: attempt.attemptId, outcome: 'viewed' }, false).ok, false)
   now += MIN_AD_ATTEMPT_MS
   assert.equal(gate.complete(room, 'host', { attemptId: attempt.attemptId, outcome: 'viewed' }, false).ok, false)
-  for (const outcome of ['unavailable', 'error', 'made-up']) {
+  for (const outcome of ['made-up']) {
     const next = gate.begin(room, 'host', false)
     now += MIN_AD_ATTEMPT_MS
     assert.equal(gate.complete(room, 'host', { attemptId: next.attemptId, outcome }, false).ok, false)
@@ -78,6 +78,35 @@ test('ad attempts are private, one-use, age-bounded and scoped to room, cycle an
   gate.consume(room.roomId)
   now += MIN_AD_ATTEMPT_MS
   assert.equal(gate.complete(room, 'host', { attemptId: previousCycle.attemptId, outcome: 'viewed' }, false).ok, false)
+})
+
+test('no-fill, errors and privacy refusal skip only a valid connected seat for one cycle without becoming views', () => {
+  let now = 1000
+  const gate = new AdGate(configured, () => now)
+  for (const outcome of ['unavailable', 'error', 'privacy']) {
+    const room = fixture()
+    const attempt = gate.begin(room, 'host', false)
+    assert.equal(gate.complete(room, 'guest', { attemptId: attempt.attemptId, outcome }, false).ok, false)
+    assert.deepEqual(gate.complete(room, 'host', { attemptId: attempt.attemptId, outcome }, false), { ok: true, code: 'ad_skipped' })
+    assert.equal(gate.snapshot(room, false).players[0]!.status, 'skipped')
+    assert.equal(gate.snapshot(room, false).canStart, false)
+    assert.equal(gate.begin(room, 'host', false).code, 'ad_already_ready')
+    assert.equal(gate.complete(room, 'host', { attemptId: attempt.attemptId, outcome: 'viewed' }, false).ok, false)
+    const guest = gate.begin(room, 'guest', false)
+    now += MIN_AD_ATTEMPT_MS
+    assert.equal(gate.complete(room, 'guest', { attemptId: guest.attemptId, outcome: 'viewed' }, false).ok, true)
+    assert.equal(gate.snapshot(room, false).canStart, true)
+    gate.consume(room.roomId)
+    assert.ok(gate.snapshot(room, false).players.every(player => player.status === 'pending'))
+  }
+  const room = fixture('9999')
+  const disconnected = gate.begin(room, 'host', false)
+  room.players[0]!.connected = false
+  assert.equal(gate.complete(room, 'host', { attemptId: disconnected.attemptId, outcome: 'privacy' }, false).ok, false)
+  room.players[0]!.connected = true
+  const expired = gate.begin(room, 'host', false)
+  now += MAX_AD_ATTEMPT_MS + 1
+  assert.equal(gate.complete(room, 'host', { attemptId: expired.attemptId, outcome: 'error' }, false).ok, false)
 })
 
 class MemoryStore implements SnapshotStore {
@@ -242,15 +271,21 @@ test('no-fill does not become a view, interruption retries, and game snapshots c
   const h = await harness(t)
   const p = await h.players()
   const attempt = await p.guest.ack('ad_begin')
-  assert.equal((await p.guest.ack('ad_complete', { attemptId: attempt.attemptId, outcome: 'unavailable' })).code, 'ad_unavailable')
+  assert.equal((await p.guest.ack('ad_complete', { attemptId: attempt.attemptId, outcome: 'unavailable' })).code, 'ad_skipped')
+  const skipped = await p.guest.wait<AdGateState>('ad_gate', gate => gate.players.some(player => player.playerId === p.guestJoined.playerId && player.status === 'skipped'))
+  assert.equal(skipped.canStart, false)
+  assert.equal((await p.guest.ack('ad_begin')).code, 'ad_already_ready')
   assert.equal((await p.host.ack('start')).code, 'ad_pending')
-  const interrupted = await p.guest.ack('ad_begin')
+  const interrupted = await p.host.ack('ad_begin')
+  await h.disconnect(p.host)
+  const host = await h.peer(resume(p.hostJoined))
+  await host.wait('joined')
   await h.disconnect(p.guest)
   const guest = await h.peer(resume(p.guestJoined))
   await guest.wait('joined')
-  assert.equal((await guest.ack('ad_complete', { attemptId: interrupted.attemptId, outcome: 'viewed' })).ok, false)
-  await h.watch(p.host, guest)
-  assert.equal((await p.host.ack('start')).ok, true)
+  assert.equal((await host.ack('ad_complete', { attemptId: interrupted.attemptId, outcome: 'viewed' })).ok, false)
+  await h.watch(host)
+  assert.equal((await host.ack('start')).ok, true)
   assert.equal(JSON.stringify(h.store.value).includes(attempt.attemptId!), false)
   assert.equal(JSON.stringify(h.store.value).includes('membership'), false)
 })

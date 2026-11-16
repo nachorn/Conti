@@ -7,6 +7,10 @@ const compiler = await createServer({
   mode: 'production',
   server: { middlewareMode: true, hmr: false },
   appType: 'custom',
+  // Router 7 exposes a CommonJS node default. Keep both packages in Vite's
+  // ESM pipeline so StaticRouter and the public links share one router context.
+  ssr: { noExternal: ['react-router-dom', 'react-router'], resolve: { conditions: ['module', 'import', 'default'] } },
+  optimizeDeps: { noDiscovery: true, include: [] },
 })
 try {
   const { renderPublicPage, publicGameUrl } = await compiler.ssrLoadModule('/src/prerender.tsx')
@@ -24,6 +28,11 @@ try {
       .replace('<!--app-html-->', renderPublicPage(path))
       .replace(/<title>.*?<\/title>/, `<title>${name} · NRN Play</title>`)
       .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${description}" />`)
+      .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${name} · NRN Play" />`)
+      .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${name} · NRN Play" />`)
+      .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${description}" />`)
+      .replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${description}" />`)
+      .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${publicGameUrl(path)}" />`)
       .replace('href="https://nrnplay.com/"', `href="${publicGameUrl(path)}"`)
     await writeFile(new URL('index.html', directory), page)
   }

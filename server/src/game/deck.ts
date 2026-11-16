@@ -1,4 +1,4 @@
-import { randomUUID as uuidv4 } from 'node:crypto'
+import { randomInt, randomUUID as uuidv4 } from 'node:crypto'
 import type { Card } from '../types.js'
 
 const SUITS: Card['suit'][] = ['hearts', 'diamonds', 'clubs', 'spades']
@@ -32,7 +32,7 @@ function makeDeck(decks: number, jokersPerDeck: number): Card[] {
 export function shuffle<T>(arr: T[]): T[] {
   const out = [...arr]
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     [out[i], out[j]] = [out[j], out[i]]
   }
   return out

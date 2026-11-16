@@ -85,7 +85,7 @@ export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: 
     if (!auth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     next()
   }
-  app.post('/api/admin/session', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb' }), (req, res) => {
+  app.post('/api/admin/session', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb', inflate: false }), (req, res) => {
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
     if (!req.is('application/json') || typeof req.body?.password !== 'string' || typeof req.body?.remember !== 'boolean') { res.status(400).json({ error: 'invalid_request' }); return }
     if (!auth.validPassword(req.body.password)) { res.status(401).json({ error: 'unauthorized' }); return }
@@ -100,6 +100,7 @@ export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: 
   app.use('/api/admin/session', (error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) { next(error); return }
     const tooLarge = typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large'
-    res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : 400).json({ error: 'invalid_request' })
+    const unsupported = typeof error === 'object' && error !== null && 'type' in error && error.type === 'encoding.unsupported'
+    res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : unsupported ? 415 : 400).json({ error: 'invalid_request' })
   })
 }

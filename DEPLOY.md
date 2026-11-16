@@ -9,7 +9,7 @@ The canonical public website is **[https://nrnplay.com](https://nrnplay.com)**. 
 | Setting | Production value |
 |---------|------------------|
 | Vercel `VITE_SOCKET_URL` | `https://conti-server.onrender.com` |
-| Render `CLIENT_ORIGINS` | `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app` |
+| Render `CLIENT_ORIGINS` | NRN root, www and all three game subdomains, old approved game origins and existing approved previews; see `render.yaml` |
 | Render `PUBLIC_APP_URL` | `https://nrnplay.com` |
 | Public contact | `nacho@nrnplay.com` (Zoho mailbox) |
 
@@ -208,5 +208,5 @@ Railway Free currently rejects deployments from 8 a.m. to 8 p.m. in the target r
 ## Updating the app later
 
 - **Code:** Run the tests, push to GitHub, and check the included CI workflow. Vercel may deploy automatically. Render replacement remains manual; for the shared database, use the single-writer procedure above.
-- **Server:** Preserve the existing Render service's build/runtime settings, durable database and private environment. Keep `/health` as its health-check path and the three approved website origins.
+- **Server:** Preserve the existing Render service's build/runtime settings, durable database and private environment. Keep `/health` as its health-check path and all approved website origins, including the three new game subdomains and existing approved previews.
 - **Client:** Keep Root Directory = `client` and `VITE_SOCKET_URL=https://conti-server.onrender.com`. Check the canonical NRNPlay address and the previous address's saved-game recovery after deployment.

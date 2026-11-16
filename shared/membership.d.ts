@@ -16,7 +16,7 @@ export interface MembershipConfig {
   checkoutEnabled: boolean
   price: { amount: number; currency: string } | null
   prices?: { amount: number; currency: string }[]
-  ads: { provider: 'disabled' | 'google-h5'; publisherId: string | null }
+  ads: { provider: 'disabled' | 'google-h5'; publisherId: string | null; consentReady?: boolean }
 }
 
 export interface MembershipSession {

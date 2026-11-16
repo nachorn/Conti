@@ -27,9 +27,9 @@ The planned game addresses are `football.nrnplay.com`, `conti.nrnplay.com` and `
 
 ```bash
 # Install dependencies (root + server + client)
-npm install
-cd server && npm install && cd ..
-cd client && npm install && cd ..
+npm ci
+cd server && npm ci && cd ..
+cd client && npm ci && cd ..
 
 # Start both (server :3001, client :5173)
 npm run dev
@@ -66,7 +66,7 @@ The public website is [NRNPlay](https://nrnplay.com), hosted on Vercel. The game
 
 Keep [the previous address](https://conti-six.vercel.app) available without an automatic redirect. Guest recovery tokens and remembered account sessions belong to their browser profile and website origin: saved games at the previous address remain recoverable there. Existing accounts and results use the same server; players can sign in again at NRNPlay.
 
-The production `CLIENT_ORIGINS` list includes `https://nrnplay.com,https://www.nrnplay.com,https://conti-six.vercel.app`; retain existing approved preview origins when updating it. The server uses `PUBLIC_APP_URL=https://nrnplay.com`. Resend sends verification and recovery codes as `NRNPlay <no-reply@nrnplay.com>`, with `nacho@nrnplay.com` as Reply-To. Contact mail is received in Zoho. Configure the private Resend key and account settings from [the environment example](server/membership.env.example); see [deployment guidance](DEPLOY.md) for the full migration checklist.
+The approved website origins include the NRN Play root, www and game subdomains, together with the previous addresses. The template list is in `render.yaml`; retain existing approved preview origins when updating it. The server uses `PUBLIC_APP_URL=https://nrnplay.com`. Resend sends verification and recovery codes as `NRNPlay <no-reply@nrnplay.com>`, with `nacho@nrnplay.com` as Reply-To. Contact mail is received in Zoho. Configure the private Resend key and account settings from [the environment example](server/membership.env.example); see [deployment guidance](DEPLOY.md) for the full migration checklist.
 
 ## Private leagues
 
@@ -83,6 +83,14 @@ The rating implementation uses `ts-trueskill` 5.1.0 (MIT/BSD), following [Micros
 The first monetization step is optional support through the owner's existing [Buy Me a Coffee page](https://buymeacoffee.com/nrnplay), linked from the English and Spanish lobby. Contributions do not automatically unlock ad-free access.
 
 Optional one-time ad-free purchases, owner-granted access and multiplayer ad readiness remain behind their separate provider configuration. Any authenticated ad-free player covers their whole table. See [monetization setup and activation limits](MONETIZATION.md).
+
+## Reliability and maintenance
+
+Dependency versions are recorded in the three `package-lock.json` files. Use `npm ci` for repeatable installs; `npm run audit` checks root, server and client. The server overrides vulnerable transitive packages deliberately; review their advisory links in the audit before changing the pinned resolutions. The TrueSkill numerical tests cover the mathjs override.
+
+The owner dashboard now includes private aggregate storage, memory and email-delivery measurements. New room and match admissions stop before the snapshot limit is reached; existing saves are retained. The conservative reserve is 128 KiB per saved room plus 256 KiB for control operations, so a small history permits roughly 125 rooms, not 500. This is temporary backpressure: permanent history still needs a separate storage migration for unbounded growth.
+
+See [backup and recovery guidance](BACKUPS.md), [advertising setup](client/ADVERTISING.md), and [deployment guidance](DEPLOY.md). Advertising and payments remain disabled until their independent activation requirements are met.
 
 ## Custom rules
 

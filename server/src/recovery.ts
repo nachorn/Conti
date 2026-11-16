@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Room, type RoomSnapshot } from './room.js'
-import type { SnapshotStore } from './storage.js'
+import { MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, type SnapshotStore } from './storage.js'
 import { restoreChat, type ChatMessage } from './roomChat.js'
 import { finishedPersonalMatch, parseGameResults, parsePersonalMatch, personalMatchStillEligible, personalStats, type DurableGameResult, type PersonalMatch, type PersonalStatsResponse } from './personalStats.js'
 import { buildLeagueTable, joinedLeague, leagueDetail, LeagueError, leagueSelectionError, leagueStartError, leagueSummary, makeLeague, parseLeagues, roomLeagueSummary, validLeagueMatch, validateLeagueResult, type LeagueTable, type StoredLeague } from './leagues.js'
@@ -28,6 +28,12 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 const duration = (deadline: number | null, now: number) => deadline === null ? null : Math.max(0, deadline - now)
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const validDuration = (value: unknown) => value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 120_000)
+// Reserve ordinary room growth without treating every small offline room as a
+// maximum-size game. Actual larger rooms reserve their full measured size. This
+// is operational headroom, not an upper-bound guarantee for every legacy state.
+// Existing saves keep their format; no history is silently discarded.
+export const ROOM_GROWTH_RESERVE_BYTES = 128 * 1024
+export const STORAGE_CONTROL_RESERVE_BYTES = 256 * 1024
 
 export function issueCredential(roomId: string): { credential: ResumeCredential; session: SavedSession } {
   const credential = { roomId, playerId: randomUUID(), token: randomBytes(32).toString('base64url') }
@@ -80,10 +86,17 @@ export function cloneRecord(record: RoomRecord): RoomRecord {
 export class GameRepository {
   records = new Map<string, RoomRecord>()
   private results = new Map<string, DurableGameResult>()
+  private resultsByAccount = new Map<string, DurableGameResult[]>()
+  private statsCache = new Map<string, PersonalStatsResponse>()
+  private committedBytes = 0
+  private reservedBytes = STORAGE_CONTROL_RESERVE_BYTES
   private leagues = new Map<string, StoredLeague>()
   private leagueTables = new Map<string, { league: StoredLeague; resultCount: number; table: LeagueTable }>()
   failed = false
-  constructor(readonly store: SnapshotStore, readonly retentionMs = 30 * 24 * 60 * 60 * 1000) {}
+  constructor(readonly store: SnapshotStore, readonly retentionMs = 30 * 24 * 60 * 60 * 1000) {
+    // Include the future snapshot envelope even before the first durable save.
+    this.reservedBytes = this.measureCapacity(this.snapshot(new Map())).reservedBytes
+  }
 
   async load(now = Date.now()): Promise<void> {
     const saved = await this.store.load()
@@ -137,13 +150,22 @@ export class GameRepository {
     }
     this.records = records
     this.results = results
+    this.resultsByAccount.clear()
+    this.statsCache.clear()
+    for (const result of results.values()) this.indexResult(result)
     this.leagues = leagues
     this.leagueTables.clear()
+    const capacity = this.measureCapacity(this.snapshot(records, results, leagues))
+    this.committedBytes = capacity.bytes
+    this.reservedBytes = capacity.reservedBytes
   }
 
   newRoomCode(): string {
     const activeCodes = new Set([...this.records.keys()].filter(id => this.get(id)))
     if (activeCodes.size >= 500) throw new Error('Server has too many saved rooms. Please try again later.')
+    const reservedBytes = activeCodes.size === this.records.size ? this.reservedBytes :
+      this.measureCapacity(this.snapshot(new Map([...this.records].filter(([id]) => activeCodes.has(id))))).reservedBytes
+    if (reservedBytes + ROOM_GROWTH_RESERVE_BYTES > MAX_SNAPSHOT_BYTES) throw new SnapshotCapacityError(reservedBytes + ROOM_GROWTH_RESERVE_BYTES)
     let id: string
     do { id = String(randomInt(1000, 10000)) } while (activeCodes.has(id))
     return id
@@ -185,7 +207,37 @@ export class GameRepository {
   }
 
   getPersonalStats(accountId: string, limit = 50, gameType?: DurableGameResult['gameType']): PersonalStatsResponse {
-    return personalStats(this.results.values(), accountId, limit, Date.now(), gameType)
+    const key = `${accountId}:${gameType ?? 'all'}`
+    let cached = this.statsCache.get(key)
+    if (!cached) {
+      cached = personalStats(this.resultsByAccount.get(accountId) ?? [], accountId, 50, Date.now(), gameType)
+      // LRU bounds memory even if many different verified accounts request stats.
+      if (this.statsCache.size >= 1_000) this.statsCache.delete(this.statsCache.keys().next().value!)
+    } else this.statsCache.delete(key)
+    this.statsCache.set(key, cached)
+    const copy = structuredClone(cached)
+    copy.generatedAt = Date.now()
+    copy.recentGames = copy.recentGames.slice(0, Number.isSafeInteger(limit) ? Math.max(0, Math.min(50, limit)) : 50)
+    return copy
+  }
+
+  storageCapacity() {
+    return { bytes: this.committedBytes, limitBytes: MAX_SNAPSHOT_BYTES,
+      usedPercent: Math.round(this.committedBytes / MAX_SNAPSHOT_BYTES * 1000) / 10,
+      reservedBytes: this.reservedBytes, warning: this.reservedBytes >= MAX_SNAPSHOT_BYTES * 0.75,
+      availableRoomSlots: Math.max(0, Math.floor((MAX_SNAPSHOT_BYTES - this.reservedBytes) / ROOM_GROWTH_RESERVE_BYTES)),
+      rooms: this.records.size, results: this.results.size, leagues: this.leagues.size }
+  }
+
+  canStartNewGame() { return this.reservedBytes + 8 * 1024 <= MAX_SNAPSHOT_BYTES }
+
+  private indexResult(result: DurableGameResult) {
+    for (const accountId of new Set(result.players.flatMap(player => player.accountId === null ? [] : [player.accountId]))) {
+      const indexed = this.resultsByAccount.get(accountId) ?? []
+      indexed.push(result)
+      this.resultsByAccount.set(accountId, indexed)
+      for (const gameType of ['all', 'continental', 'pocha']) this.statsCache.delete(`${accountId}:${gameType}`)
+    }
   }
 
   getLeagueSummary(id: string): RoomLeagueSummary | null {
@@ -223,6 +275,7 @@ export class GameRepository {
     if (this.failed) throw new Error('Game storage unavailable')
     const league = makeLeague(this.leagues, account, input)
     const next = new Map(this.leagues).set(league.id, league)
+    this.assertGrowthCapacity(this.snapshot(this.records, this.results, next))
     await this.persist(this.records, this.results, next)
     return this.getLeagueDetail(league.id, account.id)!
   }
@@ -230,7 +283,11 @@ export class GameRepository {
   async joinLeague(account: Pick<MembershipAccount, 'id' | 'name'>, code: unknown, expectedGameType?: unknown): Promise<LeagueDetail> {
     if (this.failed) throw new Error('Game storage unavailable')
     const league = joinedLeague(this.leagues, account, code, Date.now(), expectedGameType)
-    if (league !== this.leagues.get(league.id)) await this.persist(this.records, this.results, new Map(this.leagues).set(league.id, league))
+    if (league !== this.leagues.get(league.id)) {
+      const next = new Map(this.leagues).set(league.id, league)
+      this.assertGrowthCapacity(this.snapshot(this.records, this.results, next))
+      await this.persist(this.records, this.results, next)
+    }
     return this.getLeagueDetail(league.id, account.id)!
   }
 
@@ -249,21 +306,45 @@ export class GameRepository {
     await this.persist(new Map(records.map(record => [record.room.roomId, record])))
   }
 
-  private async persist(next: Map<string, RoomRecord>, results = this.results, leagues = this.leagues): Promise<void> {
+  private snapshot(next: Map<string, RoomRecord>, results = this.results, leagues = this.leagues): SavedGames {
     // An older server accepts only v1. Once account bindings or permanent results
     // exist, v2 makes a rollback refuse startup instead of erasing those fields.
     const version = leagues.size ? 3 : results.size || [...next.values()].some(record => record.match) ? 2 : 1
-    const saved: SavedGames = { version, savedAt: Date.now(), rooms: [...next.values()].map(r => ({
+    return { version, savedAt: Date.now(), rooms: [...next.values()].map(r => ({
       ...r, room: r.room.toSnapshot(),
     })), ...(results.size ? { results: [...results.values()] } : {}), ...(leagues.size ? { leagues: [...leagues.values()] } : {}) }
+  }
+
+  private measureCapacity(saved: SavedGames) {
+    const capacity = snapshotCapacity(saved)
+    const roomBytes = saved.rooms.map(room => Buffer.byteLength(JSON.stringify(room), 'utf8'))
+    return { ...capacity, reservedBytes: capacity.bytes + STORAGE_CONTROL_RESERVE_BYTES +
+      roomBytes.reduce((total, bytes) => total + Math.max(0, ROOM_GROWTH_RESERVE_BYTES - bytes), 0) }
+  }
+
+  private assertGrowthCapacity(saved: SavedGames) {
+    const capacity = this.measureCapacity(saved)
+    if (capacity.reservedBytes > MAX_SNAPSHOT_BYTES) throw new SnapshotCapacityError(capacity.reservedBytes)
+  }
+
+  private async persist(next: Map<string, RoomRecord>, results = this.results, leagues = this.leagues): Promise<void> {
+    const saved = this.snapshot(next, results, leagues)
+    const capacity = this.measureCapacity(saved)
+    // These checks precede IO, so refusal is definite and must not poison the
+    // repository as an ambiguous disk/database failure would.
+    if (capacity.bytes > MAX_SNAPSHOT_BYTES) throw new SnapshotCapacityError(capacity.bytes)
+    if ([...next.keys()].some(id => !this.records.has(id))) this.assertGrowthCapacity(saved)
     try { await this.store.save(saved) }
     catch (error) {
       // A lost database acknowledgement may have committed. Never continue from uncertain state.
-      this.failed = true
+      if (!(error instanceof SnapshotCapacityError)) this.failed = true
       throw error
     }
     this.records = next
+    if (results.size !== this.results.size) for (const [id, result] of results) if (!this.results.has(id)) this.indexResult(result)
     this.results = results
     this.leagues = leagues
+    this.committedBytes = capacity.bytes
+    this.reservedBytes = capacity.reservedBytes
   }
 }

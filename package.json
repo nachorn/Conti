@@ -3,14 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@11.21.2",
+  "engines": { "node": ">=22" },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
     "build": "npm run build:server && npm run build:client",
-    "build:server": "cd server && npm install && npm run build",
+    "build:server": "npm --prefix server run build",
     "build:client": "cd client && npm run build",
     "test": "npm run test --prefix server",
+    "test:client": "npm --prefix client test",
+    "audit": "npm audit --audit-level=high && npm --prefix server audit --audit-level=high && npm --prefix client audit --audit-level=high",
     "start": "cd server && npm start"
   },
   "devDependencies": {

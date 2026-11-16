@@ -14,14 +14,14 @@
     "@vercel/speed-insights": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
-    "socket.io-client": "^4.7.5"
+    "react-router-dom": "^7.18.5",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
+    "@vitejs/plugin-react": "^4.7.0",
     "typescript": "~5.6.2",
-    "vite": "^5.4.10"
+    "vite": "^6.4.6"
   }
 }

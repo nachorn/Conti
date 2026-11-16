@@ -1,7 +1,7 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express'
 import { AdminAuth, registerAdminSessions } from './adminAuth.js'
 import type { GameRepository } from './recovery.js'
-import type { DashboardRoom, DashboardSnapshot } from '../../shared/dashboard.js'
+import type { DashboardOperations, DashboardRoom, DashboardSnapshot } from '../../shared/dashboard.js'
 
 export interface RoomCleanupSelection {
   roomId: string
@@ -71,11 +71,20 @@ export function registerDashboard(app: Express, options: {
   repository: GameRepository
   isHealthy: () => boolean
   isOnline: (playerId: string) => boolean
+  /** Aggregate in-memory measurements only. Never include snapshots or credentials. */
+  operations?: () => DashboardOperations
   cleanupRooms: (selection: RoomCleanupSelection[]) => Promise<RoomCleanupResult>
 }) {
   // An unconfigured or weak key must never turn this into a public room listing.
   const auth = new AdminAuth(options.key, options.origins)
   registerAdminSessions(app, auth, options.isHealthy)
+  app.get('/api/admin/operations', (req, res) => {
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
+    if (!auth.authenticate(req)) { res.status(401).json({ error: 'unauthorized' }); return }
+    // Passive measurements stay readable during an outage and never wake the DB.
+    res.json(options.operations?.() ?? { healthy: options.isHealthy() })
+  })
   app.get('/api/admin/dashboard', (req, res) => {
     res.set('Cache-Control', 'no-store')
     res.set('X-Robots-Tag', 'noindex, nofollow')
@@ -85,7 +94,7 @@ export function registerDashboard(app: Express, options: {
       return
     }
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
-    res.json(dashboardSnapshot(options.repository, options.isOnline))
+    res.json({ ...dashboardSnapshot(options.repository, options.isOnline), ...(options.operations ? { operations: options.operations() } : {}) })
   })
   app.post(cleanupPath, (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
@@ -94,7 +103,7 @@ export function registerDashboard(app: Express, options: {
     if (!auth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     next()
-  }, express.json({ limit: '64kb' }), async (req, res) => {
+  }, express.json({ limit: '64kb', inflate: false }), async (req, res) => {
     const selection = req.is('application/json') ? parseCleanupSelection(req.body) : null
     if (!selection) { res.status(400).json({ error: 'invalid_request' }); return }
     try {
@@ -108,6 +117,7 @@ export function registerDashboard(app: Express, options: {
   app.use(cleanupPath, (error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) { next(error); return }
     const tooLarge = typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large'
-    res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : 400).json({ error: 'invalid_request' })
+    const unsupported = typeof error === 'object' && error !== null && 'type' in error && error.type === 'encoding.unsupported'
+    res.set('Cache-Control', 'no-store').status(tooLarge ? 413 : unsupported ? 415 : 400).json({ error: 'invalid_request' })
   })
 }

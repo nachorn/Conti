@@ -1,4 +1,4 @@
-import { randomUUID as uuidv4 } from 'node:crypto'
+import { randomInt, randomUUID as uuidv4 } from 'node:crypto'
 import { SPANISH_RANKS_32, SPANISH_RANKS_36, SPANISH_RANKS_40, SPANISH_RANKS_48, SPANISH_RANKS_BY_SIZE } from './pochaTypes.js'
 import type { PochaCard, PochaDeckSize, SpanishSuit } from './pochaTypes.js'
 
@@ -42,7 +42,7 @@ export function createPochaDeck(deckSize: PochaDeckSize = 40): PochaCard[] {
 export function shuffle<T>(arr: T[]): T[] {
   const out = [...arr]
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     [out[i], out[j]] = [out[j], out[i]]
   }
   return out

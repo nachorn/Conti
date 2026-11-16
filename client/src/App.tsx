@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, type ReactNode } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
@@ -8,15 +8,12 @@ import { Home } from './components/Home'
 import { SiteHeader } from './components/SiteHeader'
 import { SavedGames, PausedGame, SaveExitDialog } from './components/SavedGames'
 import { RoomInvite } from './components/RoomInvite'
-import { GameBoard } from './components/GameBoard'
 import { ConnectionNotice } from './components/ConnectionNotice'
-import { PochaBoard } from './components/PochaBoard'
 import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
 import type { PochaDeckSize, PochaLobbyUpdate } from '@shared/pochaTypes'
 import type { Lang } from './i18n'
 import type { ActionResult } from './types'
-import { Dashboard } from './components/Dashboard'
 import { useMembership } from './useMembership'
 import { Membership } from './components/Membership'
 import { LeagueRoomSetup } from './components/LeagueRoomSetup'
@@ -27,6 +24,10 @@ import { useRoomVerification } from './useRoomVerification'
 import { gameHref, hostedCardGame } from './lib/platform'
 import { GameSignIn } from './components/GameSignIn'
 import { beginGameSignIn, consumeGameSignIn } from './lib/gameSignIn'
+
+const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
+const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
+const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })))
 
 // Capture and scrub the one-use callback before mounting analytics, account
 // refreshes or game sockets. The settled result survives StrictMode remounts.
@@ -66,7 +67,7 @@ export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
   // recovery token, and monitoring must never reconnect or replace that seat.
   return <Routes>
-    <Route path="/dashboard" element={<Dashboard />} />
+    <Route path="/dashboard" element={<Suspense fallback={<p role="status">Loading… / Cargando…</p>}><Dashboard /></Suspense>} />
     <Route path="/connect" element={<ConnectPage />} />
     <Route path="/*" element={<GameApp />} />
   </Routes>
@@ -390,7 +391,11 @@ function GameApp() {
 }
 
 /** Renders the correct board for /game; redirects to / if not in a game. */
-function GamePage({
+function GamePage(props: Parameters<typeof GamePageContent>[0]) {
+  return <Suspense fallback={<p role="status">Loading… / Cargando…</p>}><GamePageContent {...props} /></Suspense>
+}
+
+function GamePageContent({
   lobbyExtra,
   onContinueSaved,
   pochaAction,

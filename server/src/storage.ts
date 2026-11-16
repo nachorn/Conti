@@ -14,6 +14,20 @@ export interface SnapshotStore {
 }
 
 export const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
+export class SnapshotCapacityError extends Error {
+  constructor(readonly bytes: number, readonly limitBytes = MAX_SNAPSHOT_BYTES) {
+    super('Saved data exceeds its storage size limit or reserved capacity; remove unused rooms or archive history before admitting more data')
+  }
+}
+
+/** Counts and bytes only; suitable for private operational diagnostics. */
+export function snapshotCapacity(snapshot: unknown) {
+  const encoded = JSON.stringify(snapshot)
+  if (encoded === undefined) throw new Error('Snapshot is not valid JSON')
+  const bytes = Buffer.byteLength(encoded, 'utf8')
+  return { bytes, limitBytes: MAX_SNAPSHOT_BYTES, usedPercent: Math.round(bytes / MAX_SNAPSHOT_BYTES * 1000) / 10,
+    warning: bytes >= MAX_SNAPSHOT_BYTES * 0.75 }
+}
 const LOCK_STALE_MS = 10_000
 const LOCK_UPDATE_MS = 2_000
 
@@ -40,7 +54,7 @@ function encodeSnapshot(snapshot: unknown): string {
   }
   if (encoded === undefined) throw new Error('Game snapshot is not valid JSON')
   if (Buffer.byteLength(encoded, 'utf8') > MAX_SNAPSHOT_BYTES) {
-    throw new Error('Game snapshot exceeds the storage size limit')
+    throw new SnapshotCapacityError(Buffer.byteLength(encoded, 'utf8'))
   }
   return encoded
 }

@@ -1,7 +1,7 @@
 /** Public ad-break state. Never include membership credentials or account details here. */
 export type AdProvider = 'disabled' | 'google-h5'
-export type AdOutcome = 'viewed' | 'dismissed' | 'unavailable' | 'error'
-export type AdPlayerStatus = 'pending' | 'viewing' | 'ready'
+export type AdOutcome = 'viewed' | 'dismissed' | 'unavailable' | 'error' | 'privacy'
+export type AdPlayerStatus = 'pending' | 'viewing' | 'ready' | 'skipped'
 
 export interface AdGateState {
   roomId: string

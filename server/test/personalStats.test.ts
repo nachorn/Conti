@@ -354,6 +354,27 @@ test('aggregate percentages use all games while recent history is bounded, order
   }
 })
 
+test('cached statistics update only after a durable result and returned objects cannot alter later views', async () => {
+  const store = new MemoryStore(), repo = new GameRepository(store)
+  assert.equal(repo.getPersonalStats('account-0').overall.played, 0)
+  assert.equal(repo.getPersonalStats('unrelated').overall.played, 0)
+  const r = record()
+  finishPocha(r)
+  await repo.commit('1234', r)
+  const stats = repo.getPersonalStats('account-0')
+  assert.equal(stats.overall.played, 1)
+  assert.equal(repo.getPersonalStats('account-0', 50, 'pocha').overall.played, 1)
+  assert.equal(repo.getPersonalStats('account-0', 50, 'continental').overall.played, 0)
+  stats.overall.played = 999
+  stats.recentGames[0].players[0].name = 'Tampered'
+  assert.equal(repo.getPersonalStats('account-0').overall.played, 1)
+  assert.notEqual(repo.getPersonalStats('account-0').recentGames[0].players[0].name, 'Tampered')
+  assert.equal(repo.getPersonalStats('account-0', 0).recentGames.length, 0)
+  assert.equal(repo.getPersonalStats('unrelated').overall.played, 0)
+  await repo.commit('1234', null)
+  assert.equal(repo.getPersonalStats('account-0').overall.played, 1, 'room cleanup preserves permanent results and their index')
+})
+
 test('game-scoped HTTP statistics retain older matches before limiting history and keep account privacy', async t => {
   const store = new MemoryStore(), repo = new GameRepository(store)
   const results: DurableGameResult[] = Array.from({ length: 51 }, (_, i) => ({

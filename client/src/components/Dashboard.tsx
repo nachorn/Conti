@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { DashboardRoom } from '@shared/dashboard'
+import type { DashboardOperations, DashboardRoom } from '@shared/dashboard'
 import type { Lang } from '../i18n'
 import './Dashboard.css'
 import { MemberAccess } from './MemberAccess'
@@ -8,7 +8,7 @@ import { AdminSession, adminLoginFields } from '../lib/adminApi'
 
 const copy = {
   en: {
-    brand: 'Continental & Pocha', owner: 'OWNER DASHBOARD', title: 'Who’s playing?',
+    brand: 'NRN Play', owner: 'OWNER DASHBOARD', title: 'Who’s playing?',
     subtitle: 'A live look at your tables, wherever you are.', back: 'Back to games',
     private: 'Your private view', privateInfo: 'Enter your access key to see players and tables.',
     accessKey: 'Access key', unlock: 'Open dashboard', connecting: 'Connecting…', lock: 'Sign out',
@@ -37,7 +37,7 @@ const copy = {
     phases: { lobby: 'Waiting to start', playing: 'Playing', round_end: 'Round complete', game_end: 'Finished', auction: 'Auction', choosing_trump: 'Choosing trump', bidding: 'Bidding', hand_end: 'Round complete' },
   },
   es: {
-    brand: 'Continental y Pocha', owner: 'PANEL PRIVADO', title: '¿Quién está jugando?',
+    brand: 'NRN Play', owner: 'PANEL PRIVADO', title: '¿Quién está jugando?',
     subtitle: 'Tus mesas en directo, estés donde estés.', back: 'Volver a los juegos',
     private: 'Tu vista privada', privateInfo: 'Introduce tu clave de acceso para ver jugadores y mesas.',
     accessKey: 'Clave de acceso', unlock: 'Abrir panel', connecting: 'Conectando…', lock: 'Cerrar sesión',
@@ -176,6 +176,7 @@ export function Dashboard() {
             ['onlinePlayers', c.online], ['activeRooms', c.active], ['waitingRooms', c.waiting], ['offlineRooms', c.offlineRooms],
           ] as const).map(([field, label]) => <div className={`dashboard-stat ${field === 'onlinePlayers' ? 'is-highlighted' : ''}`} key={field}><span>{label}</span><strong>{snapshot.summary[field]}</strong></div>)}
         </section>
+        {snapshot.operations && <OperationsPanel operations={snapshot.operations} lang={lang} />}
         <MemberAccess lang={lang} onSessionExpired={session.expire} />
         <section className="dashboard-tables" aria-labelledby="dashboard-tables-title">
           <div className="dashboard-section-heading"><h2 id="dashboard-tables-title">{c.tables} <span>{rooms.length}</span></h2>
@@ -195,6 +196,29 @@ export function Dashboard() {
       </>}
     </div>
   </main>
+}
+
+function OperationsPanel({ operations, lang }: { operations: DashboardOperations; lang: Lang }) {
+  const es = lang === 'es'
+  const stores = [
+    [es ? 'Partidas e historial' : 'Games and history', operations.storage.games],
+    [es ? 'Cuentas' : 'Accounts', operations.storage.accounts],
+  ] as const
+  const warning = stores.some(([, store]) => store?.warning)
+  return <section className="dashboard-operations" aria-labelledby="dashboard-operations-title">
+    <h2 id="dashboard-operations-title">{es ? 'Estado del servicio' : 'Service status'}</h2>
+    <p>{operations.healthy ? (es ? 'Funcionando correctamente' : 'Running normally') : (es ? 'El servicio necesita atención' : 'The service needs attention')}
+      {' · '}{es ? 'Memoria utilizada' : 'Memory used'}: {Math.round(operations.process.rssBytes / 1024 / 1024)} MB</p>
+    <div className="dashboard-storage-grid">{stores.map(([label, store]) => store && <div key={label}>
+      <label>{label} <strong>{store.usedPercent}%</strong>
+        <meter min={0} max={store.limitBytes} value={store.bytes} high={store.limitBytes * .75} low={0} optimum={0} />
+      </label>
+      <small>{(store.bytes / 1024 / 1024).toFixed(2)} / {(store.limitBytes / 1024 / 1024).toFixed(0)} MB</small>
+    </div>)}</div>
+    {warning && <p className="dashboard-error">{es ? 'Queda poco margen de crecimiento. Revisa la capacidad antes de admitir más partidas o cuentas.' : 'Growth capacity is running low. Review storage before admitting more games or accounts.'}</p>}
+    {operations.email && <small>{es ? 'Correos pendientes' : 'Emails pending'}: {operations.email.pending}{' · '}
+      {es ? 'Envíos fallidos desde el último reinicio' : 'Failed deliveries since last restart'}: {operations.email.failures}</small>}
+  </section>
 }
 
 function RoomCard({ room, lang, now }: { room: DashboardRoom; lang: Lang; now: number }) {
