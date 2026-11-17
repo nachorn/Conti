@@ -73,6 +73,7 @@ export function createLegacyProxy({
   headerTimeoutMs = 30_000,
   idleTimeoutMs = 75_000,
   shutdownGraceMs = 7_500,
+  handleRequest,
 } = {}) {
   const legacyKey = deriveLegacyProxyKey(authSecret);
   const agent = new https.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 8 });
@@ -108,6 +109,7 @@ export function createLegacyProxy({
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (req, res) => {
     const invalid = allowed(req);
     if (invalid) { json(res, ...invalid); req.resume(); return; }
+    if (handleRequest?.(req, res)) return;
     if (req.method === 'CONNECT') { json(res, 405, 'method_not_allowed'); req.resume(); return; }
     if ((req.method === 'GET' || req.method === 'HEAD') && req.url.split('?')[0] === '/health') {
       req.resume();
