@@ -1,6 +1,20 @@
 # Merge into the existing Caddyfile, preserving every RACE site.
+# Merge these settings into its single global block, preserving existing options.
 # The Caddy service requires /etc/caddy/nrn-legacy-proxy.env through its drop-in.
 # Do not add blanket trusted_proxies: direct requests must have XFF overwritten.
+{
+  # Redact request headers from runtime errors too, including reverse-proxy 502s.
+  # Disabling access logs alone does not protect custom transport credentials.
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+      }
+    }
+  }
+}
+
 (nrn_api_transport) {
   transport http {
     dial_timeout 3s

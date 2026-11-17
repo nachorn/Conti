@@ -17,7 +17,7 @@ const identityHeaders = new Set([
 export function deriveLegacyProxyKey(authSecret) {
   const secret = typeof authSecret === 'string' ? authSecret.trim() : '';
   if (secret.length < 32) throw new Error('The existing account secret is required');
-  return createHmac('sha256', secret).update('nrnplay:legacy-proxy:v1').digest('hex');
+  return createHmac('sha256', secret).update('nrnplay:legacy-proxy:v2').digest('hex');
 }
 
 function cleanHeaders(headers, { inbound = false } = {}) {

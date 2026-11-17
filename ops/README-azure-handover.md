@@ -69,7 +69,7 @@ Dockerfile/command. The normal application image does not copy `ops/`, so a
 command-only override cannot launch this proxy safely.
 
 The proxy reads Render's existing `MEMBERSHIP_AUTH_SECRET` and derives a separate
-HMAC key with context `nrnplay:legacy-proxy:v1`. No new Render environment setting
+HMAC key with context `nrnplay:legacy-proxy:v2`. No new Render environment setting
 is necessary. Install only the derived key in Caddy's protected environment,
 using `write-caddy-key.mjs` with the existing secret supplied privately in its
 environment. The helper refuses to overwrite a file and prints no key. It must
@@ -78,6 +78,10 @@ image. Caddy never receives the main account signing secret. Review/reload the
 derived key on both sides if the account secret is rotated. Loading a new
 systemd EnvironmentFile requires restarting the Caddy process; a JSON-only reload
 does not change its runtime environment. Coordinate that restart with RACE.
+Changing only this separated HMAC context rotates the transport credential
+without changing the account signing secret, users or sessions. During the brief
+old/new-key overlap, the old proxy key takes Caddy's direct branch and uses the
+Render peer IP; account authentication remains independent.
 
 Incoming `X-NRN-*`, `Forwarded`, `X-Forwarded-*` and common client-IP headers are
 discarded. The proxy adds its own derived key and a strictly parsed peer address.
@@ -93,8 +97,12 @@ The CEL expression uses runtime environment placeholders and a key format guard;
 it cannot turn an unset environment key into a presence-only header matcher. Caddy
 needs its private derived-key EnvironmentFile before the reviewed Caddyfile is
 adapted/validated or the service reloaded. Preserve the existing RACE sites and
-do not add broad `trusted_proxies` globally. No access logging is enabled here;
-if logging is added, redact private headers and authorization/cookies.
+do not add broad `trusted_proxies` globally. The global runtime log filter removes
+`request.headers`, including the private key, authorization and cookies, while
+retaining useful proxy errors. This is necessary even without access logging:
+reverse-proxy failures can include request headers in runtime error records.
+Merge it into the existing global block rather than replacing other settings.
+If separate access loggers are added, apply equivalent redaction to those too.
 
 The proxy pipes HTTP bodies unchanged, including webhook bytes, signatures,
 authorization, cookies and Origin. It removes HTTP hop-by-hop headers and
