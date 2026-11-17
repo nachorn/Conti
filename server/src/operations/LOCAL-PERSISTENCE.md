@@ -32,7 +32,8 @@ Supply `DATABASE_URL`, `MEMBERSHIP_AUTH_SECRET`, `GAME_STATE_PATH` and
 accepted as arguments. Stop the previous writer first. The CLI obtains both
 transaction advisory locks `(0x434f4e54, 1)` and `(0x434f4e54, 2)` without waiting;
 if either belongs to a running writer, it refuses. It reads both namespaces in a
-single read-only repeatable-read transaction and validates their existing
+single statement after the locks, using a read-only READ COMMITTED transaction,
+and validates their existing
 GameRepository/MembershipService formats using in-memory stores.
 
 Review the counts, sizes and two hashes in the plan, then run:

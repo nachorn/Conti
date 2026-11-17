@@ -67,10 +67,14 @@ async function writerLocks(client: Queryable): Promise<boolean> {
   return result.rows[0]?.game === true && result.rows[0]?.membership === true
 }
 
-/** Read-only consistent source transaction; any running old writer blocks import. */
+/**
+ * Acquire both writer locks before taking the single pair-read snapshot. READ
+ * COMMITTED gives the UNION query a fresh snapshot after lock acquisition;
+ * REPEATABLE READ could pin an older snapshot in the preceding lock statement.
+ */
 export async function readPostgresSnapshotPair(client: Queryable, authSecret: string): Promise<SnapshotPair> {
   try {
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY')
     if (!await writerLocks(client)) fail('source_writer_active')
     const result = await client.query<{ namespace: string; bytes: number; encoded: string | null }>(`/* local:read-pair */
       SELECT 'game' AS namespace, octet_length(snapshot::text) AS bytes,

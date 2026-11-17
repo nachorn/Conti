@@ -96,12 +96,48 @@ test('malformed, oversized and null snapshots refuse migration before creating f
 test('PG migration reads both namespaces in one read-only transaction and checks both writer locks', async () => {
   const { pair } = snapshotFixture(), pg = new FakeLocalPg(pair)
   assert.deepEqual(await readPostgresSnapshotPair(pg.asClient(), fixtureSecret), pair)
-  assert.ok(pg.queries[0].text.includes('REPEATABLE READ READ ONLY'))
+  assert.equal(pg.queries[0].text, 'BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY')
   const locks = pg.queries.find(query => query.text.includes('local:writer-locks'))!
   assert.equal(locks.values[0], 0x434f4e54)
   assert.ok(locks.text.includes('1) AS game') && locks.text.includes('2) AS membership'))
+  const pairReads = pg.queries.filter(query => query.text.includes('local:read-pair'))
+  assert.equal(pairReads.length, 1, 'both namespaces must share one statement snapshot')
+  assert.ok(pairReads[0].text.includes('UNION ALL'))
+  assert.ok(pg.queries.indexOf(locks) < pg.queries.indexOf(pairReads[0]), 'lock acquisition precedes the pair read')
   assert.ok(!pg.queries.some(query => /INSERT|UPDATE|CREATE TABLE/.test(query.text)))
   assert.equal(pg.queries.at(-1)?.text, 'COMMIT')
+});
+
+test('import observes a writer commit completed during the lock statement instead of an earlier repeatable-read snapshot', async () => {
+  const { pair: oldPair } = snapshotFixture(), committedPair = structuredClone(oldPair)
+  committedPair.game.savedAt += 1000
+  committedPair.membership.sessions.push({ ...committedPair.membership.sessions[0], tokenHash: 'c'.repeat(64) })
+  let latest = oldPair, pinned: typeof oldPair | undefined, repeatable = false
+  const statements: string[] = []
+  // Model PostgreSQL's statement snapshot boundary: an RR lock SELECT pins the
+  // old version before its functions run. The previous writer commits/releases
+  // its locks during that statement; the later pair SELECT must see its commit.
+  const client = { query: async (text: string) => {
+    statements.push(text)
+    if (text.startsWith('BEGIN')) { repeatable = text.includes('REPEATABLE READ'); return { rows: [] } }
+    if (text.includes('local:writer-locks')) {
+      if (repeatable) pinned = structuredClone(latest)
+      latest = committedPair
+      return { rows: [{ game: true, membership: true }] }
+    }
+    if (text.includes('local:read-pair')) {
+      const visible = pinned ?? latest
+      return { rows: (['game', 'membership'] as const).map(namespace => ({ namespace,
+        bytes: Buffer.byteLength(JSON.stringify(visible[namespace])), encoded: JSON.stringify(visible[namespace]) })) }
+    }
+    if (text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] }
+    throw new Error('Unexpected modeled query')
+  } } as unknown as Parameters<typeof readPostgresSnapshotPair>[0]
+  const restored = await readPostgresSnapshotPair(client, fixtureSecret)
+  assert.deepEqual(restored, committedPair, 'never omit the last committed room state or newly issued account session')
+  assert.ok(statements[1].includes('local:writer-locks'))
+  assert.ok(statements[2].includes('local:read-pair'))
+  assert.equal(statements.at(-1), 'COMMIT')
 });
 
 test('PG migration rejects an existing writer and exposes no driver details', async () => {
