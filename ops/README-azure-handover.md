@@ -69,7 +69,7 @@ Dockerfile/command. The normal application image does not copy `ops/`, so a
 command-only override cannot launch this proxy safely.
 
 The proxy reads Render's existing `MEMBERSHIP_AUTH_SECRET` and derives a separate
-HMAC key with context `nrnplay:legacy-proxy:v2`. No new Render environment setting
+HMAC key with context `nrnplay:legacy-proxy:v3`. No new Render environment setting
 is necessary. Install only the derived key in Caddy's protected environment,
 using `write-caddy-key.mjs` with the existing secret supplied privately in its
 environment. The helper refuses to overwrite a file and prints no key. It must
@@ -78,6 +78,12 @@ image. Caddy never receives the main account signing secret. Review/reload the
 derived key on both sides if the account secret is rotated. Loading a new
 systemd EnvironmentFile requires restarting the Caddy process; a JSON-only reload
 does not change its runtime environment. Coordinate that restart with RACE.
+Before loading any private Caddy environment, apply the reviewed service drop-in
+that clears ExecStart and replaces it with
+`/usr/bin/caddy run --config /etc/caddy/Caddyfile`, without `--environ`. The
+official unit can contain that flag, which prints the entire environment before
+the runtime log filter is active. Check startup/reload wrappers and diagnostic
+commands for environment dumps too. Keep the key out of their output.
 Changing only this separated HMAC context rotates the transport credential
 without changing the account signing secret, users or sessions. During the brief
 old/new-key overlap, the old proxy key takes Caddy's direct branch and uses the

@@ -2,3 +2,7 @@
 # derived-key file. This file contains no account auth secret.
 [Service]
 EnvironmentFile=/etc/caddy/nrn-legacy-proxy.env
+# The official unit can include --environ, which prints private environment values
+# before the runtime log filter exists. Replace ExecStart rather than appending.
+ExecStart=
+ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile

@@ -226,7 +226,8 @@ test('graceful shutdown bounds active upgraded connections and is idempotent', a
 });
 
 test('key derivation rotates only the separated transport context', () => {
-  assert.equal(deriveLegacyProxyKey(authSecret), createHmac('sha256', authSecret).update('nrnplay:legacy-proxy:v2').digest('hex'));
+  assert.equal(deriveLegacyProxyKey(authSecret), createHmac('sha256', authSecret).update('nrnplay:legacy-proxy:v3').digest('hex'));
+  assert.notEqual(deriveLegacyProxyKey(authSecret), createHmac('sha256', authSecret).update('nrnplay:legacy-proxy:v2').digest('hex'));
   assert.notEqual(deriveLegacyProxyKey(authSecret), createHmac('sha256', authSecret).update('nrnplay:legacy-proxy:v1').digest('hex'));
   assert.throws(() => deriveLegacyProxyKey('short'));
 });
