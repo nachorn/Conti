@@ -13,7 +13,7 @@ Environment=NODE_ENV=production
 EnvironmentFile=/etc/nrnplay/backup.env
 ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/verify-local-files.sh --backup
 ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/backup/pressure-guard.sh
-ExecStart=/opt/nrnplay/node/bin/node /opt/nrnplay/current/server/dist/cli/checkpoint-local-to-postgres.js --apply
+ExecStart=/opt/nrnplay/runtime/node-v22.23.5-linux-x64/bin/node /opt/nrnplay/current/server/dist/cli/checkpoint-local-to-postgres.js --apply
 TimeoutStartSec=120
 TimeoutStopSec=10
 KillMode=control-group
