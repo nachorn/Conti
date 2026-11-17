@@ -1,36 +1,34 @@
-# Private player dashboard
+# NRN Play administration
 
-Open `/dashboard` on the game website, or use **Owner dashboard** at the bottom of the lobby. The dashboard supports English and Spanish and shows:
+Open **https://nrnplay.com/admin** while signed into an authorized NRN Play account. The Administration link appears in the header and personal dashboard only for that account. `/dashboard` and administration URLs on Conti or Pocha redirect to the central panel. Administration never joins a game or reclaims a saved seat.
 
-- Online player seats, games in progress, waiting rooms, and offline saved rooms.
-- Each room's game, code, players, host, round, next player, and last update.
-- Search by player name or room code, game filters, and an option to include offline rooms.
+The panel contains Overview, Users, Conti, Pocha, FootballChampion and Plus. Users supports search, pagination, per-game results and Plus gifts lasting 30 days, one year or permanently. Existing Plus access opens the full Plus management tools instead of replacing it with a quick gift.
 
-The page refreshes every five seconds while visible. A failed refresh keeps the last successful result with a clear warning. Viewing it does not join a room, reclaim a saved seat, write game data, or extend a room's lifetime. Names are the names players entered, not verified identities. Offline rooms expire after 30 days of inactivity; this is not a permanent player history.
+## Account permissions
 
-## Enable access
+1. Enable the existing membership service and verified email delivery.
+2. Set `ADMIN_ACCOUNT_EMAILS` privately on the **server** to a comma-separated list of authorized account emails. Addresses are trimmed and normalized to lowercase. Do not put the list in client code, a `VITE_` variable or committed configuration.
+3. Restart the server and deploy the client. Users keep their normal account sessions; no separate administration password is needed.
 
-1. Generate a random access key with a password manager (32–256 characters), or run `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` locally.
-2. Set **`ADMIN_DASHBOARD_KEY`** to that key in the **game server's** environment, then restart/redeploy the server. For local development, set the environment variable in the terminal that runs the server.
-3. Deploy the updated client as well. Admin requests use the website's own `/api/admin` path: the included Vercel rewrite proxies it to `https://api.nrnplay.com`. Keep this destination aligned with the active backend during cutover or rollback; the Render fallback is `https://conti-server.onrender.com`. For local development, Vite proxies it to `VITE_SOCKET_URL` or `http://localhost:3001`. The server's allowed origins must include the website. Gameplay continues to use `VITE_SOCKET_URL` directly.
-4. Open `/dashboard` over HTTPS and enter the key. **Remember me for 30 days** is selected by default; turn it off on a shared device. Remembered access survives reloading and closing the browser for up to 30 days. Without it, the browser receives a session cookie with a maximum server lifetime of 12 hours. **Sign out** removes access from that browser.
+Every administration request verifies the current membership Bearer token and its account role. Guests receive 401; authenticated accounts outside the list receive 403. Revoked or expired sessions lose access on their next request. An explicitly configured empty list denies all administration access. Configuring the list while memberships are disabled prevents startup.
 
-Do not put this key in any `VITE_` variable, a URL, a committed file, or client code. The endpoint is disabled when the server key is missing, shorter than 32 characters, or longer than 256 characters. Rotating the server key revokes existing dashboard access on its next refresh.
+In account-only mode, old master-key Bearer tokens, admin cookies and password login cannot bypass account permissions. The backend retains legacy authentication only for installations without `ADMIN_ACCOUNT_EMAILS`; the current client has no legacy password form. Keep the private `ADMIN_DASHBOARD_KEY` for the scoped Football report bridge; it is never sent to the browser.
 
-The password is sent only during login and is never saved in browser storage by the app. The server issues a signed, expiring `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/admin`, with `Secure` enabled in production. Same-origin proxying avoids relying on third-party cookies in Safari. Sessions have a fixed expiry and survive server restarts while the access key stays the same. Sign-out clears the browser cookie; rotating the key invalidates every session.
+Administration uses same-origin `/api/admin` requests, proxied by Vercel to `https://api.nrnplay.com`. Local Vite proxies to `VITE_SOCKET_URL` or `http://localhost:3001`. Writes require `X-Admin-Request: 1` and a trusted origin when supplied. Responses use `Cache-Control: no-store`; administration pages are excluded from service-worker navigation fallback and search indexing.
 
-The form uses named username/password controls and `autocomplete="current-password"`, following [Apple's Password AutoFill guidance](https://developer.apple.com/documentation/security/enabling-password-autofill-on-an-html-input-element). For iPhone Passwords, save the credential against the game website domain (`conti-six.vercel.app`), not the Render server or a temporary preview URL. The username is `admin`; the existing access key remains the password. Actual AutoFill suggestions depend on the device's password settings.
+## Statistics and privacy
 
-## Data and checks
-
-The authenticated `GET /api/admin/dashboard` endpoint returns only an allowlist of room and player metadata. It never includes cards, decks, scores, recovery tokens, session hashes, or saved snapshots. Online status comes from live player connections, not open dashboard tabs or stale saved connection flags. Responses, including errors, use `Cache-Control: no-store`.
-
-Server tests cover access control, field redaction, real joins and departures, recovery, both game types, expiry, and storage failure. Run the existing server and client tests and production builds before deploying.
+- Rooms refresh every five seconds while the page is visible. A failed refresh retains the last result with a warning.
+- The overview refreshes every 15 seconds. Conti and Pocha recorded results come from the durable account-linked ledger; guest seats remain visible in live rooms. Offline rooms expire after 30 days of inactivity.
+- Football reports aggregate activity from the last 30 UTC dates. Both servers cache the report for five minutes. Individual careers remain in each player's browser.
+- Account listings contain names, emails, creation dates, Plus status and game totals. They exclude passwords, password hashes, challenges, session tokens and payment details. Room listings exclude hands, decks, recovery credentials and snapshots.
 
 ## Selected-room cleanup
 
-The private `POST /api/admin/rooms/cleanup` endpoint removes an explicitly reviewed list of offline rooms. It requires admin authentication, `X-Admin-Request: 1`, an allowed origin when supplied, and JSON containing `rooms: [{ roomId, expectedUpdatedAt, expectedPhase }]`. Obtain those values from a fresh dashboard response; include only the rooms the owner has selected for deletion.
+`POST /api/admin/rooms/cleanup` removes an explicitly reviewed list of offline rooms. Send `rooms: [{ roomId, expectedUpdatedAt, expectedPhase }]` from a fresh dashboard response, together with the account authorization and write-protection headers.
 
-The server rechecks the entire selection in the same queue as gameplay. A missing, changed or connected room rejects the whole request with `409 rooms_changed`. All selected rooms are removed in one durable save before success is returned as `{ ok: true, deletedRoomIds }`. Unselected rooms and their timestamps are unchanged. A storage failure returns `503` and pauses further writes.
+The server rechecks the entire selection in the gameplay queue. Missing, changed or connected rooms reject the whole request with `409 rooms_changed`. A successful durable save returns `{ ok: true, deletedRoomIds }`; unselected rooms stay unchanged. A storage failure returns 503 and pauses writes. After an uncertain response, inspect the original selection before retrying. Cleanup permanently removes those saved games and recovery seats.
 
-This permanently removes the selected saved games and recovery seats. It does not change the normal 30-day retention period. After an uncertain response, inspect the dashboard before retrying; do not replace the original selection with a broader query.
+## Verification
+
+Run the server and client tests and production builds. Authorization tests cover both allowed accounts, ordinary accounts, guests, email verification, obsolete credentials, session revocation, storage outages and write protection. Platform tests check account-field redaction, pagination, game aggregates and the bounded Football report bridge.
