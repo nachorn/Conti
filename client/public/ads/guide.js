@@ -15,7 +15,7 @@ export async function verifyGuideVisitor({ storage, fetch, now = Date.now, signa
     if (raw.length > 2048) return false
     const saved = JSON.parse(raw)
     if (!saved || typeof saved.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(saved.token) || !Number.isSafeInteger(saved.expiresAt) || saved.expiresAt <= now() || saved.expiresAt > now() + 31 * 86400000) return false
-    const response = await fetch('https://conti-server.onrender.com/api/membership/me', {
+    const response = await fetch('https://api.nrnplay.com/api/membership/me', {
       method: 'GET', headers: { Authorization: `Bearer ${saved.token}` }, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal,
     })
     if (!response.ok) return false

@@ -6,7 +6,7 @@ import { CURRENCY_PREFERENCE_KEY, isMembershipCurrency, preferredCurrency, readC
 import { readPlusOffer, safePlusProviderUrl } from './lib/plusOffer'
 import { subscribeMembershipRefresh } from './lib/membershipRefresh'
 
-const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
+const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 const disabledConfig: MembershipConfig = { enabled: false, loginEnabled: false, checkoutEnabled: false, price: null, ads: { provider: 'disabled', publisherId: null } }
 export type MembershipError = 'unavailable' | 'expired' | 'invalidEmail' | 'invalidCode' | 'invalidCredentials' | 'invalidName' | 'invalidPassword' | 'rateLimited' | 'network' | null
 

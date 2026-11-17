@@ -2,15 +2,15 @@
 
 You’ll deploy **two** things: the **server** (game + WebSockets) and the **client** (website). Then you’ll connect the client to the server URL.
 
-## Current production: NRNPlay on Vercel + Render
+## Production target: NRNPlay on Vercel + Azure
 
-The canonical public website is **[https://nrnplay.com](https://nrnplay.com)**. Vercel serves the client; the existing Render service `conti-server` remains the game and account server at `https://conti-server.onrender.com`. Changing the website domain does not require changing the database or game server.
+The canonical public website is **[https://nrnplay.com](https://nrnplay.com)**. Vercel serves the client; the game and account API's canonical address is `https://api.nrnplay.com` on Azure. Activate this client configuration only after DNS, HTTPS and the backend have been verified. The existing Render service `conti-server` remains a controlled rollback target at `https://conti-server.onrender.com`.
 
 | Setting | Production value |
 |---------|------------------|
-| Vercel `VITE_SOCKET_URL` | `https://conti-server.onrender.com` |
-| Render `CLIENT_ORIGINS` | NRN root, www and all three game subdomains, old approved game origins and existing approved previews; see `render.yaml` |
-| Render `PUBLIC_APP_URL` | `https://nrnplay.com` |
+| Vercel `VITE_SOCKET_URL` | `https://api.nrnplay.com` |
+| Backend `CLIENT_ORIGINS` | NRN root, www and all three game subdomains, old approved game origins and existing approved previews; see `render.yaml` |
+| Backend `PUBLIC_APP_URL` | `https://nrnplay.com` |
 | Public contact | `nacho@nrnplay.com` (Zoho mailbox) |
 
 Keep `https://conti-six.vercel.app` attached to the same Vercel project and **do not automatically redirect it**. Guest saved-game recovery tokens and remembered account sessions are stored per browser profile and origin. Players recover earlier guest games at the previous address; the client links between the two addresses without transferring credentials. NRNPlay uses the same accounts and results, but players sign in again at the new address. Both `nrnplay.com` and `www.nrnplay.com` must reach the client and remain permitted by the configured anti-bot challenge.
@@ -28,7 +28,11 @@ MEMBERSHIP_EMAIL_BRAND=NRNPlay
 
 Keep the existing `MEMBERSHIP_AUTH_SECRET`, `DATABASE_URL` and `ADMIN_DASHBOARD_KEY` private and unchanged. Set `RESEND_API_KEY` privately on Render, using a sending-access-only key restricted to the verified `nrnplay.com` domain. Resend handles outgoing transactional codes; Zoho handles incoming contact mail. Preserve Zoho's receiving DNS records while adding the Resend domain-verification records. Never put these private keys in `VITE_*` variables or commit them to the repository. Publish the privacy page's Resend description together with the email transport switch.
 
-The walkthrough below describes an **alternative Railway deployment**. The active production server is Render; the checked-in `render.yaml` is a native Node service template, not a command to recreate or replace that existing service. For routine updates, preserve the live service's deployment configuration and use the single-writer replacement procedure below.
+For the Azure cutover, preserve the existing private environment, account signing secret and durable database. Stop the Render writer before starting Azure against that database, then verify `/health`, `/ready`, account access and gameplay. The client's production default and example use the canonical API address; an explicit `VITE_SOCKET_URL` still overrides it. Vercel's CSP retains exact HTTPS/WSS origins for both Azure and Render. Administrative calls continue through the website's own `/api/admin` rewrite, whose destination must point at the active backend. No automatic failover starts a second writer.
+
+To roll back, stop Azure before resuming Render with the same compatible code and private environment. After checking Render's health and storage, set `VITE_SOCKET_URL=https://conti-server.onrender.com`, return the admin rewrite destination to that host, and rebuild/redeploy the client. The static guide membership check in `client/public/ads/guide.js` also uses the canonical API host; preserve that host's routing to the active backend or update this check together with the client. Existing Stripe webhook registrations must be checked separately; changing a client URL does not move them.
+
+The walkthrough below describes an **alternative Railway deployment**. The checked-in `render.yaml` is a native Node service template, not a command to recreate or replace the existing fallback service. For routine updates, preserve the active host's deployment configuration and use the single-writer replacement procedure below.
 
 ---
 
@@ -156,9 +160,9 @@ Production startup requires an explicit `CLIENT_ORIGINS` list. After Vercel give
 
 | What        | Where |
 |------------|--------|
-| Server URL | Render `conti-server`: `https://conti-server.onrender.com` |
+| Server URL | Canonical API: `https://api.nrnplay.com`; Render rollback: `https://conti-server.onrender.com` |
 | Client URL | Vercel: `https://nrnplay.com`; preserve `https://conti-six.vercel.app` for earlier guest saves |
-| Env var    | On Vercel: `VITE_SOCKET_URL=https://conti-server.onrender.com` |
+| Env var    | On Vercel: `VITE_SOCKET_URL=https://api.nrnplay.com` |
 
 ---
 
@@ -207,6 +211,6 @@ Railway Free currently rejects deployments from 8 a.m. to 8 p.m. in the target r
 
 ## Updating the app later
 
-- **Code:** Run the tests, push to GitHub, and check the included CI workflow. Vercel may deploy automatically. Render replacement remains manual; for the shared database, use the single-writer procedure above.
-- **Server:** Preserve the existing Render service's build/runtime settings, durable database and private environment. Keep `/health` as its health-check path and all approved website origins, including the three new game subdomains and existing approved previews.
-- **Client:** Keep Root Directory = `client` and `VITE_SOCKET_URL=https://conti-server.onrender.com`. Check the canonical NRNPlay address and the previous address's saved-game recovery after deployment.
+- **Code:** Run the tests, push to GitHub, and check the included CI workflow. Vercel may deploy automatically. Backend replacement remains manual; for the shared database, use the single-writer procedure above.
+- **Server:** Preserve the active host's build/runtime settings, durable database and private environment, together with the Render rollback configuration. Keep `/health` as the health-check path and all approved website origins, including the three new game subdomains and existing approved previews.
+- **Client:** Keep Root Directory = `client` and `VITE_SOCKET_URL=https://api.nrnplay.com`. Check the canonical NRNPlay address and the previous address's saved-game recovery after deployment.

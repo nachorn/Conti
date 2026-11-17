@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LeagueDetail, LeagueGameType, LeagueSummary } from '@shared/leagues'
 import { isLeagueDetail, isLeagueList } from './lib/leagues'
 
-const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
+const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 export type LeagueError = 'unauthorized' | 'unavailable' | 'league_not_found' | 'league_wrong_game' | 'league_closed' | 'league_full' | 'invalid_league_name' | 'invalid_game_type' | 'invalid_min_games' | 'invalid_invite_code' | 'league_owner_required' | 'rate_limited' | 'league_limit'
 const errorCodes = new Set<LeagueError>(['unauthorized', 'league_not_found', 'league_wrong_game', 'league_closed', 'league_full', 'invalid_league_name', 'invalid_game_type', 'invalid_min_games', 'invalid_invite_code', 'league_owner_required', 'rate_limited', 'league_limit'])
 class RequestError extends Error { constructor(readonly code: LeagueError) { super('League request failed') } }

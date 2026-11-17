@@ -25,7 +25,7 @@ export class GameSignInError extends Error {
 
 function developmentMode() { return import.meta.env?.DEV === true }
 function browserStorage(): GameSignInStorage | null { try { return window.sessionStorage } catch { return null } }
-function apiBaseUrl() { return import.meta.env?.VITE_SOCKET_URL || (developmentMode() ? 'http://localhost:3001' : '') }
+function apiBaseUrl() { return import.meta.env?.VITE_SOCKET_URL || (developmentMode() ? 'http://localhost:3001' : 'https://api.nrnplay.com') }
 
 /** Exact origins only: never accept a path, credentials, suffix domain or redirect URL. */
 export function isAllowedGameOrigin(value: unknown, development = false): value is string {

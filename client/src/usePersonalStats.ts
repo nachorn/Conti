@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PersonalStats } from '@shared/personalStats'
 import { isPersonalStats } from './lib/personalStats'
 
-const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')
+const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 export function usePersonalStats(token: string | null, enabled: boolean, gameType: 'pocha' | 'continental') {
   const [result, setResult] = useState<{ token: string | null; gameType: 'pocha' | 'continental'; data: PersonalStats | null; loading: boolean; error: 'expired' | 'unavailable' | null } | null>(null)
   const sequence = useRef(0)

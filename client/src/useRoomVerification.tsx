@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Lang } from './i18n'
 import './components/RoomVerification.css'
 
-const API_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
+const API_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')).replace(/\/+$/, '')
 type TurnstileAPI = {
   render(container: HTMLElement, options: Record<string, unknown>): string
   remove(widget: string): void

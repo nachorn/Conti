@@ -5,7 +5,7 @@ import type { Lang } from '../i18n'
 import './RoomInvite.css'
 import { platformHomeHref } from '../lib/platform'
 
-const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).replace(/\/+$/, '')
+const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')).replace(/\/+$/, '')
 
 interface RoomInviteProps {
   onJoin: (roomId: string, name: string) => void | Promise<boolean>

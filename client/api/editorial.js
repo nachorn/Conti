@@ -25,7 +25,7 @@ async function readGuide(guide, { publicRoot, cwd, load }) {
   }
   throw missing
 }
-export const BASELINE_EDITORIAL_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://va.vercel-scripts.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://conti-server.onrender.com wss://conti-server.onrender.com https://vitals.vercel-insights.com https://vitals.vercel-analytics.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; upgrade-insecure-requests"
+export const BASELINE_EDITORIAL_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://va.vercel-scripts.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.nrnplay.com wss://api.nrnplay.com https://conti-server.onrender.com wss://conti-server.onrender.com https://vitals.vercel-insights.com https://vitals.vercel-analytics.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; upgrade-insecure-requests"
 
 function httpsUrl(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.hash && !url.port ? url : null } catch { return null }
@@ -47,7 +47,7 @@ export function editorialAdCsp(nonce, config) {
   return ["default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'",
     `script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`, "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: blob: ${origins}`, `connect-src 'self' https://conti-server.onrender.com ${origins}`,
+    `img-src 'self' data: blob: ${origins}`, `connect-src 'self' https://api.nrnplay.com https://conti-server.onrender.com ${origins}`,
     `frame-src ${origins}`, "worker-src 'self' blob:", 'upgrade-insecure-requests'].join('; ')
 }
 const escape = value => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')

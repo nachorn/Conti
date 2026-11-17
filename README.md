@@ -62,7 +62,7 @@ Enable accounts with `MEMBERSHIP_ENABLED=true`, a strong `MEMBERSHIP_AUTH_SECRET
 
 ## Production domain and email
 
-The public website is [NRNPlay](https://nrnplay.com), hosted on Vercel. The game server remains at `https://conti-server.onrender.com`; keep that address in the client's `VITE_SOCKET_URL`.
+The public website is [NRNPlay](https://nrnplay.com), hosted on Vercel. The game and account API's canonical address is `https://api.nrnplay.com`; set the client's `VITE_SOCKET_URL` to that address after verifying the Azure cutover. Keep `https://conti-server.onrender.com` available as a controlled rollback target, with only one backend writing to the shared database; see [deployment guidance](DEPLOY.md).
 
 Keep [the previous address](https://conti-six.vercel.app) available without an automatic redirect. Guest recovery tokens and remembered account sessions belong to their browser profile and website origin: saved games at the previous address remain recoverable there. Existing accounts and results use the same server; players can sign in again at NRNPlay.
 

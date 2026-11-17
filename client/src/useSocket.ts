@@ -11,7 +11,7 @@ import type { RoomLeagueSummary } from '@shared/leagues'
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.DEV ? 'http://localhost:3001' : '')
+  (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'resuming' | 'replaced' | 'paused'
 
