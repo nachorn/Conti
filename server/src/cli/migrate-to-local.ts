@@ -1,5 +1,6 @@
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { Client } from 'pg'
 import { describeSnapshotPair, installLocalSnapshotPair, LocalPersistenceError, operationPaths, operationPgConfig, readPostgresSnapshotPair } from '../operations/localPersistence.js'
 
@@ -33,4 +34,11 @@ export async function migrateToLocalMain(args = process.argv.slice(2), env = pro
     process.exitCode = 1
   } finally { await client?.end().catch(() => undefined) }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) void migrateToLocalMain()
+function invokedDirectly(): boolean {
+  if (!process.argv[1]) return false
+  try {
+    // Deployment's current/ symlink and ESM resolution must identify one file.
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]))
+  } catch { return false /* Imports with a missing/non-file argv stay inert. */ }
+}
+if (invokedDirectly()) void migrateToLocalMain()
