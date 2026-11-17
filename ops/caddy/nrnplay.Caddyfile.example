@@ -1,0 +1,31 @@
+# Merge into the existing Caddyfile, preserving every RACE site.
+# The Caddy service requires /etc/caddy/nrn-legacy-proxy.env through its drop-in.
+# Do not add blanket trusted_proxies: direct requests must have XFF overwritten.
+(nrn_api_transport) {
+  transport http {
+    dial_timeout 3s
+    response_header_timeout 30s
+  }
+  header_up -X-NRN-Legacy-Key
+  header_up -X-NRN-Client-IP
+  header_up -X-NRN-Legacy-Hop
+}
+
+api.nrnplay.com {
+  @legacy {
+    # Runtime placeholders avoid parse-time empty-env expansion into presence-only
+    # header matching. A missing/empty/malformed key cannot enable the branch.
+    expression `{env.NRN_LEGACY_PROXY_KEY}.matches('^[0-9a-f]{64}$') && {http.request.header.X-NRN-Legacy-Key} == {env.NRN_LEGACY_PROXY_KEY} && {http.request.header.X-NRN-Client-IP} != ''`
+  }
+  handle @legacy {
+    reverse_proxy 127.0.0.1:3001 {
+      import nrn_api_transport
+      header_up X-Forwarded-For {http.request.header.X-NRN-Client-IP}
+    }
+  }
+  handle {
+    reverse_proxy 127.0.0.1:3001 {
+      import nrn_api_transport
+    }
+  }
+}

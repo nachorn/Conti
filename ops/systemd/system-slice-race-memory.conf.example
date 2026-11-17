@@ -1,0 +1,5 @@
+# Review against all services in system.slice before installing. This is the
+# ancestor budget for RACE's leaf MemoryLow=640M, not a second memory allocation.
+[Slice]
+MemoryAccounting=true
+MemoryLow=640M

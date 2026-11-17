@@ -1,0 +1,4 @@
+# Optional drop-in for the existing Caddy service, after installing the protected
+# derived-key file. This file contains no account auth secret.
+[Service]
+EnvironmentFile=/etc/caddy/nrn-legacy-proxy.env

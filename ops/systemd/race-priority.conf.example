@@ -1,0 +1,12 @@
+# Review against the actual RACE unit; do not install under an invented unit name.
+# CPUWeight only compares siblings in the same cgroup parent. Keep RACE and NRN
+# under the same parent, or explicitly budget their common parent first.
+# MemoryLow must also be budgeted on the real ancestor system.slice; protecting
+# only the leaf cannot preserve an effective 640 MB allocation under pressure.
+[Service]
+MemoryAccounting=true
+MemoryLow=640M
+CPUAccounting=true
+CPUWeight=1000
+Nice=0
+OOMScoreAdjust=-250
