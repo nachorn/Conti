@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, realpath, rename, unlink } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { Client } from 'pg'
 import lockfile from 'proper-lockfile'
 
@@ -323,7 +323,34 @@ export class PostgresSnapshotStore extends SerialSnapshotStore {
 }
 
 /** Production must opt into external PostgreSQL or an actual durable volume. */
+export function snapshotStorageMode(env: NodeJS.ProcessEnv): 'default' | 'file' {
+  if (env.NRN_STORAGE_MODE === undefined) return 'default'
+  if (env.NRN_STORAGE_MODE !== 'file') throw new Error('NRN_STORAGE_MODE must be file or omitted')
+  return 'file'
+}
+export function localSnapshotPaths(env: NodeJS.ProcessEnv): { game: string; membership: string } {
+  const production = env.NODE_ENV === 'production' || env.RENDER === 'true' || !!env.RAILWAY_ENVIRONMENT_ID
+  const game = env.GAME_STATE_PATH?.trim(), membership = env.MEMBERSHIP_STATE_PATH?.trim()
+  if (production && (!game || !membership || !isAbsolute(game) || !isAbsolute(membership))) throw new Error('Local production storage requires both absolute snapshot paths')
+  const paths = { game: game || './data/games.json', membership: membership || './data/membership.json' }
+  if (resolve(paths.game) === resolve(paths.membership)) throw new Error('Game and account snapshots must use different paths')
+  return paths
+}
+export async function requireInstalledLocalSnapshots(env: NodeJS.ProcessEnv, paths = localSnapshotPaths(env)): Promise<void> {
+  if (env.NODE_ENV !== 'production' && env.RENDER !== 'true' && !env.RAILWAY_ENVIRONMENT_ID) return
+  try {
+    for (const path of [paths.game, paths.membership]) {
+      const info = await lstat(path)
+      if (!info.isFile() || info.isSymbolicLink() || info.size < 2 || info.size > MAX_SNAPSHOT_BYTES) throw new Error()
+    }
+  } catch { throw new Error('Both local snapshots must be installed before starting production') }
+}
 export async function createSnapshotStore(env: NodeJS.ProcessEnv = process.env): Promise<SnapshotStore> {
+  if (snapshotStorageMode(env) === 'file') {
+    const paths = localSnapshotPaths(env)
+    await requireInstalledLocalSnapshots(env, paths)
+    return FileSnapshotStore.open(paths.game)
+  }
   const databaseUrl = env.DATABASE_URL?.trim()
   if (databaseUrl) return PostgresSnapshotStore.open(databaseUrl)
   const snapshotPath = env.GAME_STATE_PATH?.trim()

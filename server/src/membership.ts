@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express'
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { resolve } from 'node:path'
-import { FileSnapshotStore, PostgresSnapshotStore, MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, type SnapshotStore } from './storage.js'
+import { FileSnapshotStore, PostgresSnapshotStore, MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, localSnapshotPaths, requireInstalledLocalSnapshots, snapshotStorageMode, type SnapshotStore } from './storage.js'
 import { createMembershipEmailSender } from './membershipEmail.js'
 import { AdminAuth } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
@@ -728,7 +728,10 @@ export async function createMembershipService(env: NodeJS.ProcessEnv = process.e
   if (env.MEMBERSHIP_ENABLED !== 'true') return undefined
   const secret = env.MEMBERSHIP_AUTH_SECRET?.trim() ?? ''
   if (secret.length < 32) throw new Error('Set a strong MEMBERSHIP_AUTH_SECRET before enabling accounts')
-  const store = env.DATABASE_URL ? await PostgresSnapshotStore.open(env.DATABASE_URL, 'membership')
+  const localPaths = snapshotStorageMode(env) === 'file' ? localSnapshotPaths(env) : null
+  if (localPaths) await requireInstalledLocalSnapshots(env, localPaths)
+  const store = localPaths ? await FileSnapshotStore.open(localPaths.membership)
+    : env.DATABASE_URL ? await PostgresSnapshotStore.open(env.DATABASE_URL, 'membership')
     : env.MEMBERSHIP_STATE_PATH ? await FileSnapshotStore.open(env.MEMBERSHIP_STATE_PATH)
     : env.NODE_ENV !== 'production' && env.RENDER !== 'true' && !env.RAILWAY_ENVIRONMENT_ID ? await FileSnapshotStore.open(resolve('data/memberships.json'))
     : null
