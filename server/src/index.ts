@@ -2,6 +2,26 @@ import { createGameServer } from './app.js'
 import { createSnapshotStore } from './storage.js'
 import { createMembershipService, adConfigFromEnvironment } from './membership.js'
 import { turnstileFromEnvironment } from './turnstile.js'
+import { configurePasswordDelegate } from './passwordAuth.js'
+import { createPasswordWorkClient } from './passwordWorker.js'
+import { createPasswordPressureProbe } from './hostPressure.js'
+
+let resetPasswordDelegate: (() => void) | undefined
+if (process.env.NRN_PASSWORD_WORKER_URL) {
+  const threshold = (name: string, fallback: number) => {
+    const value = process.env[name]
+    if (value === undefined) return fallback
+    if (!/^\d+$/.test(value) || Number(value) < 128 || Number(value) > 16_384) throw new Error(`${name} must be a valid memory threshold in MiB`)
+    return Number(value)
+  }
+  const pressure = createPasswordPressureProbe({
+    raceMemoryPath: process.env.RACE_CGROUP_MEMORY_PATH,
+    minimumAvailableMb: threshold('NRN_MIN_AVAILABLE_MEMORY_MB', 256),
+    raceThresholdMb: threshold('NRN_RACE_MEMORY_THRESHOLD_MB', 300),
+  })
+  const worker = createPasswordWorkClient({ origin: process.env.NRN_PASSWORD_WORKER_URL, authSecret: process.env.MEMBERSHIP_AUTH_SECRET ?? '' })
+  resetPasswordDelegate = configurePasswordDelegate({ derive: worker.derive, shouldDelegate: pressure, allowLocalFallback: async () => !await pressure() })
+}
 
 const origins = (process.env.CLIENT_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean)
 if (process.env.NODE_ENV === 'production' && origins.length === 0) {
@@ -43,8 +63,12 @@ async function shutdown(exitCode = 0) {
   process.exitCode = exitCode
   const timeout = setTimeout(() => process.exit(1), 8_000)
   timeout.unref()
-  try { await server.close(); await membership?.close(); clearTimeout(timeout) }
+  try {
+    try { await server.close() } finally { await membership?.close() }
+    clearTimeout(timeout)
+  }
   catch { console.error('Shutdown save failed; restart will recover the last committed game'); process.exitCode = 1 }
+  finally { resetPasswordDelegate?.() }
 }
 process.on('SIGTERM', () => void shutdown())
 process.on('SIGINT', () => void shutdown())
