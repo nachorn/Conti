@@ -17,7 +17,8 @@
 .nrn-play-guide a { color: #526e2f; text-underline-offset: 3px; }
 .nrn-platform a:focus-visible, .nrn-platform button:focus-visible { outline: 3px solid #526e2f; outline-offset: 5px; }
 .nrn-header { border-bottom: 1px solid var(--nrn-line); }
-.nrn-header-inner { width: min(1160px, calc(100% - 80px)); margin: auto; min-height: 94px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.nrn-header-inner { position: relative; width: min(1160px, calc(100% - 80px)); margin: auto; min-height: 94px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.nrn-header-warning { position: absolute; top: calc(100% - .35rem); right: 0; z-index: 40; max-width: calc(100vw - 2rem); }
 .nrn-brand { display: inline-flex; align-items: center; flex-shrink: 0; }
 .nrn-brand img { display: block; width: 158px; height: 42px; object-fit: contain; }
 .nrn-header-actions { display: flex; align-items: center; gap: 24px; }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { Lang } from '../i18n'
 import type { MembershipController, MembershipError } from '../useMembership'
@@ -6,8 +6,8 @@ import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
 import { readAccountForm } from '../lib/accountForm'
 import { PlusPanel } from './PlusPanel'
+import { accountView } from '../lib/accountReadiness'
 import './Membership.css'
-import { AccountConnection } from './AccountConnection'
 
 const copy = {
   es: {
@@ -53,8 +53,8 @@ const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
-export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false, gameType = null, initialSection = 'account' }: {
-  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean; gameType?: 'continental' | 'pocha' | null; initialSection?: 'account' | 'plus'
+export function Membership({ membership, lang, open, onOpen, onClose, hideTrigger = false, gameType = null, initialSection = 'account', connectionNotice }: {
+  membership: MembershipController; lang: Lang; open: boolean; onOpen: () => void; onClose: () => void; hideTrigger?: boolean; gameType?: 'continental' | 'pocha' | null; initialSection?: 'account' | 'plus'; connectionNotice?: ReactNode
 }) {
   const t = copy[lang]
   const es = lang === 'es'
@@ -81,6 +81,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const title = useRef<HTMLHeadingElement>(null)
   const emailInput = useRef<HTMLInputElement>(null)
   const { account, config, busy, error } = membership
+  const identity = accountView(membership)
   const visible = config.enabled || !!account || !!membership.token
   const passwordEnabled = config.passwordLoginEnabled === true
   const activeMode = mode === 'password' && !passwordEnabled ? 'code' : mode
@@ -187,21 +188,21 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
     <dialog ref={dialog} className={`membership-dialog${plusView ? ' membership-dialog--plus' : ''}`} aria-labelledby="membership-title" onCancel={onClose} onClose={onClose}>
       <div className="membership-header">
         <div><span className="membership-eyebrow">NRN Play</span>
-          <h2 ref={title} id="membership-title" tabIndex={-1}>{plusView ? 'NRN Plus' : account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.title}</h2>
+          <h2 ref={title} id="membership-title" tabIndex={-1}>{plusView ? 'NRN Plus' : account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.account}</h2>
         </div>
         <button type="button" className="membership-close" onClick={onClose} aria-label={t.close}>×</button>
       </div>
-      {!plusView && (!account || !gameType || activeSection === 'profile' || securityOpen) && <p className="membership-description">{t.description}</p>}
-      {open && <AccountConnection membership={membership} lang={lang} />}
-      {!account && plusView && membership.loaded && <PlusPanel membership={membership} lang={lang} onSignIn={membership.serverStatus === 'ready' && !membership.token && (config.loginEnabled || passwordEnabled) ? () => { setPlusSignInOpen(true); emailInput.current?.focus() } : undefined} signInOpen={plusSignInOpen} />}
-      {!membership.loaded || (!account && (membership.serverStatus !== 'ready' || !!membership.token)) ? null : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
+      {connectionNotice && <div className="nrn-connection-corner">{connectionNotice}</div>}
+      {identity !== 'pending' && !plusView && (!account || !gameType || activeSection === 'profile' || securityOpen) && <p className="membership-description">{t.description}</p>}
+      {!account && plusView && identity === 'signed-out' && <PlusPanel membership={membership} lang={lang} onSignIn={config.loginEnabled || passwordEnabled ? () => { setPlusSignInOpen(true); emailInput.current?.focus() } : undefined} signInOpen={plusSignInOpen} />}
+      {identity === 'pending' ? null : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
         <div className={`membership-tabs membership-tabs-account ${gameType ? 'membership-tabs-games' : ''}`} role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
           {gameType && <><button type="button" aria-pressed={activeSection === 'stats'} onClick={() => setSection('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
           <button type="button" aria-pressed={activeSection === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button></>}
           <button type="button" aria-pressed={activeSection === 'profile'} onClick={() => setSection('profile')}>{es ? 'Mi perfil' : 'My profile'}</button>
           <button type="button" aria-pressed={activeSection === 'plus'} onClick={() => setSection('plus')}>NRN Plus</button>
         </div>
-        {activeSection === 'plus' ? <PlusPanel membership={membership} lang={lang} /> : gameType && activeSection === 'stats' ? <PersonalStats token={membership.token} gameType={gameType} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : gameType && activeSection === 'leagues' ? <Leagues key={gameType} gameType={gameType} token={membership.token} lang={lang} active={open} onSignIn={() => void membership.refresh()} /> : <>
+        {activeSection === 'plus' ? <PlusPanel membership={membership} lang={lang} /> : gameType && activeSection === 'stats' ? <PersonalStats token={membership.token} gameType={gameType} lang={lang} active={open && membership.authReady} onSignIn={() => void membership.refresh()} /> : gameType && activeSection === 'leagues' ? <Leagues key={gameType} gameType={gameType} token={membership.token} lang={lang} active={open && membership.authReady} onSignIn={() => void membership.refresh()} /> : <>
         {passwordUpdated && <p className="membership-success" role="status">{es ? 'Contraseña actualizada. Las demás sesiones se han cerrado.' : 'Password updated. Your other sessions have been signed out.'}</p>}
         <dl className="membership-profile-details">
           <div><dt>{es ? 'Nombre' : 'Name'}</dt><dd>{account.name || '—'}</dd></div>
@@ -259,9 +260,9 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
       {!securityOpen && (activeMode === 'reset' || activeMode === 'code') && passwordEnabled && !account && <button type="button" className="membership-text" disabled={busy} onClick={() => changeMode('password')}>{es ? 'Entrar con contraseña' : 'Sign in with a password'}</button>}
       </div>}
       {formError && <p className="membership-error" role="alert">{formError}</p>}
-      {error && <p className="membership-error" role="alert">{errors[lang][error]}</p>}
+      {error && error !== 'network' && error !== 'unavailable' && <p className="membership-error" role="alert">{errors[lang][error]}</p>}
       {!membership.storageAvailable && <p className="membership-notice">{t.storage}</p>}
-      {!account && (!plusView || plusSignInOpen) && <p className="membership-footnote">{t.guest}</p>}
+      {identity === 'signed-out' && (!plusView || plusSignInOpen) && <p className="membership-footnote">{t.guest}</p>}
     </dialog>
   </>
 }

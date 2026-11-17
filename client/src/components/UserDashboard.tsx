@@ -7,6 +7,7 @@ import { gameLaunchHref } from '../lib/platform'
 import { useCosmetics } from './Cosmetics'
 import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
+import { accountView } from '../lib/accountReadiness'
 import './Membership.css'
 import './UserDashboard.css'
 
@@ -20,9 +21,8 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
   const [gameType, setGameType] = useState<'continental' | 'pocha'>('continental')
   const [view, setView] = useState<'stats' | 'leagues'>('stats')
   const { active: plusActive } = useCosmetics()
-  const { account, token, serverStatus } = membership
-  const connecting = serverStatus === 'connecting'
-  const unavailable = serverStatus === 'unavailable'
+  const { account, token } = membership
+  const identity = accountView(membership)
   const retry = () => { void membership.retryConnection() }
   const signInAgain = () => { void membership.refresh().then(onOpenAccount) }
 
@@ -32,24 +32,11 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
       <Link to="/" className="user-dashboard-home">← {es ? 'Todos los juegos' : 'All games'}</Link>
     </div>
 
-    {!account ? <section className="user-dashboard-gate" aria-labelledby="user-dashboard-access-title">
+    {!account ? identity === 'signed-out' ? <section className="user-dashboard-gate" aria-labelledby="user-dashboard-access-title">
       <h2 id="user-dashboard-access-title">{es ? 'Tu cuenta de NRN Play' : 'Your NRN Play account'}</h2>
-      {unavailable ? <>
-        <p role="status">{es ? 'No hemos podido conectar con el servidor.' : 'We could not connect to the server.'}</p>
-        <button className="user-dashboard-button" type="button" onClick={retry}>{es ? 'Reintentar' : 'Try again'}</button>
-      </> : connecting || !!token || !membership.loaded ? <>
-        <p role="status">{es ? 'Conectando con tu cuenta…' : 'Connecting to your account…'}</p>
-        <button className="user-dashboard-button is-secondary" type="button" onClick={retry}>{es ? 'Reintentar' : 'Try again'}</button>
-      </> : <>
-        <p>{es ? 'Entra para ver tus resultados, ligas y ajustes de cuenta.' : 'Sign in to view your results, leagues and account settings.'}</p>
-        <button className="user-dashboard-button" type="button" onClick={onOpenAccount} aria-haspopup="dialog">{es ? 'Entrar o crear cuenta' : 'Sign in or create an account'}</button>
-      </>}
-    </section> : <>
-      {(unavailable || connecting) && <div className="user-dashboard-connection" role="status">
-        <span>{connecting ? (es ? 'Conectando con el servidor…' : 'Connecting to the server…') : (es ? 'El servidor no responde. Puedes volver a intentarlo aquí.' : 'The server is not responding. You can try again here.')}</span>
-        <button className="user-dashboard-button is-secondary" type="button" onClick={retry}>{es ? 'Reintentar' : 'Try again'}</button>
-      </div>}
-
+      <p>{es ? 'Entra para ver tus resultados, ligas y ajustes de cuenta.' : 'Sign in to view your results, leagues and account settings.'}</p>
+      <button className="user-dashboard-button" type="button" onClick={onOpenAccount} aria-haspopup="dialog">{es ? 'Entrar o crear cuenta' : 'Sign in or create an account'}</button>
+    </section> : null : <>
       <div className="user-dashboard-account-grid">
         <section className="user-dashboard-account" aria-labelledby="user-dashboard-account-title">
           <div className="user-dashboard-identity">
@@ -61,7 +48,7 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
             <button className="user-dashboard-button is-secondary" type="button" disabled={membership.busy} onClick={() => void membership.logout()}>{es ? 'Cerrar sesión' : 'Sign out'}</button>
           </div>
           {!membership.storageAvailable && <p className="user-dashboard-note" role="status">{es ? 'Este navegador no permite recordar tu sesión.' : 'This browser cannot remember your session.'}</p>}
-          {membership.error && !unavailable && <p className="user-dashboard-error" role="alert">{es ? 'No se pudo completar la última acción. Reintenta la conexión.' : 'The last action could not be completed. Try reconnecting.'} <button type="button" onClick={retry}>{es ? 'Reintentar' : 'Try again'}</button></p>}
+          {membership.error && membership.error !== 'network' && membership.error !== 'unavailable' && <p className="user-dashboard-error" role="alert">{es ? 'No se pudo completar la última acción.' : 'The last action could not be completed.'} <button type="button" onClick={retry}>{es ? 'Reintentar' : 'Try again'}</button></p>}
         </section>
 
         <section className="user-dashboard-plus" aria-labelledby="user-dashboard-plus-title">
@@ -94,9 +81,8 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
           <button type="button" aria-pressed={view === 'leagues'} onClick={() => setView('leagues')}>{es ? 'Ligas' : 'Leagues'}</button>
         </div>
         <div className="user-dashboard-data">
-          {serverStatus !== 'ready' ? <p role="status">{connecting ? (es ? 'Conectando para consultar tus resultados…' : 'Connecting to load your results…') : (es ? 'Reintenta la conexión para consultar tus resultados.' : 'Reconnect to load your results.')}</p>
-            : view === 'stats' ? <PersonalStats key={gameType} token={token} gameType={gameType} lang={lang} active onSignIn={signInAgain} />
-              : <Leagues key={gameType} token={token} gameType={gameType} lang={lang} active onSignIn={signInAgain} />}
+          {view === 'stats' ? <PersonalStats key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain} />
+            : <Leagues key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain} />}
         </div>
       </section>
     </>}

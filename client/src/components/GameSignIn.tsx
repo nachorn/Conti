@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Lang } from '../i18n'
 import type { MembershipController } from '../useMembership'
 import { createGameSignInContinuation, parseGameConnectionRequest } from '../lib/gameSignIn'
+import { accountView } from '../lib/accountReadiness'
 import './GameSignIn.css'
 
 const games: Record<string, string> = {
@@ -33,6 +34,10 @@ export function GameSignIn({ membership, lang, onOpenAccount }: {
     if (request && membership.account && membership.token && !membership.busy) void continuation.run(request, membership.token)
   }, [request, membership.account?.id, membership.token, membership.busy, continuation])
 
+  // The ordinary check and automatic redirect need no intermediary account card.
+  // A login action appears only after the complete check confirmed no session.
+  if (request && !(failed && membership.account && membership.token) && accountView(membership) !== 'signed-out') return <main className="game-sign-in" aria-busy="true" />
+
   return <main className="game-sign-in">
     <section className="game-sign-in-card" aria-labelledby="game-sign-in-title">
       <span className="game-sign-in-symbol" aria-hidden="true">↗</span>
@@ -47,11 +52,7 @@ export function GameSignIn({ membership, lang, onOpenAccount }: {
         {failed && membership.account && membership.token ? <>
           <p className="game-sign-in-error" role="alert">{es ? 'No hemos podido conectar tu cuenta.' : 'We could not connect your account.'}</p>
           <button type="button" className="game-sign-in-primary" disabled={busy || membership.busy} onClick={() => { if (request && membership.token) void continuation.run(request, membership.token, true) }}>{es ? 'Reintentar' : 'Try again'}</button>
-        </> : membership.account && membership.token ? <p role="status">{es ? 'Conectando tu cuenta…' : 'Connecting your account…'}</p>
-          : membership.token ? <p role="status">{membership.serverStatus === 'unavailable' ? (es ? 'No se pudo recuperar tu sesión. Reintenta la conexión.' : 'Your session could not be restored. Retry the connection.') : (es ? 'Recuperando tu sesión…' : 'Restoring your session…')}</p>
-          : !membership.loaded || membership.serverStatus === 'connecting' ? <p role="status">{es ? 'Consultando tu cuenta…' : 'Checking your account…'}</p>
-          : membership.serverStatus === 'unavailable' ? <p role="status">{es ? 'No hay conexión con el servidor.' : 'The server is unavailable.'}</p>
-          : <button type="button" className="game-sign-in-primary" disabled={membership.busy} onClick={onOpenAccount}>{es ? 'Entrar con mi cuenta' : 'Sign in to my account'}<span aria-hidden="true">→</span></button>}
+        </> : <button type="button" className="game-sign-in-primary" disabled={membership.busy} onClick={onOpenAccount}>{es ? 'Entrar con mi cuenta' : 'Sign in to my account'}<span aria-hidden="true">→</span></button>}
         <a className="game-sign-in-home" href="/">{es ? 'Volver a NRN Play' : 'Back to NRN Play'}</a>
       </>}
     </section>

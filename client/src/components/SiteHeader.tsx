@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Lang } from '../i18n'
 import './NRNPlay.css'
@@ -7,8 +8,8 @@ export function ProfileIcon({ className = '' }: { className?: string }) {
   return <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></svg>
 }
 
-export function SiteHeader({ lang, setLang, accountName, onOpenAccount, accountHref }: {
-  lang: Lang; setLang: (lang: Lang) => void; accountName?: string | null; onOpenAccount: () => void; accountHref?: string
+export function SiteHeader({ lang, setLang, accountName, onOpenAccount, accountHref, connectionNotice }: {
+  lang: Lang; setLang: (lang: Lang) => void; accountName?: string | null; onOpenAccount: () => void; accountHref?: string; connectionNotice?: ReactNode
 }) {
   const es = lang === 'es'
   const profile = <>
@@ -30,6 +31,7 @@ export function SiteHeader({ lang, setLang, accountName, onOpenAccount, accountH
         {accountHref ? <Link className="nrn-profile-button" to={accountHref}>{profile}</Link>
           : <button className="nrn-profile-button" type="button" onClick={onOpenAccount} aria-haspopup="dialog">{profile}</button>}
       </div>
+      {connectionNotice && <div className="nrn-header-warning">{connectionNotice}</div>}
     </div>
   </header>
 }

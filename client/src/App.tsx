@@ -8,7 +8,7 @@ import { Home } from './components/Home'
 import { SiteHeader } from './components/SiteHeader'
 import { SavedGames, PausedGame, SaveExitDialog } from './components/SavedGames'
 import { RoomInvite } from './components/RoomInvite'
-import { ConnectionNotice } from './components/ConnectionNotice'
+import { ConnectionNotice, ServerConnectionWarning } from './components/ConnectionNotice'
 import { usePochaMockState } from './usePochaMockState'
 import { useContinentalMockState } from './useContinentalMockState'
 import type { PochaDeckSize, PochaLobbyUpdate } from '@shared/pochaTypes'
@@ -27,8 +27,9 @@ import { beginGameSignIn, consumeGameSignIn } from './lib/gameSignIn'
 import { CosmeticsProvider } from './components/Cosmetics'
 import { PlusOffer } from './components/PlusOffer'
 import { hasCosmeticAccess } from './lib/cosmetics'
-import { AccountConnection } from './components/AccountConnection'
 import { UserDashboard } from './components/UserDashboard'
+import { criticalConnectionState } from './lib/connectionFeedback'
+import { useConnectionWarning } from './useConnectionWarning'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
@@ -60,11 +61,11 @@ function ConnectPage() {
   const membership = useMembership()
   const [lang, setLang] = usePlatformLanguage()
   const [open, setOpen] = useState(false)
+  const connectionNotice = membership.connectionWarning ? <ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /> : undefined
   useEffect(() => { document.title = lang === 'es' ? 'Tu cuenta · NRN Play' : 'Your account · NRN Play' }, [lang])
   return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
-    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} />
-    <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />
-    {!open && <AccountConnection membership={membership} lang={lang} />}
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} connectionNotice={!open ? connectionNotice : undefined} />
+    <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} connectionNotice={open ? connectionNotice : undefined} />
     <GameSignIn membership={membership} lang={lang} onOpenAccount={() => setOpen(true)} />
   </div></CosmeticsProvider>
 }
@@ -77,10 +78,11 @@ function AccountPage() {
   const [section, setSection] = useState<'account' | 'plus'>('account')
   const openAccount = () => { setSection('account'); setOpen(true) }
   const openPlus = () => { setSection('plus'); setOpen(true) }
+  const connectionNotice = membership.connectionWarning ? <ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /> : undefined
   useEffect(() => { document.title = lang === 'es' ? 'Mi panel · NRN Play' : 'My dashboard · NRN Play' }, [lang])
   return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
-    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={openAccount} />
-    <Membership membership={membership} lang={lang} open={open} initialSection={section} hideTrigger onOpen={openAccount} onClose={() => setOpen(false)} />
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={openAccount} connectionNotice={!open ? connectionNotice : undefined} />
+    <Membership membership={membership} lang={lang} open={open} initialSection={section} hideTrigger onOpen={openAccount} onClose={() => setOpen(false)} connectionNotice={open ? connectionNotice : undefined} />
     <UserDashboard membership={membership} lang={lang} onOpenAccount={openAccount} onOpenPlus={openPlus} />
   </div></CosmeticsProvider>
 }
@@ -105,7 +107,7 @@ function GameApp() {
   const [adGateOpen, setAdGateOpen] = useState(false)
   const [lang, setLang] = usePlatformLanguage()
   const [signInError, setSignInError] = useState(false)
-  const [signingIn, setSigningIn] = useState(!!gameSignInReturn && !gameSignInReturnHandled)
+  const [, setSigningIn] = useState(!!gameSignInReturn && !gameSignInReturnHandled)
   const [showPochaDev, setShowPochaDev] = useState(false)
   const [showContinentalDev, setShowContinentalDev] = useState(false)
   const [chatPreviewTarget, setChatPreviewTarget] = useState<HTMLDivElement | null>(null)
@@ -149,6 +151,18 @@ function GameApp() {
     sessionStorageAvailable,
     reconnect,
   } = useSocket(membership.token, membership.refresh)
+  const socketRelevant = !showPochaDev && !showContinentalDev && !!(hostedGame || location.pathname !== '/' || recoveryRoomId !== null)
+  const recoveryRejected = recoveryRoomId !== null && !!error && !state
+  const criticalConnection = criticalConnectionState(connectionStatus, recoveryRoomId, sessionStorageAvailable, recoveryRejected)
+  const recoveringSeat = recoveryRoomId !== null && connectionStatus !== 'connected'
+  const socketWarning = useConnectionWarning(socketRelevant && !criticalConnection && (connectionStatus === 'reconnecting' || recoveringSeat),
+    !socketRelevant || criticalConnection || connectionStatus === 'connected')
+  const noticeInModal = membershipOpen && !location.pathname.startsWith('/room/') && !showPochaDev && !showContinentalDev
+  const connectionNotice = (noticeInModal || !criticalConnection) && (membership.connectionWarning || socketWarning) ? <ServerConnectionWarning
+    accountUnavailable={membership.connectionWarning} gameUnavailable={socketWarning} recoveringGame={recoveringSeat} lang={lang} onRetry={() => {
+      if (socketWarning) reconnect()
+      if (membership.connectionWarning) void membership.retryConnection()
+    }} /> : undefined
   const turnSound = useTurnSound(state, socketId, isConnected && !showPochaDev && !showContinentalDev)
   const roomVerification = useRoomVerification(lang)
 
@@ -307,26 +321,27 @@ function GameApp() {
     <div className={isPlatformPage ? 'nrn-platform' : undefined}>
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
         accountHref={!hostedGame && location.pathname === '/' ? platformAccountHref() : undefined}
+        connectionNotice={!noticeInModal ? connectionNotice : undefined}
         onOpenAccount={openAccount} />}
-      {!hostedGame && location.pathname === '/' && !membershipOpen && <AccountConnection membership={membership} lang={lang} />}
-      {signingIn && <p className="nrn-sign-in-status" role="status">{lang === 'es' ? 'Conectando tu cuenta de NRN Play…' : 'Connecting your NRN Play account…'}</p>}
+      {!isPlatformPage && !noticeInModal && connectionNotice && <div className="nrn-connection-corner nrn-connection-corner--game">{connectionNotice}</div>}
       {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes volver a iniciar sesión.' : 'Your account could not be connected. You can sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
       {roomVerification.dialog}
       {!showPochaDev && !showContinentalDev && <>
         {!location.pathname.startsWith('/room/') && <Membership membership={membership} lang={lang} open={membershipOpen} gameType={accountGameType}
           hideTrigger={isPlatformPage}
           initialSection={membershipSection}
+          connectionNotice={noticeInModal ? connectionNotice : undefined}
           onOpen={openAccount} onClose={closeAccount} />}
         <AdGate gate={adGate} state={state} playerId={socketId} lang={lang} connected={isConnected}
           open={adGateOpen} onOpen={() => { setMembershipOpen(false); setAdGateOpen(true) }} onClose={() => setAdGateOpen(false)}
           onAccount={openAccount} begin={beginAd} complete={completeAd} />
       </>}
-      {!showPochaDev && !showContinentalDev && (hostedGame || location.pathname !== '/' || recoveryRoomId !== null) && (
+      {socketRelevant && criticalConnection && (
         <ConnectionNotice
           status={connectionStatus}
           recoveryRoomId={recoveryRoomId}
           sessionStorageAvailable={sessionStorageAvailable}
-          error={location.pathname === '/game' && !state ? error : null}
+          error={recoveryRejected ? error : null}
           lang={lang}
           onReconnect={reconnect}
         />

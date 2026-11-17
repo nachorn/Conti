@@ -38,3 +38,13 @@
   background: var(--gold-bright);
   color: var(--black);
 }
+
+.server-connection-warning { display: flex; align-items: center; gap: .35rem; width: max-content; max-width: 100%; min-height: 44px; padding: 0 .2rem 0 .7rem; border: 1px solid #be9755; border-radius: 10px; color: #65400e; background: #fff5dd; box-shadow: 0 3px 12px #172b2414; }
+.server-connection-warning-copy { display: flex; align-items: center; gap: .45rem; min-width: 0; font-size: .75rem; line-height: 1.3; }
+.server-connection-warning-copy > svg { flex-shrink: 0; }
+.server-connection-warning button { display: grid; place-items: center; flex-shrink: 0; min-width: 44px; min-height: 44px; padding: .4rem; border: 0; border-radius: 7px; background: transparent; color: inherit; }
+.server-connection-warning button:hover { background: #b8862420; }
+.server-connection-warning button:focus-visible { outline: 2px solid #65400e; outline-offset: -2px; }
+.nrn-connection-corner { position: fixed; top: max(.7rem, env(safe-area-inset-top, 0px)); right: max(.8rem, env(safe-area-inset-right, 0px)); z-index: 80; max-width: calc(100vw - 1.6rem); }
+.nrn-connection-corner--game { top: calc(3rem + env(safe-area-inset-top, 0px)); }
+.membership-dialog .nrn-connection-corner { position: sticky; top: 4.75rem; right: auto; z-index: 4; display: flex; justify-content: flex-end; max-width: 100%; margin: .65rem 0 .75rem; }

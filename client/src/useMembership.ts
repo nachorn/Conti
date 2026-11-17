@@ -58,6 +58,9 @@ export function useMembership() {
   const recoveryTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const connectionAttempt = useRef<Promise<boolean> | null>(null)
   const live = useRef(false)
+  const [connectionWarning, setConnectionWarning] = useState(false)
+  const connectionFailed = useRef(false)
+  const connectionWarningTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<MembershipError>(null)
   const [storageAvailable, setStorageAvailable] = useState(true)
@@ -70,6 +73,27 @@ export function useMembership() {
   const manualCurrency = useRef<MembershipCurrency | null>(initialCurrency)
   const [currency, setCurrency] = useState<MembershipCurrency>(() => preferredCurrency(initialCurrency, null, window.navigator.language))
   const [currencyPending, setCurrencyPending] = useState(!initialCurrency)
+
+  const markConnectionFailure = useCallback(() => {
+    if (!live.current || connectionFailed.current) return
+    connectionFailed.current = true
+    connectionWarningTimer.current = window.setTimeout(() => {
+      connectionWarningTimer.current = null
+      if (live.current && connectionFailed.current) setConnectionWarning(true)
+    }, 2_000)
+  }, [])
+  const markConnectionReady = useCallback(() => {
+    connectionFailed.current = false
+    if (connectionWarningTimer.current !== null) window.clearTimeout(connectionWarningTimer.current)
+    connectionWarningTimer.current = null
+    setConnectionWarning(false)
+    setError(current => current === 'network' || current === 'unavailable' ? null : current)
+  }, [])
+  const reportFailure = useCallback((failure: unknown, context: 'general' | 'code' | 'credentials' = 'general') => {
+    const kind = errorKind(failure, context)
+    setError(kind)
+    if (kind === 'network' || kind === 'unavailable') markConnectionFailure()
+  }, [markConnectionFailure])
 
   const selectCurrency = (value: MembershipCurrency) => {
     if (!isMembershipCurrency(value)) return
@@ -112,8 +136,9 @@ export function useMembership() {
     setAccount(value.account)
     setBusy(false)
     setError(null)
+    markConnectionReady()
     return true
-  }, [remember])
+  }, [remember, markConnectionReady])
 
   // A portal launch chooses its central identity. A failed new handoff must
   // not revive a previous game's account through a late refresh response.
@@ -142,12 +167,13 @@ export function useMembership() {
       return true
     } catch (failure) {
       if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return true
-      setAccount(null)
-      if (failure instanceof RequestError && failure.status === 401) remember(null)
-      setError(errorKind(failure))
+      // Keep the last verified identity in memory during a transient check. A
+      // network error is not a signed-out account and never deletes its token.
+      if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
+      reportFailure(failure)
       return failure instanceof RequestError && failure.status === 401
     }
-  }, [remember])
+  }, [remember, reportFailure])
 
   const connectOnce = useCallback((): Promise<boolean> => {
     if (connectionAttempt.current) return connectionAttempt.current
@@ -157,14 +183,26 @@ export function useMembership() {
       setConfig(value); configReady.current = true
       return true
     }).catch(() => {
-      if (live.current && sequence === configSequence.current) { setConfig(disabledConfig); configReady.current = false }
+      if (live.current && sequence === configSequence.current) { setConfig(disabledConfig); configReady.current = false; markConnectionFailure() }
       return false
-    }).finally(() => { if (live.current && sequence === configSequence.current) setLoaded(true) })
-    const pending = Promise.all([configuration, refreshAccount()]).then(([configured, restored]) => configured && restored)
+    })
+    const pending = Promise.all([configuration, refreshAccount()]).then(([configured, restored]) => {
+      const ready = configured && restored
+      if (live.current && sequence === configSequence.current) {
+        setLoaded(true)
+        if (ready) markConnectionReady()
+        else {
+          markConnectionFailure()
+          serverStatusRef.current = 'connecting'
+          setServerStatus('connecting')
+        }
+      }
+      return ready
+    })
     connectionAttempt.current = pending
     void pending.finally(() => { if (connectionAttempt.current === pending) connectionAttempt.current = null })
     return pending
-  }, [refreshAccount])
+  }, [refreshAccount, markConnectionFailure, markConnectionReady])
 
   // Foreground recovery only. Never repeat login, email, checkout or logout POSTs.
   const retryConnection = useCallback(async () => {
@@ -175,8 +213,12 @@ export function useMembership() {
     const attempt = async (number: number): Promise<void> => {
       if (!live.current || cycle !== recoverySequence.current) return
       if (number > 0 && document.hidden) { serverStatusRef.current = 'unavailable'; setServerStatus('unavailable'); return }
-      serverStatusRef.current = 'connecting'
-      setServerStatus('connecting')
+      // An already verified view stays ready while its revalidation is pending.
+      // connectOnce degrades it only after a real failed attempt.
+      if (serverStatusRef.current !== 'ready') {
+        serverStatusRef.current = 'connecting'
+        setServerStatus('connecting')
+      }
       const ready = await connectOnce()
       if (!live.current || cycle !== recoverySequence.current) return
       if (ready) { serverStatusRef.current = 'ready'; setServerStatus('ready'); return }
@@ -222,6 +264,8 @@ export function useMembership() {
       live.current = false
       ++recoverySequence.current; ++configSequence.current
       if (recoveryTimer.current !== null) window.clearTimeout(recoveryTimer.current)
+      if (connectionWarningTimer.current !== null) window.clearTimeout(connectionWarningTimer.current)
+      connectionWarningTimer.current = null; connectionFailed.current = false
       connectionAttempt.current = null
       lifecycle.dispose(); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null
     }
@@ -241,8 +285,9 @@ export function useMembership() {
       remember({ token: value.token, expiresAt: value.expiresAt })
       registration.current = null
       setAccount(value.account)
+      markConnectionReady()
       return true
-    } catch (failure) { if (sequence === authSequence.current) setError(errorKind(failure, context)); return false }
+    } catch (failure) { if (sequence === authSequence.current) reportFailure(failure, context); return false }
     finally { if (pendingAuth.current === sequence) pendingAuth.current = null; if (sequence === authSequence.current) setBusy(false) }
   }
   const verify = (email: string, code: string) => authenticate('verify', { email: email.trim(), code: code.trim() }, 'code')
@@ -262,9 +307,10 @@ export function useMembership() {
       const value = await request(path, null, body)
       if (sequence !== authSequence.current) return false
       received?.(value)
+      markConnectionReady()
       return true
     }
-    catch (failure) { if (sequence === authSequence.current) setError(errorKind(failure)); return false }
+    catch (failure) { if (sequence === authSequence.current) reportFailure(failure); return false }
     finally { if (pendingAuth.current === sequence) pendingAuth.current = null; if (sequence === authSequence.current) setBusy(false) }
   }
   const register = (name: string, email: string, password: string, lang: Lang) => {
@@ -288,12 +334,13 @@ export function useMembership() {
       if (sequence !== authSequence.current) return
       ++refreshSequence.current
       remember(null); setAccount(null)
+      if (token) markConnectionReady()
     } catch (failure) {
       if (sequence !== authSequence.current) return
       // A rejected/expired session can always be forgotten; network failures
       // stay visible so the user knows server-side sign-out is unconfirmed.
       if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
-      else setError(errorKind(failure))
+      else reportFailure(failure)
     } finally { if (sequence === authSequence.current) setBusy(false) }
   }
   const checkout = async (selectedCurrency: MembershipCurrency) => {
@@ -307,7 +354,7 @@ export function useMembership() {
       window.location.assign(result.url)
     } catch (failure) {
       if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
-      setError(errorKind(failure))
+      reportFailure(failure)
     } finally { setBusy(false) }
   }
 
@@ -327,10 +374,10 @@ export function useMembership() {
     } catch (failure) {
       if (sessionRef.current?.token !== token) return
       if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
-      setError(errorKind(failure))
+      reportFailure(failure)
     } finally { plusCheckoutPending.current = false; setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, serverStatus, retryConnection, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
+  return { token: session?.token ?? null, account, config, loaded, authReady: loaded && serverStatus === 'ready', serverStatus, connectionWarning, retryConnection, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>
