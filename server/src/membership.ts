@@ -140,7 +140,7 @@ export class MembershipService {
     this.appUrl = validAppUrl(options.appUrl)
     this.gameSignIn = new GameSignInBroker(
       validateGameOrigins(options.gameOrigins ?? DEFAULT_GAME_ORIGINS, options.allowLocalGameOrigins === true),
-      sourceTokenHash => this.linkedSessionByHash(sourceTokenHash), this.now,
+      (sourceTokenHash, previousToken) => this.linkedSessionByHash(sourceTokenHash, previousToken), this.now,
     )
   }
   async load() {
@@ -230,12 +230,21 @@ export class MembershipService {
     if (typeof sourceToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(sourceToken)) return Promise.reject(new MembershipError('unauthorized', 401))
     return this.linkedSessionByHash(hash(sourceToken))
   }
-  private linkedSessionByHash(sourceTokenHash: string): Promise<MembershipSession> {
+  private linkedSessionByHash(sourceTokenHash: string, previousToken?: string): Promise<MembershipSession> {
     return this.mutate(data => {
       // Recheck inside the mutation queue so logout/reset before exchange revokes the proof.
       const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
       const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
       if (!source || !account) throw new MembershipError('unauthorized', 401)
+      if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
+        const previousHash = hash(previousToken)
+        const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
+          session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
+        if (previous) {
+          previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
+          return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data) }
+        }
+      }
       const token = randomBytes(32).toString('base64url')
       const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
       const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
@@ -650,7 +659,7 @@ export class MembershipService {
       res.json(this.gameSignIn.authorize(this.token(req), req.body?.origin, req.body?.challenge, req.ip ?? 'unknown'))
     }))
     app.post('/api/membership/game-exchange', json, run(async (req, res) => {
-      res.json(await this.gameSignIn.exchange(req.body?.code, req.body?.verifier, req.get('origin'), req.ip ?? 'unknown'))
+      res.json(await this.gameSignIn.exchange(req.body?.code, req.body?.verifier, req.get('origin'), req.ip ?? 'unknown', req.body?.previousToken))
     }))
     app.get('/api/membership/config', run(async (_req, res) => res.json(await this.config())))
     app.post('/api/membership/login', json, run(async (req, res) => {

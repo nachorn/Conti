@@ -14,8 +14,8 @@ const LOCAL_ORIGINS = new Set([
 ])
 export type GameSignInStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export interface GameConnectionRequest { origin: string; challenge: string; state: string }
-interface PendingGameSignIn { origin: string; verifier: string; state: string; expiresAt: number }
-export interface GameSignInProof { origin: string; code: string; verifier: string }
+interface PendingGameSignIn { origin: string; verifier: string; state: string; expiresAt: number; previousToken?: string }
+export interface GameSignInProof { origin: string; code: string; verifier: string; previousToken?: string }
 type ErrorCode = 'invalid_request' | 'storage' | 'expired' | 'exchange' | 'unavailable'
 
 export class GameSignInError extends Error {
@@ -59,6 +59,7 @@ export interface CreateGameSignInOptions {
   now?: number
   development?: boolean
   centralOrigin?: string
+  previousToken?: string | null
 }
 
 /** Store the private PKCE verifier before returning a public central sign-in URL. */
@@ -73,7 +74,8 @@ export async function createGameSignInRequest(options: CreateGameSignInOptions):
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)))
   const state = base64Url(crypto.getRandomValues(new Uint8Array(32)))
   const challenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))
-  const pending: PendingGameSignIn = { origin: options.origin, verifier, state, expiresAt: (options.now ?? Date.now()) + GAME_SIGN_IN_TTL }
+  const pending: PendingGameSignIn = { origin: options.origin, verifier, state, expiresAt: (options.now ?? Date.now()) + GAME_SIGN_IN_TTL,
+    ...(typeof options.previousToken === 'string' && SECRET.test(options.previousToken) ? { previousToken: options.previousToken } : {}) }
   try { options.storage.setItem(GAME_SIGN_IN_STORAGE_KEY, JSON.stringify(pending)) }
   catch { throw new GameSignInError('storage') }
   const destination = new URL('/connect', central)
@@ -92,6 +94,7 @@ export async function beginGameSignIn(options: BeginGameSignInOptions = {}): Pro
     now: options.now,
     development,
     centralOrigin: options.centralOrigin ?? (import.meta.env?.VITE_NRN_AUTH_URL || (development ? origin : 'https://nrnplay.com')),
+    previousToken: options.previousToken,
   })
   ;(options.navigate ?? (url => window.location.assign(url)))(destination)
 }
@@ -123,11 +126,12 @@ export function readGameSignInReturn(options: ReadGameSignInOptions): GameSignIn
   const now = options.now ?? Date.now()
   if (!pending || typeof pending !== 'object' || pending.origin !== options.origin || pending.state !== state ||
     typeof pending.verifier !== 'string' || !SECRET.test(pending.verifier) || typeof pending.expiresAt !== 'number' ||
-    !Number.isSafeInteger(pending.expiresAt)) throw new GameSignInError('invalid_request')
+    !Number.isSafeInteger(pending.expiresAt) ||
+    (pending.previousToken !== undefined && (typeof pending.previousToken !== 'string' || !SECRET.test(pending.previousToken)))) throw new GameSignInError('invalid_request')
   if (pending.expiresAt <= now || pending.expiresAt > now + GAME_SIGN_IN_TTL) throw new GameSignInError('expired')
   try { options.storage.removeItem(GAME_SIGN_IN_STORAGE_KEY) }
   catch { throw new GameSignInError('storage') }
-  return { origin: options.origin, code, verifier: pending.verifier }
+  return { origin: options.origin, code, verifier: pending.verifier, ...(pending.previousToken ? { previousToken: pending.previousToken } : {}) }
 }
 
 interface RequestOptions { fetch?: typeof fetch; apiUrl?: string }
@@ -161,6 +165,47 @@ export function gameSignInReturnUrl(request: GameConnectionRequest, code: string
   const url = new URL('/', request.origin)
   url.hash = new URLSearchParams({ 'nrn-code': code, state: request.state }).toString()
   return url.href
+}
+
+interface ContinuationState { busy: boolean; failed: boolean }
+interface ContinuationOptions {
+  navigate: (url: string) => void
+  isCurrent: (token: string) => boolean
+  onState: (state: ContinuationState) => void
+  authorize?: (request: GameConnectionRequest, token: string) => Promise<string>
+  development?: boolean
+}
+
+/** Effect replays share a request and can commit its result only once while mounted. */
+export function createGameSignInContinuation(options: ContinuationOptions) {
+  type Attempt = { request: GameConnectionRequest; token: string; settled: boolean; failed: boolean; code?: string; navigated: boolean; promise: Promise<void> }
+  let current: Attempt | null = null
+  const synchronize = (attempt: Attempt) => {
+    if (current !== attempt || !options.isCurrent(attempt.token)) return
+    if (attempt.code && !attempt.navigated) {
+      attempt.navigated = true
+      try { options.navigate(gameSignInReturnUrl(attempt.request, attempt.code, options.development)) }
+      catch { attempt.code = undefined; attempt.navigated = false; attempt.failed = true }
+    }
+    options.onState({ busy: !attempt.settled, failed: attempt.failed })
+  }
+  return {
+    run(request: GameConnectionRequest, token: string, retry = false): Promise<void> {
+      const previous = current
+      if (previous && previous.token === token && previous.request.origin === request.origin &&
+        previous.request.challenge === request.challenge && previous.request.state === request.state && (!retry || !previous.failed)) {
+        synchronize(previous)
+        return previous.promise
+      }
+      const attempt: Attempt = { request, token, settled: false, failed: false, navigated: false, promise: Promise.resolve() }
+      current = attempt
+      attempt.promise = Promise.resolve().then(() => (options.authorize ?? authorizeGameSignIn)(request, token))
+        .then(code => { attempt.code = code }, () => { attempt.failed = true })
+        .then(() => { attempt.settled = true; synchronize(attempt) })
+      synchronize(attempt)
+      return attempt.promise
+    },
+  }
 }
 
 export interface ConsumeGameSignInOptions extends Partial<Omit<ReadGameSignInOptions, 'scrub'>>, RequestOptions { scrub?: () => void }

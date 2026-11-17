@@ -2,6 +2,10 @@ export type CardGame = 'continental' | 'pocha'
 export type PlatformGame = 'football' | 'conti' | 'pocha'
 
 export const PLATFORM_ORIGIN = 'https://nrnplay.com'
+
+export function platformAccountHref(hostname = typeof window === 'undefined' ? '' : window.location.hostname): string {
+  return hostname === 'www.nrnplay.com' || hostname.endsWith('.nrnplay.com') ? `${PLATFORM_ORIGIN}/account` : '/account'
+}
 export const GAME_ORIGINS: Record<PlatformGame, string> = {
   football: 'https://football.nrnplay.com',
   conti: 'https://conti.nrnplay.com',

@@ -5,6 +5,7 @@ import {
   authorizeGameSignIn, beginGameSignIn, consumeGameSignIn, createGameSignInRequest,
   GAME_SIGN_IN_STORAGE_KEY, GAME_SIGN_IN_TTL, GameSignInError, gameSignInReturnUrl,
   isAllowedGameOrigin, parseGameConnectionRequest, readGameSignInReturn,
+  createGameSignInContinuation,
   type GameSignInStorage,
 } from '../src/lib/gameSignIn.ts'
 
@@ -150,4 +151,93 @@ test('rejected or malformed exchanges cannot become a session', async () => {
   }
   const { store, state } = await pending()
   await assert.rejects(consumeGameSignIn({ origin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${state}`, scrub: () => {}, fetch: async () => response({ error: 'invalid_code' }, 400) }), { code: 'exchange' })
+})
+
+test('a previous game credential stays in the private PKCE proof and is sent only to exchange', async () => {
+  const store = storage(), previousToken = secret('p')
+  const url = new URL(await createGameSignInRequest({ origin, storage: store, now, previousToken }))
+  assert.equal(url.href.includes(previousToken), false)
+  assert.equal([...url.searchParams.keys()].length, 3)
+  assert.equal(JSON.parse(store.getItem(GAME_SIGN_IN_STORAGE_KEY)!).previousToken, previousToken)
+  await consumeGameSignIn({ origin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${url.searchParams.get('state')}`, scrub: () => {},
+    fetch: async (_url, init) => {
+      assert.equal(JSON.parse(String(init?.body)).previousToken, previousToken)
+      assert.equal(new Headers(init?.headers).has('Authorization'), false)
+      return response(validSession())
+    } })
+  assert.equal(store.getItem(GAME_SIGN_IN_STORAGE_KEY), null)
+  const next = new URL(await createGameSignInRequest({ origin, storage: store, now, previousToken: 'invalid old credential' }))
+  assert.equal(JSON.parse(store.getItem(GAME_SIGN_IN_STORAGE_KEY)!).previousToken, undefined)
+  assert.equal(next.href.includes('invalid old credential'), false)
+})
+
+test('a corrupt previous credential or failed exchange cannot restore an earlier account', async () => {
+  const { store, state } = await pending()
+  store.setItem(GAME_SIGN_IN_STORAGE_KEY, JSON.stringify({ ...JSON.parse(store.getItem(GAME_SIGN_IN_STORAGE_KEY)!), previousToken: 'not-a-token' }))
+  let calls = 0
+  await assert.rejects(consumeGameSignIn({ origin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${state}`, scrub: () => {},
+    fetch: async () => { calls++; return response(validSession()) } }), { code: 'invalid_request' })
+  assert.equal(calls, 0)
+  const url = new URL(await createGameSignInRequest({ origin, storage: store, now, previousToken: secret('p') }))
+  await assert.rejects(consumeGameSignIn({ origin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${url.searchParams.get('state')}`, scrub: () => {},
+    fetch: async () => response({ error: 'invalid_code' }, 400) }), { code: 'exchange' })
+  assert.equal(store.getItem(GAME_SIGN_IN_STORAGE_KEY), null)
+  assert.equal(await consumeGameSignIn({ origin, storage: store, now, hash: '', scrub: () => {} }), null)
+})
+
+test('automatic continuation shares one authorization across StrictMode effect replays and navigates once', async () => {
+  const request = { origin, challenge: secret('h'), state: secret('s') }
+  let mounted = true, calls = 0, navigations = 0, release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const controller = createGameSignInContinuation({ isCurrent: () => mounted, onState: () => {},
+    authorize: async () => { calls++; await gate; return secret('c') },
+    navigate: url => { navigations++; assert.equal(new URL(url).origin, origin) },
+  })
+  const first = controller.run(request, secret('t'))
+  mounted = false
+  mounted = true
+  const replay = controller.run(request, secret('t'))
+  assert.equal(first, replay)
+  release()
+  await first
+  await controller.run(request, secret('t'))
+  assert.equal(calls, 1)
+  assert.equal(navigations, 1)
+})
+
+test('a continuation resolving during effect cleanup waits for the live replay before navigating', async () => {
+  const request = { origin, challenge: secret('h'), state: secret('s') }
+  let mounted = true, calls = 0, navigations = 0
+  const controller = createGameSignInContinuation({ isCurrent: () => mounted, onState: () => {},
+    authorize: async () => { calls++; return secret('c') }, navigate: () => { navigations++ },
+  })
+  const first = controller.run(request, secret('t'))
+  mounted = false
+  await first
+  assert.equal(navigations, 0)
+  mounted = true
+  await controller.run(request, secret('t'))
+  assert.equal(calls, 1)
+  assert.equal(navigations, 1)
+})
+
+test('failed automatic continuation requires an explicit retry and stale-account responses cannot navigate', async () => {
+  const request = { origin, challenge: secret('h'), state: secret('s') }
+  let token = secret('t'), calls = 0, navigations = 0, release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const controller = createGameSignInContinuation({ isCurrent: value => value === token, onState: () => {},
+    authorize: async () => { calls++; if (calls === 1) throw new Error('sleeping server'); await gate; return secret('c') },
+    navigate: () => { navigations++ },
+  })
+  await controller.run(request, token)
+  await controller.run(request, token)
+  assert.equal(calls, 1, 'renders and focus updates do not repeat a failed authorization')
+  const retried = controller.run(request, token, true)
+  token = secret('u')
+  release()
+  await retried
+  assert.equal(calls, 2)
+  assert.equal(navigations, 0, 'the previous account cannot take over after a token change')
+  await controller.run({ ...request, state: secret('n') }, token)
+  assert.equal(navigations, 1)
 })

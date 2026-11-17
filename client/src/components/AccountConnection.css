@@ -1,0 +1,6 @@
+.account-connection { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: 1200px; margin: 1rem auto; padding: 1rem 1.2rem; border: 1px solid #a4b48c; border-radius: 12px; background: #edf1e3; color: #19352d; }
+.account-connection p { margin: .35rem 0 0; font-size: .85rem; line-height: 1.5; }
+.account-connection button { flex-shrink: 0; min-height: 44px; padding: .6rem 1rem; border-radius: 8px; border: 1px solid #6d8060; background: #fff; color: #19352d; }
+.membership-dialog .account-connection { margin: 1rem 0; }
+.membership-dialog .account-connection p { color: #19352d; }
+@media (max-width: 600px) { .account-connection { margin: .8rem; align-items: stretch; flex-direction: column; } }

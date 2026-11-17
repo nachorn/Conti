@@ -55,7 +55,7 @@ export class GameSignInBroker {
   private readonly exchangeIPs: RateLimiter
   constructor(
     origins: readonly string[],
-    private readonly issueLinkedSession: (sourceTokenHash: string) => Promise<MembershipSession>,
+    private readonly issueLinkedSession: (sourceTokenHash: string, previousToken?: string) => Promise<MembershipSession>,
     private readonly now: () => number = Date.now,
   ) {
     this.origins = new Set(origins)
@@ -99,10 +99,11 @@ export class GameSignInBroker {
     return { code, expiresAt }
   }
 
-  async exchange(code: unknown, verifier: unknown, origin: string | undefined, remoteAddress: string): Promise<MembershipSession> {
+  async exchange(code: unknown, verifier: unknown, origin: string | undefined, remoteAddress: string, previousToken?: unknown): Promise<MembershipSession> {
     if (this.exchangeIPs.take(digest(remoteAddress))) throw new GameSignInError('rate_limited', 429)
     if (!origin || !this.origins.has(origin)) throw new GameSignInError('invalid_origin', 403)
     if (typeof code !== 'string' || !challengePattern.test(code) || typeof verifier !== 'string' || !verifierPattern.test(verifier)) throw new GameSignInError('invalid_code')
+    if (previousToken !== undefined && (typeof previousToken !== 'string' || !challengePattern.test(previousToken))) throw new GameSignInError('invalid_request')
     const key = digest(code), pending = this.codes.get(key)
     if (!pending || pending.expiresAt <= this.now()) {
       this.codes.delete(key)
@@ -113,6 +114,6 @@ export class GameSignInBroker {
     if (!timingSafeEqual(Buffer.from(challenge), Buffer.from(pending.challenge))) throw new GameSignInError('invalid_code')
     // Claim before the async durable write: concurrent replays cannot issue tokens.
     this.codes.delete(key)
-    return this.issueLinkedSession(pending.sourceTokenHash)
+    return this.issueLinkedSession(pending.sourceTokenHash, previousToken)
   }
 }

@@ -21,12 +21,14 @@ import { AdGate } from './components/AdGate'
 import { RoomChat } from './components/RoomChat'
 import { useTurnSound } from './useTurnSound'
 import { useRoomVerification } from './useRoomVerification'
-import { gameHref, hostedCardGame } from './lib/platform'
+import { gameHref, hostedCardGame, platformAccountHref } from './lib/platform'
 import { GameSignIn } from './components/GameSignIn'
 import { beginGameSignIn, consumeGameSignIn } from './lib/gameSignIn'
 import { CosmeticsProvider } from './components/Cosmetics'
 import { PlusOffer } from './components/PlusOffer'
 import { hasCosmeticAccess } from './lib/cosmetics'
+import { AccountConnection } from './components/AccountConnection'
+import { UserDashboard } from './components/UserDashboard'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
@@ -62,7 +64,24 @@ function ConnectPage() {
   return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
     <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} />
     <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />
+    {!open && <AccountConnection membership={membership} lang={lang} />}
     <GameSignIn membership={membership} lang={lang} onOpenAccount={() => setOpen(true)} />
+  </div></CosmeticsProvider>
+}
+
+/** Personal account data never mounts a game socket or an administrative API. */
+function AccountPage() {
+  const membership = useMembership()
+  const [lang, setLang] = usePlatformLanguage()
+  const [open, setOpen] = useState(false)
+  const [section, setSection] = useState<'account' | 'plus'>('account')
+  const openAccount = () => { setSection('account'); setOpen(true) }
+  const openPlus = () => { setSection('plus'); setOpen(true) }
+  useEffect(() => { document.title = lang === 'es' ? 'Mi panel · NRN Play' : 'My dashboard · NRN Play' }, [lang])
+  return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={openAccount} />
+    <Membership membership={membership} lang={lang} open={open} initialSection={section} hideTrigger onOpen={openAccount} onClose={() => setOpen(false)} />
+    <UserDashboard membership={membership} lang={lang} onOpenAccount={openAccount} onOpenPlus={openPlus} />
   </div></CosmeticsProvider>
 }
 
@@ -72,6 +91,7 @@ export default function App() {
   return <Routes>
     <Route path="/dashboard" element={<Suspense fallback={<p role="status">Loading… / Cargando…</p>}><Dashboard /></Suspense>} />
     <Route path="/connect" element={<ConnectPage />} />
+    <Route path="/account" element={<AccountPage />} />
     <Route path="/*" element={<GameApp />} />
   </Routes>
 }
@@ -150,17 +170,19 @@ function GameApp() {
     query.delete('nrn-signin')
     const search = query.toString()
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? '?' + search : ''}${window.location.hash}`)
+    const previousToken = membership.token
     membership.clearLocalSession()
     setSigningIn(true)
-    void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
+    void beginGameSignIn({ previousToken }).catch(() => { setSigningIn(false); setSignInError(true) })
   }, [membership.clearLocalSession])
 
   const showAccount = () => {
     setAdGateOpen(false)
-    if (!hostedGame || membership.account) { setMembershipOpen(true); return }
+    if (!hostedGame || membership.account || membership.token) { setMembershipOpen(true); return }
+    const previousToken = membership.token
     membership.clearLocalSession()
     setSigningIn(true); setSignInError(false)
-    void beginGameSignIn().catch(() => { setSigningIn(false); setSignInError(true) })
+    void beginGameSignIn({ previousToken }).catch(() => { setSigningIn(false); setSignInError(true) })
   }
   const openAccount = () => { setMembershipSection('account'); showAccount() }
   const openPlus = () => { setMembershipSection('plus'); showAccount() }
@@ -284,7 +306,9 @@ function GameApp() {
     <CosmeticsProvider account={membership.account} lang={lang}>
     <div className={isPlatformPage ? 'nrn-platform' : undefined}>
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
+        accountHref={!hostedGame && location.pathname === '/' ? platformAccountHref() : undefined}
         onOpenAccount={openAccount} />}
+      {!hostedGame && location.pathname === '/' && !membershipOpen && <AccountConnection membership={membership} lang={lang} />}
       {signingIn && <p className="nrn-sign-in-status" role="status">{lang === 'es' ? 'Conectando tu cuenta de NRN Play…' : 'Connecting your NRN Play account…'}</p>}
       {signInError && <p className="nrn-sign-in-error" role="alert">{lang === 'es' ? 'No se pudo conectar tu cuenta. Puedes volver a iniciar sesión.' : 'Your account could not be connected. You can sign in again.'} <button type="button" onClick={openAccount}>{lang === 'es' ? 'Iniciar sesión' : 'Sign in'}</button></p>}
       {roomVerification.dialog}
@@ -329,7 +353,7 @@ function GameApp() {
         <Route
           path="/"
           element={
-            hostedGame ? renderLobby(hostedGame) : <Home lang={lang} accountName={membership.account?.name} signedIn={!!membership.account} error={error} onOpenAccount={openAccount}
+            hostedGame ? renderLobby(hostedGame) : <Home lang={lang} accountName={membership.account?.name} signedIn={!!membership.token} error={error} onOpenAccount={() => navigate('/account')} profileHref={platformAccountHref()}
               onOpenPlus={openPlus} plusActive={hasCosmeticAccess(membership.account)}
               savedGames={savedGames.length > 0 ? <SavedGames games={savedGames} lang={lang}
                 connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} /> : undefined} />

@@ -7,6 +7,7 @@ import { Leagues } from './Leagues'
 import { readAccountForm } from '../lib/accountForm'
 import { PlusPanel } from './PlusPanel'
 import './Membership.css'
+import { AccountConnection } from './AccountConnection'
 
 const copy = {
   es: {
@@ -183,8 +184,9 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
       </div>
       <h2 ref={title} id="membership-title" tabIndex={-1}>{activeSection === 'plus' && !securityOpen ? 'NRN Plus' : account ? securityOpen ? (es ? 'Cambiar contraseña' : 'Change password') : gameType && activeSection !== 'profile' ? gameName : (es ? 'Mi perfil' : 'My profile') : t.title}</h2>
       {(!account || !gameType || activeSection === 'profile' || securityOpen) && <p className="membership-description">{t.description}</p>}
+      {open && <AccountConnection membership={membership} lang={lang} />}
       {!account && initialSection === 'plus' && membership.loaded && <PlusPanel membership={membership} lang={lang} />}
-      {!membership.loaded ? <p role="status">{t.waiting}</p> : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
+      {!membership.loaded || (!account && (membership.serverStatus !== 'ready' || !!membership.token)) ? null : !config.loginEnabled && !passwordEnabled && !account ? <div className="membership-notice"><strong>{t.soon}</strong><p>{t.unavailable}</p></div> : account && !securityOpen ? <>
         <div className={`membership-tabs membership-tabs-account ${gameType ? 'membership-tabs-games' : ''}`} role="group" aria-label={es ? 'Mi cuenta' : 'My account'}>
           {gameType && <><button type="button" aria-pressed={activeSection === 'stats'} onClick={() => setSection('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
           <button type="button" aria-pressed={activeSection === 'leagues'} onClick={() => setSection('leagues')}>{es ? 'Ligas' : 'Leagues'}</button></>}

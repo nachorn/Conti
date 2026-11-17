@@ -13,6 +13,10 @@ The selected brand is the revised option 10: geometric NRN, lime chevron, Play. 
 
 ## Account model
 
+The personal dashboard lives at `/account`, separately from the owner-only `/dashboard`; it never mounts a game socket or calls administrative APIs. Account credentials remain in each origin's local storage for their server-issued expiry (currently 30 days). `/connect` automatically completes a valid PKCE handoff once the source account is verified. The target may submit its previous credential in the private exchange body to reuse a still-valid session of that same account instead of exhausting the session limit; a failed or different-account handoff never restores the previous identity. No bearer credential is placed in a URL or a shared JavaScript cookie.
+
+Account startup and explicit retry recover both configuration and the saved session, using GET requests only. Foreground startup retries are bounded to five attempts with 2/4/8/10-second delays and normal request timeouts; background visibility checks do not restart an active recovery or reset the dashboard. Login, email, payment and logout POSTs are never retried automatically. Network failures preserve credentials while hiding unverified account access; a 401 clears the expired session.
+
 All games reuse the existing Conti membership service and account IDs. No second user database or password system is created. Conti and Pocha keep their existing results and leagues. FootballChampion gains optional NRN Play sign-in; its simulated player's profile and local career remain separate from the real account.
 
 Different subdomains have separate browser storage. A game creates a temporary PKCE verifier and state in its own tab, redirects to the central `/connect` page, and receives a short-lived authorization code. Only that game tab can exchange the code for its own session. Codes expire after 60 seconds and can be consumed once; existing source-session revocation also invalidates pending sign-ins. Access tokens never travel in URLs. Account responses and the central sign-in page are not cached.

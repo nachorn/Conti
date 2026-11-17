@@ -49,6 +49,15 @@ export function useMembership() {
   const [account, setAccount] = useState<MembershipAccount | null>(null)
   const [config, setConfig] = useState(disabledConfig)
   const [loaded, setLoaded] = useState(false)
+  const [serverStatus, setServerStatus] = useState<'connecting' | 'ready' | 'unavailable'>('connecting')
+  const serverStatusRef = useRef(serverStatus)
+  serverStatusRef.current = serverStatus
+  const configReady = useRef(false)
+  const configSequence = useRef(0)
+  const recoverySequence = useRef(0)
+  const recoveryTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const connectionAttempt = useRef<Promise<boolean> | null>(null)
+  const live = useRef(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<MembershipError>(null)
   const [storageAvailable, setStorageAvailable] = useState(true)
@@ -119,36 +128,76 @@ export function useMembership() {
     setError(null)
   }, [remember])
 
-  const refresh = useCallback(async () => {
+  const refreshAccount = useCallback(async (): Promise<boolean> => {
     const current = sessionRef.current
     const sequence = ++refreshSequence.current
-    if (!current) { setAccount(null); return }
-    if (current.expiresAt <= Date.now()) { remember(null); setAccount(null); setError('expired'); return }
+    if (!current) { setAccount(null); return true }
+    if (current.expiresAt <= Date.now()) { remember(null); setAccount(null); setError('expired'); return true }
     try {
       const result = await request<{ account: MembershipAccount; expiresAt: number }>('me', current.token)
-      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return
+      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return true
       setAccount(result.account)
       if (result.expiresAt !== current.expiresAt) remember({ token: current.token, expiresAt: result.expiresAt })
       setError(null)
+      return true
     } catch (failure) {
-      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return
+      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return true
       setAccount(null)
       if (failure instanceof RequestError && failure.status === 401) remember(null)
       setError(errorKind(failure))
+      return failure instanceof RequestError && failure.status === 401
     }
   }, [remember])
 
-  useEffect(() => {
-    let active = true
-    void request<MembershipConfig>('config').then(value => { if (active) setConfig(value) })
-      .catch(() => { if (active) setConfig(disabledConfig) })
-      .finally(() => { if (active) setLoaded(true) })
-    return () => { active = false }
-  }, [])
+  const connectOnce = useCallback((): Promise<boolean> => {
+    if (connectionAttempt.current) return connectionAttempt.current
+    const sequence = ++configSequence.current
+    const configuration = request<MembershipConfig>('config').then(value => {
+      if (!live.current || sequence !== configSequence.current) return false
+      setConfig(value); configReady.current = true
+      return true
+    }).catch(() => {
+      if (live.current && sequence === configSequence.current) { setConfig(disabledConfig); configReady.current = false }
+      return false
+    }).finally(() => { if (live.current && sequence === configSequence.current) setLoaded(true) })
+    const pending = Promise.all([configuration, refreshAccount()]).then(([configured, restored]) => configured && restored)
+    connectionAttempt.current = pending
+    void pending.finally(() => { if (connectionAttempt.current === pending) connectionAttempt.current = null })
+    return pending
+  }, [refreshAccount])
+
+  // Foreground recovery only. Never repeat login, email, checkout or logout POSTs.
+  const retryConnection = useCallback(async () => {
+    const cycle = ++recoverySequence.current
+    if (recoveryTimer.current !== null) window.clearTimeout(recoveryTimer.current)
+    recoveryTimer.current = null
+    const startedAt = Date.now()
+    const attempt = async (number: number): Promise<void> => {
+      if (!live.current || cycle !== recoverySequence.current) return
+      if (number > 0 && document.hidden) { serverStatusRef.current = 'unavailable'; setServerStatus('unavailable'); return }
+      serverStatusRef.current = 'connecting'
+      setServerStatus('connecting')
+      const ready = await connectOnce()
+      if (!live.current || cycle !== recoverySequence.current) return
+      if (ready) { serverStatusRef.current = 'ready'; setServerStatus('ready'); return }
+      if (number < 4 && Date.now() - startedAt < 90_000 && !document.hidden) {
+        recoveryTimer.current = window.setTimeout(() => { void attempt(number + 1) }, [2000, 4000, 8000, 10000][number])
+      } else { serverStatusRef.current = 'unavailable'; setServerStatus('unavailable') }
+    }
+    await attempt(0)
+  }, [connectOnce])
+  const refresh = retryConnection
 
   useEffect(() => {
+    live.current = true
     void refresh()
-    const lifecycle = subscribeMembershipRefresh(() => { void refresh() }, window, document)
+    const lifecycle = subscribeMembershipRefresh(() => {
+      if (serverStatusRef.current === 'connecting') return
+      if (!configReady.current || serverStatusRef.current !== 'ready') { void refresh(); return }
+      // A healthy background validation must not unmount a league form or
+      // reset the dashboard while someone is using it.
+      if (sessionRef.current) void connectOnce().then(ready => { if (!ready && live.current) void refresh() })
+    }, window, document)
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === CURRENCY_PREFERENCE_KEY) {
         const next = readCurrencyPreference(localStorageOrNull())
@@ -169,8 +218,14 @@ export function useMembership() {
     }
     window.addEventListener('storage', onStorage)
     const timer = window.setInterval(lifecycle.refreshVisible, 60_000)
-    return () => { lifecycle.dispose(); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null }
-  }, [refresh])
+    return () => {
+      live.current = false
+      ++recoverySequence.current; ++configSequence.current
+      if (recoveryTimer.current !== null) window.clearTimeout(recoveryTimer.current)
+      connectionAttempt.current = null
+      lifecycle.dispose(); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null
+    }
+  }, [refresh, connectOnce])
 
   const login = (email: string, lang: Lang) => requestCode('login', { email: email.trim(), lang })
   async function authenticate(path: string, body: unknown, context: 'code' | 'credentials') {
@@ -276,6 +331,6 @@ export function useMembership() {
     } finally { plusCheckoutPending.current = false; setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
+  return { token: session?.token ?? null, account, config, loaded, serverStatus, retryConnection, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>

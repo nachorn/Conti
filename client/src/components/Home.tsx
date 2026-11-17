@@ -10,8 +10,8 @@ import { AdPrivacyPreferences } from './AdPrivacyPreferences'
 import { PlusOffer } from './PlusOffer'
 import { InstallApp } from './InstallApp'
 
-export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccount, onOpenPlus = onOpenAccount, plusActive = false, savedGames, error }: {
-  lang: Lang; accountName?: string | null; signedIn?: boolean; onOpenAccount: () => void; onOpenPlus?: () => void; plusActive?: boolean; savedGames?: ReactNode; error?: string | null
+export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccount, onOpenPlus = onOpenAccount, plusActive = false, savedGames, error, profileHref = '/account' }: {
+  lang: Lang; accountName?: string | null; signedIn?: boolean; onOpenAccount: () => void; onOpenPlus?: () => void; plusActive?: boolean; savedGames?: ReactNode; error?: string | null; profileHref?: string
 }) {
   const es = lang === 'es'
   return <main className="nrn-home" id="main-content">
@@ -41,7 +41,7 @@ export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccoun
     <section className="nrn-profile-panel" aria-labelledby="nrn-profile-title">
       <span className="nrn-profile-symbol" aria-hidden="true">{accountName ? accountName.charAt(0).toUpperCase() : <ProfileIcon />}</span>
       <div><h2 id="nrn-profile-title">{accountName || (es ? 'Mi perfil' : 'My profile')}</h2><p>{es ? 'Usa la misma cuenta en Conti, Pocha y FootballChampion.' : 'Use the same account in Conti, Pocha and FootballChampion.'}</p></div>
-      <button type="button" onClick={onOpenAccount} aria-haspopup="dialog">{signedIn ? (es ? 'Ver mi perfil' : 'View my profile') : (es ? 'Entrar o crear cuenta' : 'Sign in or join')}<span aria-hidden="true">→</span></button>
+      <Link to={profileHref}>{signedIn ? (es ? 'Abrir mi panel' : 'Open my dashboard') : (es ? 'Entrar o crear cuenta' : 'Sign in or join')}<span aria-hidden="true">→</span></Link>
     </section>
 
     <PlusOffer lang={lang} onOpen={onOpenPlus} active={plusActive} />

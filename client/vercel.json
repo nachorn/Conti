@@ -1,5 +1,16 @@
 {
+  "redirects": [
+    { "source": "/account", "has": [{ "type": "host", "value": "www.nrnplay.com" }], "destination": "https://nrnplay.com/account", "permanent": false }
+  ],
   "headers": [
+    {
+      "source": "/account",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
     {
       "source": "/sw.js",
       "headers": [
@@ -82,6 +93,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/account", "destination": "/index.html" },
     {
       "source": "/api/admin/:path*",
       "destination": "https://conti-server.onrender.com/api/admin/:path*"

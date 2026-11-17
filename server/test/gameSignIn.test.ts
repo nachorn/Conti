@@ -161,6 +161,87 @@ test('authorization is rate limited and repeated game launches preserve the root
   assert.equal((await h.call('game-authorize', { origin: FOOTBALL, challenge: pkce.challenge }, h.source.token)).status, 429)
 })
 
+test('repeated launches reuse a valid same-account game session without evicting another device', async t => {
+  const h = await harness(t), pkce = proof()
+  const existing = await h.service.linkedSession(h.source.token)
+  const otherDevice = await h.service.linkedSession(h.source.token)
+  for (let index = 0; index < 15; index++) {
+    const issued = await h.authorize(pkce.challenge)
+    const response = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken: existing.token }, undefined, FOOTBALL)
+    assert.equal(response.status, 200)
+    const reused = await response.json()
+    assert.equal(reused.token, existing.token)
+    assert.equal(reused.account.id, h.source.account.id)
+    assert.equal(reused.expiresAt, existing.expiresAt)
+    assert.equal(h.store.value.sessions.length, 3)
+    assert.equal(h.service.authenticate(otherDevice.token)?.id, h.source.account.id)
+  }
+  assert.equal(h.service.authenticate(h.source.token)?.id, h.source.account.id)
+})
+
+test('reused game sessions cannot outlive the source authorizing the launch', async t => {
+  const h = await harness(t), pkce = proof()
+  h.clock.now += 24 * 60 * 60_000
+  await h.service.requestCode('ana@example.com', 'es', 'new-device-ip')
+  const newerSource = await h.service.verifyCode('ana@example.com', h.inbox.get('ana@example.com')!, 'new-device-ip')
+  const longerGame = await h.service.linkedSession(newerSource.token)
+  assert.ok(longerGame.expiresAt > h.source.expiresAt)
+  const issued = await h.authorize(pkce.challenge)
+  const response = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken: longerGame.token }, undefined, FOOTBALL)
+  assert.equal(response.status, 200)
+  const reused = await response.json()
+  assert.equal(reused.token, longerGame.token)
+  assert.equal(reused.expiresAt, h.source.expiresAt)
+  const stored = h.store.value.sessions.find((session: { tokenHash: string }) => session.tokenHash === createHash('sha256').update(longerGame.token).digest('hex'))
+  assert.equal(stored.expiresAt, h.source.expiresAt)
+})
+
+test('unknown, foreign-account and source credentials cannot replace the selected source identity', async t => {
+  const h = await harness(t), pkce = proof()
+  await h.service.requestCode('bob@example.com', 'es', 'bob-device-ip')
+  const bob = await h.service.verifyCode('bob@example.com', h.inbox.get('bob@example.com')!, 'bob-device-ip')
+  for (const previousToken of [sourceKey(), bob.token, h.source.token]) {
+    const issued = await h.authorize(pkce.challenge)
+    const response = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken }, undefined, FOOTBALL)
+    assert.equal(response.status, 200)
+    const linked = await response.json()
+    assert.notEqual(linked.token, previousToken)
+    assert.equal(linked.account.id, h.source.account.id)
+  }
+  assert.equal(h.service.authenticate(bob.token)?.id, bob.account.id)
+})
+
+test('an expired game credential is replaced only after a valid fresh source proves the account', async t => {
+  const h = await harness(t), pkce = proof(), expiredGame = await h.service.linkedSession(h.source.token)
+  h.clock.now += 24 * 60 * 60_000
+  await h.service.requestCode('ana@example.com', 'es', 'new-source-ip')
+  const freshSource = await h.service.verifyCode('ana@example.com', h.inbox.get('ana@example.com')!, 'new-source-ip')
+  h.clock.now = expiredGame.expiresAt + 1
+  assert.equal(h.service.authenticate(expiredGame.token), null)
+  const authorized = await h.call('game-authorize', { origin: FOOTBALL, challenge: pkce.challenge }, freshSource.token)
+  assert.equal(authorized.status, 200)
+  const issued = await authorized.json()
+  const response = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken: expiredGame.token }, undefined, FOOTBALL)
+  assert.equal(response.status, 200)
+  const linked = await response.json()
+  assert.notEqual(linked.token, expiredGame.token)
+  assert.equal(linked.account.id, freshSource.account.id)
+  assert.equal(linked.expiresAt, freshSource.expiresAt)
+})
+
+test('a remembered game session cannot bypass revocation of the pending source or malformed reuse input', async t => {
+  const h = await harness(t), pkce = proof(), previous = await h.service.linkedSession(h.source.token)
+  const issued = await h.authorize(pkce.challenge)
+  const malformed = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken: { token: previous.token } }, undefined, FOOTBALL)
+  assert.equal(malformed.status, 400)
+  assert.deepEqual(await malformed.json(), { error: 'invalid_request' })
+  assert.equal((await h.call('logout', {}, h.source.token)).status, 200)
+  const response = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier, previousToken: previous.token }, undefined, FOOTBALL)
+  assert.equal(response.status, 401)
+  assert.equal(h.store.value.sessions.length, 1)
+  assert.equal(h.service.authenticate(previous.token)?.id, previous.account.id)
+})
+
 test('storage failure cannot acknowledge a linked session or change the stored account', async t => {
   const h = await harness(t), pkce = proof(), issued = await h.authorize(pkce.challenge)
   const before = structuredClone(h.store.value)
