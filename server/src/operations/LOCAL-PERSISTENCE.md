@@ -1,8 +1,9 @@
 # Local primary snapshots and an offsite checkpoint
 
-No database, plan or infrastructure is provisioned by this code. No CLI has been
-run against live data during development. The existing PostgreSQL connection is
-used only by explicit migration/checkpoint invocations.
+No database, plan or infrastructure is provisioned by this code. Development
+tests use fixtures; the operational deployment is recorded in
+`ops/free/APPLIED.md`. The existing PostgreSQL connection is used only by
+explicit migration/checkpoint invocations.
 
 ## Runtime selection
 

@@ -1,6 +1,6 @@
-# Cambio gratuito: procedimiento pendiente de autorización de ejecución
+# Cambio gratuito: migración y recuperación
 
-No se ha preparado la VM, instalado unidades, ejecutado SQL ni desplegado código desde este paquete. Primero debe quedar validado el candidato completo y después root dará la orden de instalación/corte.
+El primer corte al almacenamiento local ya se realizó; consultar `APPLIED.md` para sus evidencias y las copias. Este procedimiento se conserva para operaciones futuras. Nunca ejecutar el importador contra un escritor activo ni sobrescribir los archivos principales para repetir una migración.
 
 ## Preparación y prueba inicial
 
