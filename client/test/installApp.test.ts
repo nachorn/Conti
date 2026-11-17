@@ -29,6 +29,7 @@ test('worker never intercepts identity, API, handoff, admin, cross-origin or non
   for (const [path, method, mode] of [
     ['/api/membership/me', 'GET', 'cors'], ['/api/membership/plus/checkout', 'POST', 'cors'],
     ['/connect?code=private', 'GET', 'navigate'], ['/dashboard', 'GET', 'navigate'],
+    ['/admin', 'GET', 'navigate'], ['/admin/users', 'GET', 'navigate'], ['/api/admin/accounts', 'GET', 'navigate'],
     ['https://conti-server.onrender.com/socket.io/', 'GET', 'cors'], ['/assets/main-hash.js', 'GET', 'cors'],
   ]) {
     let intercepted = false

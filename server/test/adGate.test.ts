@@ -120,6 +120,7 @@ class FakeMembership {
   healthy = true
   listeners = new Set<() => void>()
   authenticate(token: string) { return this.accounts.get(token) ?? null }
+  adminAccountVerifier() { return undefined }
   registerRoutes() {}
   gameSignInCors() { return (_request: unknown, _response: unknown, next: () => void) => next() }
   isHealthy() { return this.healthy }

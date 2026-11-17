@@ -4,6 +4,8 @@ export interface MembershipAccount {
   email: string
   name?: string
   hasPassword?: boolean
+  /** Server-verified role, supplied only for the authenticated account. */
+  isAdmin?: boolean
   adFree: boolean
   source: 'purchase' | 'gift' | null
   expiresAt: number | null

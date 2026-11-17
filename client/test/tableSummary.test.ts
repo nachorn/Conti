@@ -14,6 +14,16 @@ test('discard preflight matches public meld restrictions and identifies the owne
   assert.equal(discardBlocker({ ...state, melds: [...state.melds, { ...trio, ownerId: 'me' }] }, 'me', c('held', 8)), undefined)
 })
 
+test('preflight enables the all-addable escape but keeps the restriction when a different discard exists', () => {
+  const held = [c('held-8', 8), c('held-joker', 0, 'joker')]
+  const ownState = { ...state, players: [...state.players, { id: 'me', name: 'Me', hand: held }] } as GameState
+  assert.equal(discardExplanation(ownState, 'me', held[0]!, 'es'), null)
+  assert.equal(discardBlocker(ownState, 'me', held[1]!), undefined)
+  const alternative = { ...ownState, players: [...state.players, { id: 'me', name: 'Me', hand: [...held, c('safe', 7)] }] } as GameState
+  assert.equal(discardBlocker(alternative, 'me', held[0]!)?.id, trio.id)
+  assert.equal(discardBlocker(alternative, 'me', c('safe', 7)), undefined)
+})
+
 test('collapsed summaries identify rank, suit, ordered straight cards and length', () => {
   assert.equal(meldSummary(trio, 'en'), 'Trio · 8 · 3 cards')
   assert.equal(meldSummary({ ...trio, type: 'straight', cards: [c('4', 4), c('2', 2), c('5', 5), c('3', 3)] }, 'es'), 'Escalera · 2♥ 3♥ 4♥ 5♥ · 4 cartas')

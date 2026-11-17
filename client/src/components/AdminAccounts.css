@@ -1,0 +1,27 @@
+.admin-account-search { display: grid; gap: .45rem; margin: 1rem 0; }
+.admin-account-search > span { color: var(--cream-muted); font-size: .78rem; }
+.admin-account-search input { width: min(100%, 480px); min-height: 44px; font-size: .9rem; }
+.admin-account-list { display: grid; gap: .75rem; }
+.admin-account { min-width: 0; padding: 1rem 1.2rem; border: 1px solid #ffffff25; border-radius: 12px; background: #ffffff04; }
+.admin-account-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; }
+.admin-account-heading h3 { margin: 0; font-size: .95rem; font-family: inherit; overflow-wrap: anywhere; }
+.admin-account-heading p { margin: .3rem 0 0; color: var(--cream-muted); font-size: .8rem; overflow-wrap: anywhere; }
+.admin-account-plus { flex-shrink: 0; padding: .25rem .55rem; border: 1px solid #ffffff25; border-radius: 6px; color: var(--cream-muted); font-size: .7rem; }
+.admin-account-plus.is-active { border-color: #d5f57866; color: #d5f578; background: #d5f5780b; }
+.admin-account-meta { display: flex; flex-wrap: wrap; gap: .35rem 1rem; margin-top: .6rem; color: var(--cream-muted); font-size: .72rem; }
+.admin-account-bottom { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .85rem; }
+.admin-account-stats { display: flex; flex-wrap: wrap; gap: .6rem 2rem; margin: 0; }
+.admin-account-stats dt { color: var(--cream-muted); font-size: .72rem; }
+.admin-account-stats dd { margin: .25rem 0 0; font-size: .75rem; }
+.admin-account-stats dd strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.admin-account-stats dd span { display: block; margin-top: .2rem; color: var(--cream-muted); font-size: .68rem; }
+.admin-account-gift { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ffffff20; }
+.admin-account-gift label { display: grid; gap: .4rem; flex: 1 1 180px; font-size: .75rem; }
+.admin-account-gift select { width: 100%; min-height: 44px; font-size: .85rem; }
+.admin-account-gift option { background: #102c22; }
+.admin-account-gift .dashboard-primary { min-height: 44px; font-size: .8rem; }
+.admin-account-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+.admin-account-pagination > span { margin-right: auto; color: var(--cream-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.admin-account-success { padding: .7rem .9rem; border: 1px solid #a8d29866; border-radius: 8px; color: #c7ebac; background: #a8d2980b; font-size: .8rem; }
+.admin-account-note { color: var(--cream-muted); font-size: .8rem; }
+@media (max-width: 460px) { .admin-account { padding: .9rem; } .admin-account-bottom { flex-wrap: wrap; } .admin-account-bottom > button { width: 100%; } .admin-account-gift > button { flex: 1; } }

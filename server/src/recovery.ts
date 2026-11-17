@@ -6,6 +6,7 @@ import { finishedPersonalMatch, parseGameResults, parsePersonalMatch, personalMa
 import { buildLeagueTable, joinedLeague, leagueDetail, LeagueError, leagueSelectionError, leagueStartError, leagueSummary, makeLeague, parseLeagues, roomLeagueSummary, validLeagueMatch, validateLeagueResult, type LeagueTable, type StoredLeague } from './leagues.js'
 import type { LeagueDetail, LeagueGameType, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
 import type { MembershipAccount } from '../../shared/membership.js'
+import type { AdminGameSummary } from '../../shared/platformAdmin.js'
 
 export interface ResumeCredential { roomId: string; playerId: string; token: string }
 interface SavedSession { playerId: string; tokenHash: string; bot?: boolean }
@@ -219,6 +220,18 @@ export class GameRepository {
     copy.generatedAt = Date.now()
     copy.recentGames = copy.recentGames.slice(0, Number.isSafeInteger(limit) ? Math.max(0, Math.min(50, limit)) : 50)
     return copy
+  }
+  /** Aggregate only the durable results ledger; never inspect private hands or recovery sessions. */
+  getAdminGameSummaries(): AdminGameSummary[] {
+    return (['continental', 'pocha'] as const).map(gameType => {
+      const results = [...this.results.values()].filter(result => result.gameType === gameType)
+      const registeredPlayers = new Set(results.flatMap(result => result.players.flatMap(player => player.accountId === null ? [] : [player.accountId]))).size
+      return { gameType, recordedGames: results.length, registeredPlayers,
+        leagues: [...this.leagues.values()].filter(league => league.gameType === gameType).length,
+        recentGames: results.sort((a, b) => b.finishedAt - a.finishedAt || a.id.localeCompare(b.id)).slice(0, 20)
+          .map(result => ({ id: result.id, finishedAt: result.finishedAt, playerCount: result.players.length,
+            winners: result.players.filter(player => player.position === 1).map(player => player.name) })) }
+    })
   }
 
   storageCapacity() {

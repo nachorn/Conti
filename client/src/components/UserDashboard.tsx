@@ -8,6 +8,7 @@ import { useCosmetics } from './Cosmetics'
 import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
 import { accountView } from '../lib/accountReadiness'
+import { adminDestination } from '../lib/adminRoute'
 import './Membership.css'
 import './UserDashboard.css'
 
@@ -44,6 +45,7 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
             <div><h2 id="user-dashboard-account-title">{account.name || (es ? 'Mi cuenta' : 'My account')}</h2><p>{account.email}</p></div>
           </div>
           <div className="user-dashboard-actions">
+            {account.isAdmin === true && token && <Link className="user-dashboard-button is-secondary" to={adminDestination(window.location.hostname)}>{es ? 'Administración' : 'Administration'}</Link>}
             <button className="user-dashboard-button" type="button" onClick={onOpenAccount} aria-haspopup="dialog">{es ? 'Gestionar cuenta' : 'Account settings'}</button>
             <button className="user-dashboard-button is-secondary" type="button" disabled={membership.busy} onClick={() => void membership.logout()}>{es ? 'Cerrar sesión' : 'Sign out'}</button>
           </div>

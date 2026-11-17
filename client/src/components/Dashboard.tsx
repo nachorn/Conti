@@ -1,17 +1,20 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import type { DashboardOperations, DashboardRoom } from '@shared/dashboard'
+import type { AdminGameSummary, AdminOverview } from '@shared/platformAdmin'
 import type { Lang } from '../i18n'
 import './Dashboard.css'
 import { MemberAccess } from './MemberAccess'
 import { PlusAdmin } from './PlusAdmin'
-import { AdminSession, adminLoginFields } from '../lib/adminApi'
+import { AdminSession, adminFetch, configureAdminToken } from '../lib/adminApi'
+import { AdminAccounts } from './AdminAccounts'
+import { readAdminOverview } from '../lib/adminOverview'
 
 const copy = {
   en: {
-    brand: 'NRN Play', owner: 'OWNER DASHBOARD', title: 'Who’s playing?',
-    subtitle: 'A live look at your tables, wherever you are.', back: 'Back to games',
-    private: 'Your private view', privateInfo: 'Enter your access key to see players and tables.',
+    brand: 'NRN Play', owner: 'ADMIN', title: 'Administration',
+    subtitle: '', back: 'Back to games',
+    private: 'Private access', privateInfo: 'Enter your administration key.',
     accessKey: 'Access key', unlock: 'Open dashboard', connecting: 'Connecting…', lock: 'Sign out',
     remember: 'Remember me for 30 days', checking: 'Checking your saved session…', signingOut: 'Signing out…',
     restoreError: 'Your saved session could not be checked. Try again when your connection returns.',
@@ -24,11 +27,11 @@ const copy = {
     unavailable: 'The live update could not be loaded. Please try again.',
     stale: 'Updates interrupted. The information below is from the last successful refresh.',
     live: 'Live', reconnecting: 'Waiting for update', refresh: 'Refresh', updating: 'Updating…',
-    refreshed: 'Last refreshed', cadence: 'Refreshes every 5 seconds while this page is visible.',
+    refreshed: 'Rooms updated', cadence: 'Rooms refresh every 5 seconds.',
     online: 'Players online', active: 'Games in progress', waiting: 'Waiting to start', offlineRooms: 'Offline rooms',
     tables: 'Tables', activeTab: 'Active now', allTab: 'All saved rooms',
     search: 'Search player or room', searchPlaceholder: 'Find a player or room code…', game: 'Game', allGames: 'All games',
-    noPlayers: 'The tables are quiet', noPlayersInfo: 'When someone creates or joins a room, they’ll appear here automatically.',
+    noPlayers: 'No active rooms', noPlayersInfo: '',
     noMatches: 'No matching tables', noMatchesInfo: 'Try another name, room code, or game filter.',
     noSaved: 'No saved rooms yet', noSavedInfo: 'Rooms will appear here after players join a game.',
     savedHint: 'Offline rooms keep their saved seats for up to 30 days of inactivity.',
@@ -38,9 +41,9 @@ const copy = {
     phases: { lobby: 'Waiting to start', playing: 'Playing', round_end: 'Round complete', game_end: 'Finished', auction: 'Auction', choosing_trump: 'Choosing trump', bidding: 'Bidding', hand_end: 'Round complete' },
   },
   es: {
-    brand: 'NRN Play', owner: 'PANEL PRIVADO', title: '¿Quién está jugando?',
-    subtitle: 'Tus mesas en directo, estés donde estés.', back: 'Volver a los juegos',
-    private: 'Tu vista privada', privateInfo: 'Introduce tu clave de acceso para ver jugadores y mesas.',
+    brand: 'NRN Play', owner: 'ADMIN', title: 'Administración',
+    subtitle: '', back: 'Volver a los juegos',
+    private: 'Acceso privado', privateInfo: 'Introduce tu clave de administración.',
     accessKey: 'Clave de acceso', unlock: 'Abrir panel', connecting: 'Conectando…', lock: 'Cerrar sesión',
     remember: 'Recordarme durante 30 días', checking: 'Comprobando tu sesión guardada…', signingOut: 'Cerrando sesión…',
     restoreError: 'No se pudo comprobar tu sesión guardada. Inténtalo de nuevo cuando recuperes la conexión.',
@@ -53,11 +56,11 @@ const copy = {
     unavailable: 'No se pudo cargar la actualización. Inténtalo de nuevo.',
     stale: 'Actualizaciones interrumpidas. Se muestra la última información recibida.',
     live: 'En directo', reconnecting: 'Esperando actualización', refresh: 'Actualizar', updating: 'Actualizando…',
-    refreshed: 'Última actualización', cadence: 'Se actualiza cada 5 segundos mientras la página está visible.',
+    refreshed: 'Salas actualizadas', cadence: 'Las salas se actualizan cada 5 segundos.',
     online: 'Jugadores en línea', active: 'Partidas en curso', waiting: 'Esperando el inicio', offlineRooms: 'Salas sin conexión',
     tables: 'Mesas', activeTab: 'Activas ahora', allTab: 'Todas las salas',
     search: 'Buscar jugador o sala', searchPlaceholder: 'Buscar jugador o código de sala…', game: 'Juego', allGames: 'Todos los juegos',
-    noPlayers: 'Las mesas están tranquilas', noPlayersInfo: 'Los jugadores aparecerán aquí al crear una sala o unirse a una.',
+    noPlayers: 'No hay salas activas', noPlayersInfo: '',
     noMatches: 'No hay mesas que coincidan', noMatchesInfo: 'Prueba otro nombre, código de sala o filtro de juego.',
     noSaved: 'Aún no hay salas guardadas', noSavedInfo: 'Las salas aparecerán aquí cuando se unan jugadores.',
     savedHint: 'Las salas sin conexión conservan sus sitios hasta 30 días de inactividad.',
@@ -68,8 +71,9 @@ const copy = {
   },
 }
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+type Section = 'overview' | 'accounts' | 'continental' | 'pocha' | 'football' | 'plus'
 
-export function Dashboard() {
+export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminToken: string; onSignOut: () => void; onSessionExpired: () => void }) {
   const [lang, setLang] = useState<Lang>(() => {
     try { const saved = localStorage.getItem('conti-language'); if (saved === 'en' || saved === 'es') return saved } catch { /* Optional preference. */ }
     return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
@@ -80,10 +84,18 @@ export function Dashboard() {
   const [clock, setClock] = useState(Date.now())
   const [showOffline, setShowOffline] = useState(false)
   const [query, setQuery] = useState('')
-  const [game, setGame] = useState('all')
+  const [section, setSection] = useState<Section>('overview')
+  const [overview, setOverview] = useState<AdminOverview | null>(null)
+  const [overviewError, setOverviewError] = useState(false)
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [overviewRevision, setOverviewRevision] = useState(0)
+  const overviewChanged = useCallback(() => setOverviewRevision(value => value + 1), [])
   const heading = useRef<HTMLHeadingElement>(null)
-  const keyInput = useRef<HTMLInputElement>(null)
+  const unauthorized = useRef(onSessionExpired)
+  unauthorized.current = onSessionExpired
   const unlocked = snapshot !== null
+
+  useLayoutEffect(() => configureAdminToken(() => adminToken, () => { session.expire(); unauthorized.current() }), [adminToken, session])
 
   useEffect(() => {
     document.documentElement.lang = lang
@@ -92,7 +104,6 @@ export function Dashboard() {
   }, [lang])
   useEffect(() => {
     if (unlocked) heading.current?.focus()
-    else if (phase === 'locked') keyInput.current?.focus()
   }, [unlocked, phase])
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 5_000)
@@ -113,23 +124,47 @@ export function Dashboard() {
     }
   }, [session])
 
-  async function unlock(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = event.currentTarget
-    // Read the actual control value: Safari autofill need not trigger React change events.
-    if (await session.login(adminLoginFields(new FormData(form)))) form.reset()
-  }
+  useEffect(() => {
+    if (!unlocked) { setOverview(null); setOverviewError(false); return }
+    let active = true, request: AbortController | null = null
+    const load = async () => {
+      if (document.hidden || request) return
+      const controller = new AbortController(); request = controller
+      const timeout = window.setTimeout(() => controller.abort(), 10_000)
+      setOverviewLoading(true)
+      try {
+        const response = await adminFetch('/api/admin/overview', { signal: controller.signal })
+        if (response.status === 401) { if (active) session.expire(); return }
+        const value = readAdminOverview(await response.json())
+        if (!response.ok || !value) throw new Error('Invalid overview')
+        if (active && !controller.signal.aborted) { setOverview(value); setOverviewError(false) }
+      } catch { if (active) setOverviewError(true) }
+      finally { window.clearTimeout(timeout); request = null; if (active) setOverviewLoading(false) }
+    }
+    void load()
+    const timer = window.setInterval(() => { void load() }, 15_000)
+    const visible = () => { if (!document.hidden) void load() }
+    document.addEventListener('visibilitychange', visible)
+    return () => { active = false; request?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', visible) }
+  }, [unlocked, session, overviewRevision])
+
   function lock() {
-    void session.logout()
-    setQuery(''); setShowOffline(false); setGame('all')
+    session.expire()
+    setQuery(''); setShowOffline(false); setSection('overview'); setOverview(null)
+    onSignOut()
   }
   const fresh = !!snapshot && !error && clock - receivedAt < 15_000
   const search = normalized(query.trim())
   const rooms = snapshot?.rooms.filter(room =>
-    (showOffline || room.onlinePlayers > 0) && (game === 'all' || room.gameType === game) &&
+    (showOffline || room.onlinePlayers > 0) && room.gameType === section &&
     (!search || room.roomId.includes(search) || room.players.some(player => normalized(player.name).includes(search)))
   ) ?? []
-  const hasFilters = !!search || game !== 'all'
+  const hasFilters = !!search
+  const tabs: { id: Section; label: string }[] = [
+    { id: 'overview', label: lang === 'es' ? 'Resumen' : 'Overview' }, { id: 'accounts', label: lang === 'es' ? 'Usuarios' : 'Users' },
+    { id: 'continental', label: 'Conti' }, { id: 'pocha', label: 'Pocha' }, { id: 'football', label: 'FootballChampion' }, { id: 'plus', label: 'Plus' },
+  ]
+  const currentGame = overview?.games.find(game => game.gameType === section)
 
   return <main className="dashboard">
     <div className="dashboard-shell">
@@ -144,42 +179,45 @@ export function Dashboard() {
       </nav>
 
       <header className="dashboard-header">
-        <div><p className="dashboard-eyebrow">{c.owner}</p><h1 ref={heading} tabIndex={-1}>{c.title}</h1><p>{c.subtitle}</p></div>
+        <div><p className="dashboard-eyebrow">NRN Play</p><h1 ref={heading} tabIndex={-1}>{c.title}</h1></div>
         {snapshot && <div className="dashboard-live-controls">
           <span className={`dashboard-live ${fresh ? 'is-live' : ''}`} role="status"><i aria-hidden="true" />{fresh ? c.live : c.reconnecting}</span>
-          <button className="dashboard-button" disabled={loading} onClick={() => void session.refresh()}>{loading ? c.updating : c.refresh}</button>
+          <button className="dashboard-button" disabled={loading || overviewLoading} onClick={() => { void session.refresh(); overviewChanged() }}>{loading || overviewLoading ? c.updating : c.refresh}</button>
         </div>}
       </header>
 
       {!snapshot ? <section className="dashboard-login" aria-labelledby="dashboard-login-title">
         <div className="dashboard-lock-icon" aria-hidden="true">♠</div>
-        <h2 id="dashboard-login-title">{c.private}</h2>
-        {phase === 'checking' || phase === 'logging-out' ? <p role="status">{phase === 'checking' ? c.checking : c.signingOut}</p>
-          : phase === 'unavailable' || phase === 'logout-error' ? <>
-            <p className="dashboard-error" role="alert">{phase === 'logout-error' ? c.logoutError : c.restoreError}</p>
-            <button className="dashboard-primary" disabled={loading} onClick={() => void (phase === 'logout-error' ? session.logout() : session.refresh())}>{loading ? c.connecting : phase === 'logout-error' ? c.retryLogout : c.retry}</button>
-          </> : <>
-            <p>{c.privateInfo}</p>
-            <form id="admin-login" name="admin-login" method="post" action="/api/admin/session" autoComplete="on" onSubmit={unlock}>
-              <input className="dashboard-username" type="text" name="username" autoComplete="username" defaultValue="admin" readOnly tabIndex={-1} aria-hidden="true" />
-              <label htmlFor="dashboard-key">{c.accessKey}</label>
-              <input ref={keyInput} id="dashboard-key" name="password" type="password" autoComplete="current-password" maxLength={256} required spellCheck={false} autoCapitalize="none" aria-describedby="dashboard-login-hint" />
-              <label className="dashboard-remember"><input type="checkbox" name="remember" defaultChecked /><span>{c.remember}</span></label>
-              {error && <p className="dashboard-error" role="alert">{c[error]}</p>}
-              <button type="submit" className="dashboard-primary" disabled={loading}>{loading ? c.connecting : c.unlock}</button>
-            </form>
-            <small id="dashboard-login-hint">{c.keyHint}</small>
-          </>}
+        {phase === 'unavailable' ? <><h2 id="dashboard-login-title">{lang === 'es' ? 'Panel no disponible' : 'Dashboard unavailable'}</h2>
+          <p className="dashboard-error" role="alert">{c.unavailable}</p>
+          <button className="dashboard-primary" disabled={loading} onClick={() => void session.refresh()}>{loading ? c.connecting : c.retry}</button></>
+          : <p id="dashboard-login-title" role="status">{lang === 'es' ? 'Comprobando acceso…' : 'Checking access…'}</p>}
       </section> : <>
         {!fresh && <p className="dashboard-error" role="alert">{c.stale}</p>}
+        <nav className="dashboard-main-tabs" aria-label={lang === 'es' ? 'Secciones de administración' : 'Administration sections'}>
+          {tabs.map(tab => <button type="button" key={tab.id} aria-pressed={section === tab.id} onClick={() => setSection(tab.id)}>{tab.label}</button>)}
+        </nav>
+        {overviewError && <p className="dashboard-error" role="alert">{lang === 'es' ? 'No se pudo actualizar el resumen.' : 'The overview could not be refreshed.'}</p>}
+        {section === 'overview' && <>
         <section className="dashboard-stats" aria-label={c.title}>
-          {([
-            ['onlinePlayers', c.online], ['activeRooms', c.active], ['waitingRooms', c.waiting], ['offlineRooms', c.offlineRooms],
-          ] as const).map(([field, label]) => <div className={`dashboard-stat ${field === 'onlinePlayers' ? 'is-highlighted' : ''}`} key={field}><span>{label}</span><strong>{snapshot.summary[field]}</strong></div>)}
+          {[
+            [lang === 'es' ? 'Usuarios' : 'Users', overview?.accounts.total ?? '—'],
+            ['Plus', overview?.accounts.plusActive ?? '—'], [c.online, snapshot.summary.onlinePlayers], [c.active, snapshot.summary.activeRooms],
+          ].map(([label, value], index) => <div className={`dashboard-stat ${index === 0 ? 'is-highlighted' : ''}`} key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
-        {snapshot.operations && <OperationsPanel operations={snapshot.operations} lang={lang} />}
-        <MemberAccess lang={lang} onSessionExpired={session.expire} />
-        <PlusAdmin lang={lang} onSessionExpired={session.expire} />
+        <div className="dashboard-game-summaries">{(['continental', 'pocha'] as const).map(game => <button key={game} type="button" className="dashboard-game-summary" onClick={() => setSection(game)}>
+          <strong>{game === 'continental' ? 'Conti' : 'Pocha'}</strong><span>{overview?.games.find(item => item.gameType === game)?.recordedGames ?? '—'} {lang === 'es' ? 'partidas registradas' : 'recorded games'}</span><span>{overview?.games.find(item => item.gameType === game)?.leagues ?? '—'} {lang === 'es' ? 'ligas' : 'leagues'} ↗</span>
+        </button>)}<button type="button" className="dashboard-game-summary" onClick={() => setSection('football')}><strong>FootballChampion</strong><span>{lang === 'es' ? 'Actividad' : 'Activity'}</span><span>{overview?.football.available ? (lang === 'es' ? 'Ver informe' : 'View report') : (lang === 'es' ? 'Sin informe' : 'No report')} ↗</span></button></div>
+        {snapshot.operations && <details className="dashboard-details"><summary>{lang === 'es' ? 'Servidor y almacenamiento' : 'Server and storage'}</summary><OperationsPanel operations={snapshot.operations} lang={lang} /></details>}
+        </>}
+        {section === 'accounts' && <AdminAccounts lang={lang} onSessionExpired={session.expire} onSaved={overviewChanged} onManagePlus={() => setSection('plus')} />}
+        {section === 'plus' && <>
+          <PlusAdmin lang={lang} onSessionExpired={session.expire} />
+          <details className="dashboard-details"><summary>{lang === 'es' ? 'Cortesías por email y gestión avanzada' : 'Email gifts and advanced access'}</summary><MemberAccess lang={lang} onSessionExpired={session.expire} /></details>
+        </>}
+        {section === 'football' && <FootballPanel data={overview?.football ?? null} lang={lang} loading={overviewLoading} />}
+        {(section === 'continental' || section === 'pocha') && <>
+        <GameHistory summary={currentGame} lang={lang} />
         <section className="dashboard-tables" aria-labelledby="dashboard-tables-title">
           <div className="dashboard-section-heading"><h2 id="dashboard-tables-title">{c.tables} <span>{rooms.length}</span></h2>
             <div className="dashboard-tabs" role="group" aria-label={c.tables}>
@@ -189,15 +227,65 @@ export function Dashboard() {
           </div>
           <div className="dashboard-filters">
             <label><span>{c.search}</span><input type="search" value={query} placeholder={c.searchPlaceholder} onChange={event => setQuery(event.target.value)} /></label>
-            <label><span id="dashboard-game-label">{c.game}</span><select aria-labelledby="dashboard-game-label" value={game} onChange={event => setGame(event.target.value)}><option value="all">{c.allGames}</option><option value="continental">Continental</option><option value="pocha">Pocha</option></select></label>
           </div>
           {rooms.length ? <div className="dashboard-rooms">{rooms.map(room => <RoomCard key={room.roomId} room={room} lang={lang} now={snapshot.generatedAt} />)}</div>
             : <div className="dashboard-empty"><span aria-hidden="true">♣</span><h3>{hasFilters ? c.noMatches : showOffline ? c.noSaved : c.noPlayers}</h3><p>{hasFilters ? c.noMatchesInfo : showOffline ? c.noSavedInfo : c.noPlayersInfo}</p></div>}
         </section>
-        <footer className="dashboard-footer"><p>{c.refreshed} <time dateTime={new Date(receivedAt).toISOString()}>{new Date(receivedAt).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time> · {c.cadence}</p><p>{c.savedHint} {c.seatHint}</p></footer>
+        </>}
+        <footer className="dashboard-footer"><p>{c.refreshed} <time dateTime={new Date(receivedAt).toISOString()}>{new Date(receivedAt).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time> · {c.cadence}</p>{(section === 'continental' || section === 'pocha') && <p>{c.savedHint} {c.seatHint}</p>}</footer>
       </>}
     </div>
   </main>
+}
+
+function GameHistory({ summary, lang }: { summary?: AdminGameSummary; lang: Lang }) {
+  const es = lang === 'es'
+  return <section className="dashboard-history" aria-label={es ? 'Historial del juego' : 'Game history'}>
+    <div className="dashboard-stats dashboard-stats-three">{[
+      [es ? 'Partidas registradas' : 'Recorded games', summary?.recordedGames ?? '—'],
+      [es ? 'Jugadores con resultados' : 'Players with results', summary?.registeredPlayers ?? '—'],
+      [es ? 'Ligas' : 'Leagues', summary?.leagues ?? '—'],
+    ].map(([label, value]) => <div className="dashboard-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    <details className="dashboard-details"><summary>{es ? 'Últimas partidas registradas' : 'Recent recorded games'}</summary>
+      {summary?.recentGames.length ? <ul className="dashboard-history-list">{summary.recentGames.map(game => <li key={game.id}>
+        <div><time dateTime={new Date(game.finishedAt).toISOString()}>{new Date(game.finishedAt).toLocaleString(es ? 'es-ES' : 'en-US')}</time><span>{game.playerCount} {es ? 'jugadores' : 'players'}</span></div>
+        <strong>{game.winners.join(', ')}</strong>
+      </li>)}</ul> : <p className="dashboard-note">{summary ? (es ? 'No hay partidas registradas.' : 'No recorded games.') : (es ? 'Historial no disponible.' : 'History unavailable.')}</p>}
+    </details>
+  </section>
+}
+
+function FootballPanel({ data, lang, loading }: { data: AdminOverview['football'] | null; lang: Lang; loading: boolean }) {
+  const es = lang === 'es', report = data?.report
+  const metric = (key: string) => report && typeof report.totals[key] === 'number' ? report.totals[key] : '—'
+  return <section className="dashboard-football" aria-labelledby="dashboard-football-title">
+    <div className="dashboard-section-heading"><h2 id="dashboard-football-title">FootballChampion</h2>
+      {report && <span className="dashboard-note">{new Date(report.since).toLocaleDateString(lang)} – {new Date(report.until).toLocaleDateString(lang)}</span>}</div>
+    <p className="dashboard-note">{es ? 'Actividad agregada. Las carreras se guardan en el navegador de cada jugador.' : 'Aggregated activity. Careers are saved in each player’s browser.'}</p>
+    {data?.stale && <p className="dashboard-error" role="status">{es ? 'Se muestra el último informe disponible.' : 'Showing the last available report.'}</p>}
+    {!report ? <p className="dashboard-note" role="status">{loading ? (es ? 'Cargando informe…' : 'Loading report…') : (es ? 'No hay un informe disponible.' : 'No report available.')}</p> : <>
+      <div className="dashboard-stats dashboard-stats-three">{[
+        [es ? 'Visitas' : 'Visits', metric('landing_view')], [es ? 'Carreras creadas' : 'Careers created', metric('career_created')],
+        [es ? 'Primer partido completado' : 'First match completed', metric('first_match_completed')],
+      ].map(([label, value]) => <div className="dashboard-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <div className="dashboard-report-grid">
+        <ReportCounts title={es ? 'Pantallas' : 'Screens'} rows={report.screens.map(row => ({ label: row.screen, count: row.count }))} />
+        <ReportCounts title={es ? 'Dispositivos' : 'Devices'} rows={report.devices.map(row => ({ label: row.device, count: row.count }))} />
+      </div>
+      <details className="dashboard-details"><summary>{es ? 'Actividad por día' : 'Daily activity'}</summary>
+        <div className="dashboard-table-scroll"><table className="dashboard-report-table"><thead><tr><th>{es ? 'Fecha' : 'Date'}</th><th>{es ? 'Eventos' : 'Events'}</th><th>{es ? 'Carreras creadas' : 'Careers created'}</th><th>{es ? 'Primer partido completado' : 'First match completed'}</th></tr></thead>
+          <tbody>{report.daily.map(row => <tr key={row.date}><th scope="row">{row.date}</th><td>{row.events}</td><td>{row.careersCreated}</td><td>{row.firstMatchesCompleted}</td></tr>)}</tbody></table></div>
+      </details>
+      <ReportCounts title={es ? 'Errores' : 'Errors'} rows={report.errors.map(row => ({ label: `${row.name} · ${row.source}`, count: row.count }))} />
+      <details className="dashboard-details"><summary>{es ? 'Todos los eventos' : 'All events'}</summary><dl className="dashboard-counts">{Object.entries(report.totals).map(([name, count]) => <div key={name}><dt>{name.replace(/_/g, ' ')}</dt><dd>{count}</dd></div>)}</dl></details>
+    </>}
+  </section>
+}
+
+function ReportCounts({ title, rows }: { title: string; rows: { label: string; count: number }[] }) {
+  return <details className="dashboard-details"><summary>{title} <span>{rows.length}</span></summary>
+    <dl className="dashboard-counts">{rows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.count}</dd></div>)}</dl>
+  </details>
 }
 
 function OperationsPanel({ operations, lang }: { operations: DashboardOperations; lang: Lang }) {

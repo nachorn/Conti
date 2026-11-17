@@ -1,5 +1,5 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express'
-import { AdminAuth, registerAdminSessions } from './adminAuth.js'
+import { AdminAuth, registerAdminSessions, type AdminAccountVerifier } from './adminAuth.js'
 import type { GameRepository } from './recovery.js'
 import type { DashboardOperations, DashboardRoom, DashboardSnapshot } from '../../shared/dashboard.js'
 
@@ -68,6 +68,7 @@ export function dashboardSnapshot(repository: GameRepository, isOnline: (playerI
 export function registerDashboard(app: Express, options: {
   key?: string
   origins?: string[]
+  accountVerifier?: AdminAccountVerifier
   repository: GameRepository
   isHealthy: () => boolean
   isOnline: (playerId: string) => boolean
@@ -76,21 +77,25 @@ export function registerDashboard(app: Express, options: {
   cleanupRooms: (selection: RoomCleanupSelection[]) => Promise<RoomCleanupResult>
 }) {
   // An unconfigured or weak key must never turn this into a public room listing.
-  const auth = new AdminAuth(options.key, options.origins)
+  const auth = new AdminAuth(options.key, options.origins, Date.now, options.accountVerifier)
   registerAdminSessions(app, auth, options.isHealthy)
   app.get('/api/admin/operations', (req, res) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    if (auth.accountOnly && !options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
-    if (!auth.authenticate(req)) { res.status(401).json({ error: 'unauthorized' }); return }
+    const access = auth.access(req)
+    if (!access.method) { res.status(access.status).json({ error: access.error }); return }
     // Passive measurements stay readable during an outage and never wake the DB.
     res.json(options.operations?.() ?? { healthy: options.isHealthy() })
   })
   app.get('/api/admin/dashboard', (req, res) => {
     res.set('Cache-Control', 'no-store')
     res.set('X-Robots-Tag', 'noindex, nofollow')
+    if (auth.accountOnly && !options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
-    if (!auth.authenticate(req)) {
-      res.status(401).json({ error: 'unauthorized' })
+    const access = auth.access(req)
+    if (!access.method) {
+      res.status(access.status).json({ error: access.error })
       return
     }
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
@@ -98,8 +103,10 @@ export function registerDashboard(app: Express, options: {
   })
   app.post(cleanupPath, (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    if (auth.accountOnly && !options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
-    if (!auth.authenticate(req)) { res.status(401).json({ error: 'unauthorized' }); return }
+    const access = auth.access(req)
+    if (!access.method) { res.status(access.status).json({ error: access.error }); return }
     if (!auth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
     next()

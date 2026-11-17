@@ -97,6 +97,7 @@
   .nrn-header-inner { min-height: 78px; gap: 12px; }
   .nrn-brand img { width: 127px; height: 34px; }
   .nrn-header-actions { gap: 10px; }
+  .nrn-header-actions.has-admin { max-width: calc(100% - 139px); min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; padding: 8px 0; }
   .nrn-header-divider { display: none; }
   .nrn-profile-button { gap: 6px; font-size: 11px; }
   .nrn-profile-button > span:nth-child(2) { max-width: 85px; }

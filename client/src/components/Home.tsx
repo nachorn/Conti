@@ -63,7 +63,6 @@ export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccoun
         <a href={`/terms.html#${lang}`}>{es ? 'Términos' : 'Terms'}</a>
         <a href="mailto:nacho@nrnplay.com">{es ? 'Contacto' : 'Contact'}</a>
         <AdPrivacyPreferences lang={lang} />
-        <a href="/dashboard" target="_blank" rel="noopener noreferrer">{es ? 'Panel privado' : 'Owner dashboard'} ↗</a>
       </nav>
     </footer>
   </main>

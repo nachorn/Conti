@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom'
 import type { Lang } from '../i18n'
 import './NRNPlay.css'
 import { platformHomeHref } from '../lib/platform'
+import { adminDestination } from '../lib/adminRoute'
 
 export function ProfileIcon({ className = '' }: { className?: string }) {
   return <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></svg>
 }
 
-export function SiteHeader({ lang, setLang, accountName, onOpenAccount, accountHref, connectionNotice }: {
-  lang: Lang; setLang: (lang: Lang) => void; accountName?: string | null; onOpenAccount: () => void; accountHref?: string; connectionNotice?: ReactNode
+export function SiteHeader({ lang, setLang, accountName, isAdmin = false, onOpenAccount, accountHref, connectionNotice }: {
+  lang: Lang; setLang: (lang: Lang) => void; accountName?: string | null; isAdmin?: boolean; onOpenAccount: () => void; accountHref?: string; connectionNotice?: ReactNode
 }) {
   const es = lang === 'es'
   const profile = <>
@@ -22,7 +23,8 @@ export function SiteHeader({ lang, setLang, accountName, onOpenAccount, accountH
       <Link className="nrn-brand" to={platformHomeHref()} aria-label={es ? 'NRN Play, inicio' : 'NRN Play, home'}>
         <img src="/brand/nrn-play-selected.svg" alt="NRN Play" width="158" height="42" />
       </Link>
-      <div className="nrn-header-actions">
+      <div className={`nrn-header-actions${isAdmin ? ' has-admin' : ''}`}>
+        {isAdmin && <Link className="nrn-profile-button" to={adminDestination(window.location.hostname)}>{es ? 'Administración' : 'Administration'}</Link>}
         <div className="nrn-language" role="group" aria-label={es ? 'Idioma' : 'Language'}>
           <button type="button" aria-label="Español" aria-pressed={es} onClick={() => setLang('es')}>ES</button>
           <button type="button" aria-label="English" aria-pressed={!es} onClick={() => setLang('en')}>EN</button>

@@ -19,9 +19,11 @@ export function meldSummary(meld: Meld, lang: Lang): string {
   return `${title} · ${cards.length} ${lang === 'es' ? 'cartas' : 'cards'}`
 }
 
-/** Same rule as Room.discard: players still holding their contract cannot feed a public meld. */
+/** Same rule as Room.discard, including the escape when every held card fits the table. */
 export function discardBlocker(state: GameState, playerId: string | null, card: Card): Meld | undefined {
   if (state.melds.some(m => m.ownerId === playerId)) return undefined
+  const hand = state.players.find(player => player.id === playerId)?.hand
+  if (hand?.length && hand.every(candidate => state.melds.some(meld => isValidMeld(meld.type, [...meld.cards, candidate])))) return undefined
   return state.melds.find(m => isValidMeld(m.type, [...m.cards, card]))
 }
 

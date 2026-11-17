@@ -1,6 +1,14 @@
 {
   "redirects": [
-    { "source": "/account", "has": [{ "type": "host", "value": "www.nrnplay.com" }], "destination": "https://nrnplay.com/account", "permanent": false }
+    { "source": "/account", "has": [{ "type": "host", "value": "www.nrnplay.com" }], "destination": "https://nrnplay.com/account", "permanent": false },
+    { "source": "/dashboard", "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/dashboard/:path*", "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin", "has": [{ "type": "host", "value": "conti.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin/:path*", "has": [{ "type": "host", "value": "conti.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin", "has": [{ "type": "host", "value": "pocha.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin/:path*", "has": [{ "type": "host", "value": "pocha.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin", "has": [{ "type": "host", "value": "www.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false },
+    { "source": "/admin/:path*", "has": [{ "type": "host", "value": "www.nrnplay.com" }], "destination": "https://nrnplay.com/admin", "permanent": false }
   ],
   "headers": [
     {
@@ -42,7 +50,33 @@
     {
       "source": "/dashboard",
       "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/dashboard/:path*",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/admin",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/admin/:path*",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
       ]
     },
     {
@@ -93,6 +127,8 @@
     }
   ],
   "rewrites": [
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/:path*", "destination": "/index.html" },
     { "source": "/account", "destination": "/index.html" },
     {
       "source": "/api/admin/:path*",
@@ -109,10 +145,6 @@
     {
       "source": "/pocha",
       "destination": "/pocha/index.html"
-    },
-    {
-      "source": "/dashboard",
-      "destination": "/"
     },
     {
       "source": "/room/:roomId",

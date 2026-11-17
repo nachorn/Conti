@@ -30,6 +30,7 @@ import { hasCosmeticAccess } from './lib/cosmetics'
 import { UserDashboard } from './components/UserDashboard'
 import { criticalConnectionState } from './lib/connectionFeedback'
 import { useConnectionWarning } from './useConnectionWarning'
+import { adminAccess, adminDestination } from './lib/adminRoute'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
@@ -64,7 +65,7 @@ function ConnectPage() {
   const connectionNotice = membership.connectionWarning ? <ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /> : undefined
   useEffect(() => { document.title = lang === 'es' ? 'Tu cuenta · NRN Play' : 'Your account · NRN Play' }, [lang])
   return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
-    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={() => setOpen(true)} connectionNotice={!open ? connectionNotice : undefined} />
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} isAdmin={membership.account?.isAdmin === true && !!membership.token} onOpenAccount={() => setOpen(true)} connectionNotice={!open ? connectionNotice : undefined} />
     <Membership membership={membership} lang={lang} open={open} hideTrigger onOpen={() => setOpen(true)} onClose={() => setOpen(false)} connectionNotice={open ? connectionNotice : undefined} />
     <GameSignIn membership={membership} lang={lang} onOpenAccount={() => setOpen(true)} />
   </div></CosmeticsProvider>
@@ -81,7 +82,7 @@ function AccountPage() {
   const connectionNotice = membership.connectionWarning ? <ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /> : undefined
   useEffect(() => { document.title = lang === 'es' ? 'Mi panel · NRN Play' : 'My dashboard · NRN Play' }, [lang])
   return <CosmeticsProvider account={membership.account} lang={lang}><div className="nrn-platform">
-    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} onOpenAccount={openAccount} connectionNotice={!open ? connectionNotice : undefined} />
+    <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name} isAdmin={membership.account?.isAdmin === true && !!membership.token} onOpenAccount={openAccount} connectionNotice={!open ? connectionNotice : undefined} />
     <Membership membership={membership} lang={lang} open={open} initialSection={section} hideTrigger onOpen={openAccount} onClose={() => setOpen(false)} connectionNotice={open ? connectionNotice : undefined} />
     <UserDashboard membership={membership} lang={lang} onOpenAccount={openAccount} onOpenPlus={openPlus} />
   </div></CosmeticsProvider>
@@ -91,11 +92,43 @@ export default function App() {
   // Do not mount useSocket on the dashboard: a copied player tab may contain a
   // recovery token, and monitoring must never reconnect or replace that seat.
   return <Routes>
-    <Route path="/dashboard" element={<Suspense fallback={<p role="status">Loading… / Cargando…</p>}><Dashboard /></Suspense>} />
+    <Route path="/admin/*" element={<AdminEntry />} />
+    <Route path="/dashboard/*" element={<AdminEntry legacy />} />
     <Route path="/connect" element={<ConnectPage />} />
     <Route path="/account" element={<AccountPage />} />
     <Route path="/*" element={<GameApp />} />
   </Routes>
+}
+
+function AdminEntry({ legacy = false }: { legacy?: boolean }) {
+  const destination = adminDestination(window.location.hostname)
+  const external = destination.startsWith('https://')
+  useEffect(() => { if (external) window.location.replace(destination) }, [destination, external])
+  if (external) return null
+  if (legacy) return <Navigate to="/admin" replace />
+  return <AdminGate />
+}
+
+/** Account verification is separate from game state and never mounts a room socket. */
+export function AdminGate() {
+  const membership = useMembership()
+  const navigate = useNavigate()
+  const [lang] = usePlatformLanguage()
+  const [rechecking, setRechecking] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const access = adminAccess(membership)
+  if (access === 'denied' && !leaving) return <Navigate to={membership.account ? '/' : '/account'} replace />
+  if (leaving) return <p role="status">{lang === 'es' ? 'Cerrando sesión…' : 'Signing out…'}</p>
+  if (access === 'pending' || rechecking) return membership.connectionWarning ? <div className="nrn-connection-corner"><ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /></div> : null
+  const revalidate = () => {
+    setRechecking(true)
+    void membership.refresh().finally(() => setRechecking(false))
+  }
+  const signOut = () => {
+    setLeaving(true)
+    void membership.logout().finally(() => navigate('/account', { replace: true }))
+  }
+  return <Suspense fallback={null}><Dashboard key={membership.token} adminToken={membership.token!} onSignOut={signOut} onSessionExpired={revalidate} /></Suspense>
 }
 
 /** Game routes and socket state. Syncs URL with in-game state. */
@@ -320,6 +353,7 @@ function GameApp() {
     <CosmeticsProvider account={membership.account} lang={lang}>
     <div className={isPlatformPage ? 'nrn-platform' : undefined}>
       {isPlatformPage && <SiteHeader lang={lang} setLang={setLang} accountName={membership.account?.name}
+        isAdmin={membership.account?.isAdmin === true && !!membership.token}
         accountHref={!hostedGame && location.pathname === '/' ? platformAccountHref() : undefined}
         connectionNotice={!noticeInModal ? connectionNotice : undefined}
         onOpenAccount={openAccount} />}

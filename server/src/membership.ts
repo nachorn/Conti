@@ -3,11 +3,12 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeE
 import { resolve } from 'node:path'
 import { FileSnapshotStore, PostgresSnapshotStore, MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, localSnapshotPaths, requireInstalledLocalSnapshots, snapshotStorageMode, type SnapshotStore } from './storage.js'
 import { createMembershipEmailSender } from './membershipEmail.js'
-import { AdminAuth } from './adminAuth.js'
+import { AdminAuth, type AdminAccountVerifier } from './adminAuth.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
 import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, isBmcSubscriptionId, parseBmcSubscriptions, parsePlusAudit, validateBmcEvent, verifyBmcEvent, type BmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
+import type { AdminAccount } from '../../shared/platformAdmin.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
@@ -24,6 +25,7 @@ export interface MembershipOptions {
   store: SnapshotStore
   authSecret: string
   dashboardKey?: string
+  adminEmails?: readonly string[]
   sendCode?: EmailSender
   stripeSecret?: string
   stripeWebhookSecret?: string
@@ -49,6 +51,18 @@ export function normalizeMembershipEmail(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const email = value.trim().toLowerCase()
   return email.length <= 254 && /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/i.test(email) ? email : null
+}
+export function adminEmailsFromEnvironment(env: NodeJS.ProcessEnv): string[] | undefined {
+  const value = env.ADMIN_ACCOUNT_EMAILS
+  if (value === undefined) return undefined
+  if (value.length > 4096) throw new Error('ADMIN_ACCOUNT_EMAILS must contain a bounded list of valid account email addresses')
+  return normalizeAdminEmails(value.split(',').filter(email => email.trim() !== ''))
+}
+function normalizeAdminEmails(values: readonly string[]): string[] {
+  if (!Array.isArray(values) || values.length > 100) throw new Error('ADMIN_ACCOUNT_EMAILS must contain a bounded list of valid account email addresses')
+  const emails = values.map(normalizeMembershipEmail)
+  if (emails.some(email => email === null)) throw new Error('ADMIN_ACCOUNT_EMAILS must contain only valid account email addresses')
+  return [...new Set(emails as string[])]
 }
 class MembershipError extends Error {
   constructor(readonly code: string, readonly status = 400) { super(code) }
@@ -133,9 +147,11 @@ export class MembershipService {
   private readonly request: typeof fetch
   private readonly appUrl: string | null
   private readonly gameSignIn: GameSignInBroker
+  private readonly adminEmails: ReadonlySet<string> | null
   constructor(private readonly options: MembershipOptions) {
     if (options.authSecret.length < 32) throw new Error('MEMBERSHIP_AUTH_SECRET must contain at least 32 characters')
     this.now = options.now ?? Date.now
+    this.adminEmails = options.adminEmails === undefined ? null : new Set(normalizeAdminEmails(options.adminEmails))
     this.request = options.request ?? fetch
     this.appUrl = validAppUrl(options.appUrl)
     this.gameSignIn = new GameSignInBroker(
@@ -213,8 +229,34 @@ export class MembershipService {
     const giftWins = !!gift && (gift.expiresAt === null || !bmc.active || gift.expiresAt >= (bmc.expiresAt ?? 0))
     const plus = purchased ? { active: true, expiresAt: null, provider: 'legacy' as const, status: 'active' as const, cancelAtPeriodEnd: false }
       : giftWins ? { active: true, expiresAt: gift!.expiresAt, provider: 'gift' as const, status: 'active' as const, cancelAtPeriodEnd: false } : bmc
-    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }), adFree: plus.active,
+    return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }),
+      ...(this.adminEmails?.has(account.email) ? { isAdmin: true } : {}), adFree: plus.active,
       source: purchased ? 'purchase' : giftWins || bmc.active && bmc.complimentary ? 'gift' : bmc.active ? 'purchase' : null, expiresAt: plus.expiresAt, plus }
+  }
+  /** Present even for an explicitly empty allowlist, which disables legacy admin access. */
+  adminAccountVerifier(): AdminAccountVerifier | undefined {
+    return this.adminEmails === null ? undefined : token => this.authenticate(token)
+  }
+  /** Admin-only projection. Credentials, delivery challenges and payment details never leave this service. */
+  getAdminAccountSummary(): { total: number; plusActive: number } {
+    this.requireHealthy()
+    return { total: this.data.accounts.length, plusActive: this.data.accounts.filter(account => this.publicAccount(account).adFree).length }
+  }
+  listAdminAccounts(q = '', offset = 0, limit = 50): {
+    total: number; filtered: number; offset: number; limit: number; accounts: Omit<AdminAccount, 'stats'>[]
+  } {
+    this.requireHealthy()
+    const query = q.slice(0, 100).trim().toLocaleLowerCase()
+    const start = Number.isSafeInteger(offset) ? Math.max(0, offset) : 0
+    const size = Number.isSafeInteger(limit) ? Math.min(100, Math.max(1, limit)) : 50
+    const matches = this.data.accounts.filter(account => !query || account.email.toLocaleLowerCase().includes(query) || (account.name ?? '').toLocaleLowerCase().includes(query))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || a.email.localeCompare(b.email) || a.id.localeCompare(b.id))
+    return { total: this.data.accounts.length, filtered: matches.length, offset: start, limit: size,
+      accounts: matches.slice(start, start + size).map(account => {
+        const entitlement = this.publicAccount(account)
+        return { id: account.id, name: account.name ?? null, email: account.email, createdAt: account.createdAt,
+          plus: { active: entitlement.adFree, source: entitlement.source, expiresAt: entitlement.expiresAt } }
+      }) }
   }
   authenticate(token: string): MembershipAccount | null {
     if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
@@ -261,9 +303,9 @@ export class MembershipService {
   private token(req: Request) { const auth = req.get('authorization') ?? ''; return auth.startsWith('Bearer ') ? auth.slice(7) : '' }
   private requireAdmin(req: Request, auth: AdminAuth) {
     if (!auth.configured) throw new MembershipError('membership_not_configured', 503)
-    const method = auth.authenticate(req)
-    if (!method) throw new MembershipError('unauthorized', 401)
-    if (method === 'cookie' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !auth.allowWrite(req)) throw new MembershipError('invalid_request', 403)
+    const access = auth.access(req)
+    if (!access.method) throw new MembershipError(access.error, access.status)
+    if (['cookie', 'account'].includes(access.method) && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !auth.allowWrite(req)) throw new MembershipError('invalid_request', 403)
   }
   private limit(data: Data, label: string, count: number, window: number): boolean {
     const key = createHmac('sha256', this.options.authSecret).update(label).digest('hex')
@@ -637,7 +679,7 @@ export class MembershipService {
     }, true, true)
   }
   registerRoutes(app: Express, origins: string[] = []) {
-    const admin = new AdminAuth(this.options.dashboardKey, [...origins, ...(this.appUrl ? [this.appUrl] : [])], this.now)
+    const admin = new AdminAuth(this.options.dashboardKey, [...origins, ...(this.appUrl ? [this.appUrl] : [])], this.now, this.adminAccountVerifier())
     const run = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store'); res.set('X-Robots-Tag', 'noindex, nofollow')
       Promise.resolve().then(() => { this.requireHealthy(); return handler(req, res) }).catch(error => {
@@ -725,9 +767,13 @@ export function adConfigFromEnvironment(env: NodeJS.ProcessEnv): MembershipConfi
   return { provider: 'google-h5', publisherId: env.ADSENSE_PUBLISHER_ID!, consentReady: true }
 }
 export async function createMembershipService(env: NodeJS.ProcessEnv = process.env): Promise<MembershipService | undefined> {
-  if (env.MEMBERSHIP_ENABLED !== 'true') return undefined
+  if (env.MEMBERSHIP_ENABLED !== 'true') {
+    if (env.ADMIN_ACCOUNT_EMAILS !== undefined) throw new Error('Enable accounts before configuring account-only administration')
+    return undefined
+  }
   const secret = env.MEMBERSHIP_AUTH_SECRET?.trim() ?? ''
   if (secret.length < 32) throw new Error('Set a strong MEMBERSHIP_AUTH_SECRET before enabling accounts')
+  const adminEmails = adminEmailsFromEnvironment(env)
   const localPaths = snapshotStorageMode(env) === 'file' ? localSnapshotPaths(env) : null
   if (localPaths) await requireInstalledLocalSnapshots(env, localPaths)
   const store = localPaths ? await FileSnapshotStore.open(localPaths.membership)
@@ -738,7 +784,7 @@ export async function createMembershipService(env: NodeJS.ProcessEnv = process.e
   if (!store) throw new Error('Memberships require DATABASE_URL or MEMBERSHIP_STATE_PATH on a persistent volume')
   const sendCode = createMembershipEmailSender(env)
   try {
-    return await new MembershipService({ store, authSecret: secret, dashboardKey: env.ADMIN_DASHBOARD_KEY, sendCode, stripeSecret: env.STRIPE_SECRET_KEY, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET, stripePriceId: env.STRIPE_PRICE_ID, stripePriceIdEur: env.STRIPE_PRICE_ID_EUR, stripePriceIdUsd: env.STRIPE_PRICE_ID_USD, appUrl: env.PUBLIC_APP_URL,
+    return await new MembershipService({ store, authSecret: secret, dashboardKey: env.ADMIN_DASHBOARD_KEY, adminEmails, sendCode, stripeSecret: env.STRIPE_SECRET_KEY, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET, stripePriceId: env.STRIPE_PRICE_ID, stripePriceIdEur: env.STRIPE_PRICE_ID_EUR, stripePriceIdUsd: env.STRIPE_PRICE_ID_USD, appUrl: env.PUBLIC_APP_URL,
       gameOrigins: gameOriginsFromEnvironment(env), allowLocalGameOrigins: env.NODE_ENV !== 'production' && env.RENDER !== 'true' && !env.RAILWAY_ENVIRONMENT_ID,
       ads: adConfigFromEnvironment(env), bmc: bmcFromEnvironment(env) }).load()
   } catch (error) { await store.close(); throw error }

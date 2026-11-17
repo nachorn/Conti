@@ -12,7 +12,24 @@ export type AdminState = {
 type AdminResponse = { ok: boolean; status: number; body: unknown }
 const sessionConfirmed = (body: unknown) => typeof body === 'object' && body !== null && !Array.isArray(body) && 'ok' in body && body.ok === true
 
-/** Admin cookies are scoped to the same-origin proxy; credentials never enter JS storage. */
+interface AccountScope { token: () => string | null; onUnauthorized: () => void; denied: boolean; requests: Set<AbortController> }
+let accountScope: AccountScope | null = null
+let accountMode = false
+
+/** Account administration never falls back to a remembered master-key cookie. */
+export function configureAdminToken(token: () => string | null, onUnauthorized: () => void = () => {}) {
+  accountMode = true
+  const scope: AccountScope = { token, onUnauthorized, denied: false, requests: new Set() }
+  for (const request of accountScope?.requests ?? []) request.abort()
+  accountScope = scope
+  return () => {
+    for (const request of scope.requests) request.abort()
+    scope.requests.clear()
+    if (accountScope === scope) accountScope = null
+  }
+}
+
+/** Requests stay same-origin; account mode sends only the current verified bearer. */
 export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof fetch = fetch) {
   if (!path.startsWith('/api/admin/')) throw new Error('Invalid admin endpoint')
   const headers = new Headers(init.headers)
@@ -20,7 +37,28 @@ export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof
     headers.set('Content-Type', 'application/json')
     headers.set('X-Admin-Request', '1')
   }
-  return fetcher(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
+  if (!accountMode) return fetcher(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
+  if (path.split('?')[0] === '/api/admin/session') return Promise.reject(new Error('Legacy administration sessions are disabled'))
+  const scope = accountScope, token = scope && !scope.denied ? scope.token() : null
+  if (!scope || !token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return Promise.reject(new Error('Account authorization required'))
+  headers.set('Authorization', `Bearer ${token}`)
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (init.signal?.aborted) controller.abort()
+  init.signal?.addEventListener('abort', abort, { once: true })
+  scope.requests.add(controller)
+  return fetcher(path, { ...init, headers, credentials: 'omit', cache: 'no-store', signal: controller.signal }).then(async response => {
+    if (controller.signal.aborted || accountScope !== scope || scope.token() !== token) throw new Error('Account authorization changed')
+    const readOnly = !init.method || ['GET', 'HEAD'].includes(init.method.toUpperCase())
+    const body = response.status === 403 && !readOnly ? await response.clone().json().catch(() => null) as { error?: string } | null : null
+    if (controller.signal.aborted || accountScope !== scope || scope.token() !== token) throw new Error('Account authorization changed')
+    if ((response.status === 401 || response.status === 403 && (readOnly || body?.error !== 'invalid_request')) && !scope.denied) {
+      scope.denied = true
+      for (const request of scope.requests) request.abort()
+      scope.onUnauthorized()
+    }
+    return response
+  }).finally(() => { scope.requests.delete(controller); init.signal?.removeEventListener('abort', abort) })
 }
 
 export function adminLoginFields(data: FormData) {
@@ -69,7 +107,7 @@ export class AdminSession {
     finally { clearTimeout(timeout); this.requests.delete(controller) }
   }
   private failure(response: AdminResponse): AdminError {
-    if (response.status === 401) return 'unauthorized'
+    if (response.status === 401 || response.status === 403) return 'unauthorized'
     if (response.status === 429) return 'rateLimited'
     const body = response.body as { error?: string } | null
     return body?.error === 'dashboard_not_configured' ? 'unconfigured' : 'unavailable'

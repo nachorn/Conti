@@ -238,7 +238,8 @@ export function useMembership() {
       if (!configReady.current || serverStatusRef.current !== 'ready') { void refresh(); return }
       // A healthy background validation must not unmount a league form or
       // reset the dashboard while someone is using it.
-      if (sessionRef.current) void connectOnce().then(ready => { if (!ready && live.current) void refresh() })
+      const token = sessionRef.current?.token
+      if (token) void connectOnce().then(ready => { if (!ready && live.current && sessionRef.current?.token === token) void refresh() })
     }, window, document)
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === CURRENCY_PREFERENCE_KEY) {
@@ -249,13 +250,24 @@ export function useMembership() {
       }
       if (event.key && event.key !== MEMBERSHIP_STORAGE_KEY) return
       const next = readMembershipSession(localStorageOrNull())
-      ++authSequence.current
-      pendingAuth.current = null
-      registration.current = null
-      setBusy(false)
+      if ((sessionRef.current?.token ?? null) !== (next?.token ?? null)) {
+        // A previous credential's pending read cannot certify the new identity
+        // or suppress its first validation. Same-token checks keep the view.
+        ++authSequence.current
+        ++refreshSequence.current
+        ++configSequence.current
+        connectionAttempt.current = null
+        pendingAuth.current = null
+        registration.current = null
+        configReady.current = false
+        setBusy(false)
+        setAccount(null)
+        setLoaded(false)
+        serverStatusRef.current = 'connecting'
+        setServerStatus('connecting')
+      }
       sessionRef.current = next
       setSession(next)
-      setAccount(null)
       void refresh()
     }
     window.addEventListener('storage', onStorage)

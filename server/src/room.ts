@@ -983,10 +983,11 @@ export class Room {
     const card = cp.hand[idx]!
     const hasPlayedMeld = this.melds.some(m => m.ownerId === playerId)
     if (!force && !hasPlayedMeld) {
-      for (const m of this.melds) {
-        if (isValidMeld(m.type, [...m.cards, card])) {
-          return { ok: false, error: "You can't discard that card—it can be added to a meld and you haven't played yours yet" }
-        }
+      const fitsTable = (candidate: Card) => this.melds.some(meld => isValidMeld(meld.type, [...meld.cards, candidate]))
+      // Preserve the usual restriction when another discard exists. If every
+      // card fits the table, it must not trap an untimed, unmelded player forever.
+      if (fitsTable(card) && cp.hand.some(candidate => !fitsTable(candidate))) {
+        return { ok: false, error: "You can't discard that card—it can be added to a meld and you haven't played yours yet" }
       }
     }
     this.recordAction(playerId, 'discard', [card])

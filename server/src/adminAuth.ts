@@ -7,6 +7,9 @@ export const ADMIN_REMEMBER_MS = 30 * 24 * 60 * 60_000
 export const ADMIN_SESSION_MS = 12 * 60 * 60_000
 const COOKIE_PATH = '/api/admin'
 const hash = (value: string) => createHash('sha256').update(value).digest()
+export type AdminAccountVerifier = (token: string) => { isAdmin?: boolean } | null
+type AdminMethod = 'bearer' | 'cookie' | 'account'
+type AdminAccess = { method: AdminMethod; error?: never; status?: never } | { method: null; error: 'unauthorized' | 'forbidden'; status: 401 | 403 }
 const same = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b)
 const normalizeOrigin = (value: string | undefined): string | null => {
   if (!value) return null
@@ -16,20 +19,21 @@ const normalizeOrigin = (value: string | undefined): string | null => {
   } catch { return null }
 }
 
-/** A fixed-lifetime, deployment-stable session. Rotating the admin key revokes every session. */
+/** Legacy cookies have a fixed lifetime. Account-only mode verifies MembershipService on every request. */
 export class AdminAuth {
   private readonly passwordHash: Buffer | null
   private readonly signingKey: Buffer | null
   private readonly allowedOrigins: Set<string>
-  constructor(key?: string, origins: string[] = [], private readonly now: () => number = Date.now) {
+  constructor(key?: string, origins: string[] = [], private readonly now: () => number = Date.now, private readonly accountVerifier?: AdminAccountVerifier) {
     const password = key?.trim()
     this.passwordHash = password && password.length >= 32 && password.length <= 256 ? hash(password) : null
     this.signingKey = this.passwordHash ? createHmac('sha256', password!).update('conti:admin-session:signing-key:v1').digest() : null
     this.allowedOrigins = new Set(origins.map(normalizeOrigin).filter((origin): origin is string => origin !== null))
   }
-  get configured() { return this.passwordHash !== null }
+  get accountOnly() { return this.accountVerifier !== undefined }
+  get configured() { return this.accountOnly || this.passwordHash !== null }
   validPassword(value: unknown): boolean {
-    return this.passwordHash !== null && typeof value === 'string' && value.length > 0 && value.length <= 256 && same(hash(value), this.passwordHash)
+    return !this.accountOnly && this.passwordHash !== null && typeof value === 'string' && value.length > 0 && value.length <= 256 && same(hash(value), this.passwordHash)
   }
   private validSession(token: string): boolean {
     if (!this.signingKey || token.length > 256) return false
@@ -40,13 +44,21 @@ export class AdminAuth {
     const expected = createHmac('sha256', this.signingKey).update(parts.slice(0, 4).join('.')).digest()
     return same(Buffer.from(parts[4], 'base64url'), expected)
   }
-  authenticate(req: Request): 'bearer' | 'cookie' | null {
+  access(req: Request): AdminAccess {
     const authorization = req.get('authorization') ?? ''
+    if (this.accountVerifier) {
+      const account = authorization.startsWith('Bearer ') ? this.accountVerifier(authorization.slice(7)) : null
+      return account?.isAdmin === true ? { method: 'account' } : account
+        ? { method: null, error: 'forbidden', status: 403 } : { method: null, error: 'unauthorized', status: 401 }
+    }
     // An explicitly supplied but invalid credential must not silently fall back to a cookie.
-    if (authorization) return authorization.startsWith('Bearer ') && this.validPassword(authorization.slice(7)) ? 'bearer' : null
+    if (authorization) return authorization.startsWith('Bearer ') && this.validPassword(authorization.slice(7)) ? { method: 'bearer' } : { method: null, error: 'unauthorized', status: 401 }
     const cookies = (req.get('cookie') ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${ADMIN_SESSION_COOKIE}=`))
-    if (cookies.length !== 1) return null
-    return this.validSession(cookies[0].slice(ADMIN_SESSION_COOKIE.length + 1)) ? 'cookie' : null
+    return cookies.length === 1 && this.validSession(cookies[0].slice(ADMIN_SESSION_COOKIE.length + 1))
+      ? { method: 'cookie' } : { method: null, error: 'unauthorized', status: 401 }
+  }
+  authenticate(req: Request): AdminMethod | null {
+    return this.access(req).method
   }
   allowWrite(req: Request): boolean {
     // This header cannot be sent by HTML forms, and credentialed cross-origin CORS is disabled.
@@ -65,7 +77,7 @@ export class AdminAuth {
     return { httpOnly: true, secure: this.secure(req), sameSite: 'strict', path: COOKIE_PATH }
   }
   issue(req: Request, res: Response, remember: boolean) {
-    if (!this.signingKey) throw new Error('Admin authentication is not configured')
+    if (this.accountOnly || !this.signingKey) throw new Error('Legacy admin authentication is not configured')
     const lifetime = remember ? ADMIN_REMEMBER_MS : ADMIN_SESSION_MS
     const issued = this.now()
     const payload = `v1.${issued}.${issued + lifetime}.${randomBytes(16).toString('base64url')}`
@@ -87,6 +99,13 @@ export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: 
   }
   app.post('/api/admin/session', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb', inflate: false }), (req, res) => {
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
+    if (auth.accountOnly) {
+      if (!isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
+      const access = auth.access(req)
+      if (!access.method) { res.status(access.status).json({ error: access.error }); return }
+      // Account sessions belong to MembershipService; never mint a master-key cookie here.
+      res.json({ ok: true }); return
+    }
     if (!req.is('application/json') || typeof req.body?.password !== 'string' || typeof req.body?.remember !== 'boolean') { res.status(400).json({ error: 'invalid_request' }); return }
     if (!auth.validPassword(req.body.password)) { res.status(401).json({ error: 'unauthorized' }); return }
     if (!isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }

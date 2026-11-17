@@ -18,6 +18,8 @@ import { registerSecurityConfig, type RoomEntryVerifier } from './turnstile.js'
 import { pochaBotAction } from './testBot.js'
 import { beginPersonalMatch, registerPersonalStats } from './personalStats.js'
 import { registerLeagues } from './leagues.js'
+import { registerPlatformAdmin } from './platformAdmin.js'
+import type { FootballAdminClient } from './footballAdmin.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -35,7 +37,7 @@ const leagueErrorMessage = (code: string) => leagueErrorMessages[code] ?? 'No se
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
-export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; adConfig?: AdConfig; turnstile?: RoomEntryVerifier } = {}) {
+export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; footballAdmin?: FootballAdminClient; adConfig?: AdConfig; turnstile?: RoomEntryVerifier } = {}) {
   const repository = new GameRepository(store, options.retentionMs)
   await repository.load()
   const app = express()
@@ -46,9 +48,14 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   if (options.membership) app.use(['/api/membership/game-authorize', '/api/membership/game-exchange'], options.membership.gameSignInCors(options.origins ?? []))
   app.use(cors({ origin: corsOrigin }))
   registerSecurityConfig(app, options.turnstile)
-  const adminAuth = new AdminAuth(options.dashboardKey, options.origins)
+  const adminAccountVerifier = options.membership?.adminAccountVerifier()
+  const adminAuth = new AdminAuth(options.dashboardKey, options.origins, Date.now, adminAccountVerifier)
   const adminRequests = requestLimit(new RateLimiter(120, 60_000))
   app.use('/api/admin', (req, res, next) => {
+    // An outage cannot look like a revoked account role. Clearing an obsolete cookie stays harmless.
+    if (adminAuth.accountOnly && (!isHealthy() || !options.membership?.isHealthy()) && !(req.method === 'DELETE' && req.path === '/session')) {
+      res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').status(503).json({ error: 'server_unavailable' }); return
+    }
     // Abuse must not lock out an already authenticated owner or prevent logout.
     if (adminAuth.authenticate(req) || (req.method === 'DELETE' && req.path === '/session')) { next(); return }
     adminRequests(req, res, next)
@@ -112,8 +119,11 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     const socketId = activeSockets.get(playerId)
     return !!socketId && io.sockets.sockets.get(socketId)?.connected === true
   }
+  registerPlatformAdmin(app, { key: options.dashboardKey, origins: options.origins, membership: options.membership, repository, football: options.footballAdmin,
+    isHealthy: () => isHealthy() && !closing })
   registerDashboard(app, {
-    key: options.dashboardKey, origins: options.origins, repository, isHealthy,
+    key: options.dashboardKey, origins: options.origins, accountVerifier: adminAccountVerifier, repository,
+    isHealthy: () => isHealthy() && (!adminAccountVerifier || options.membership?.isHealthy() === true),
     isOnline: isPlayerOnline,
     operations: () => {
       const memory = process.memoryUsage()
@@ -161,8 +171,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const testBotPath = '/api/admin/rooms/:roomId/test-bot'
   app.all(testBotPath, (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
+    if (adminAuth.accountOnly && (!isHealthy() || !options.membership?.isHealthy() || closing)) { res.status(503).json({ error: 'server_unavailable' }); return }
     if (!adminAuth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
-    if (!adminAuth.authenticate(req)) { res.status(401).json({ error: 'unauthorized' }); return }
+    const access = adminAuth.access(req)
+    if (!access.method) { res.status(access.status).json({ error: access.error }); return }
     if (!adminAuth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     if (!isHealthy() || closing || pending >= 200) { res.status(503).json({ error: 'server_unavailable' }); return }
     testBotLimit(req, res, next)

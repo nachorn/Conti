@@ -18,6 +18,6 @@ self.addEventListener('fetch', event => {
     return
   }
   // All other fetches pass through unchanged, including account/connect pages.
-  if (request.mode !== 'navigate' || /^\/(?:api|account|connect|dashboard)(?:\/|$)/.test(url.pathname)) return
+  if (request.mode !== 'navigate' || /^\/(?:api|account|connect|admin|dashboard)(?:\/|$)/.test(url.pathname)) return
   event.respondWith(fetch(request).catch(async () => (await caches.match('/offline.html')) || Response.error()))
 })
