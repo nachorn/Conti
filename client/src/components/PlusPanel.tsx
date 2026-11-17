@@ -45,7 +45,6 @@ export function PlusPanel({ membership, lang, onSignIn, signInOpen = false }: { 
       {config.ads.provider === 'disabled' && <p className="nrn-plus-note nrn-plus-ads-status">{es ? 'Los anuncios de partida están desactivados actualmente.' : 'Game ads are currently disabled.'}</p>}
 
       {!active && <>
-        {offer?.requiresMatchingEmail && account && <p className="nrn-plus-email">{es ? 'Compra con el mismo email:' : 'Use the same email to purchase:'} <strong>{account.email}</strong></p>}
         {!account ? <>
           {onSignIn ? <button type="button" className="membership-primary nrn-plus-purchase" disabled={busy} onClick={onSignIn} aria-controls="membership-plus-sign-in" aria-expanded={signInOpen}>{es ? 'Entrar o crear cuenta' : 'Sign in or create account'}</button>
             : <p className="nrn-plus-note">{es ? 'Entra en NRN Play para vincular Plus.' : 'Sign in to NRN Play to link Plus.'}</p>}
