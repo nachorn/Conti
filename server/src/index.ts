@@ -30,7 +30,9 @@ if (process.env.MEMBERSHIP_TRUST_PROXY_HOPS) {
   if (!/^[1-3]$/.test(process.env.MEMBERSHIP_TRUST_PROXY_HOPS)) throw new Error('MEMBERSHIP_TRUST_PROXY_HOPS must be 1, 2, or 3 for a verified proxy topology')
   server.app.set('trust proxy', Number(process.env.MEMBERSHIP_TRUST_PROXY_HOPS))
 }
-const port = await server.listen(Number(process.env.PORT) || 3001)
+const host = process.env.LISTEN_HOST || '0.0.0.0'
+if (!['0.0.0.0', '127.0.0.1', '::', '::1'].includes(host)) throw new Error('LISTEN_HOST must be a supported bind address')
+const port = await server.listen(Number(process.env.PORT) || 3001, host)
 console.log(`Continental Rummy server listening on port ${port}; game recovery enabled`)
 
 let stopping = false
