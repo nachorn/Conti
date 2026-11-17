@@ -1,0 +1,46 @@
+# Proposal only: install only after validated migration and explicit root go-ahead.
+[Unit]
+Description=NRN Play with persistent local snapshots
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=nrn
+Group=nrn
+WorkingDirectory=/opt/nrnplay/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/nrnplay/nrnplay.env
+StateDirectory=nrnplay
+StateDirectoryMode=0700
+ExecStartPre=/bin/sh /opt/nrnplay/current/ops/free/verify-local-files.sh
+ExecStart=/opt/nrnplay/node/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=12
+KillSignal=SIGTERM
+UMask=0077
+CPUAccounting=yes
+MemoryAccounting=yes
+CPUWeight=200
+Nice=5
+MemoryHigh=256M
+MemoryMax=384M
+MemorySwapMax=256M
+OOMScoreAdjust=500
+TasksMax=128
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/nrnplay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

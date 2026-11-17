@@ -1,0 +1,40 @@
+# Proposal only. No retry loop, and no Node process before ExecCondition passes.
+[Unit]
+Description=NRN Play hourly offsite checkpoint to existing Neon Free
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nrn
+Group=nrn
+WorkingDirectory=/opt/nrnplay/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/nrnplay/backup.env
+ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/verify-local-files.sh --backup
+ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/backup/pressure-guard.sh
+ExecStart=/opt/nrnplay/node/bin/node /opt/nrnplay/current/server/dist/cli/checkpoint-local-to-postgres.js --apply
+TimeoutStartSec=120
+TimeoutStopSec=10
+KillMode=control-group
+Restart=no
+UMask=0077
+Nice=10
+CPUAccounting=yes
+MemoryAccounting=yes
+CPUWeight=10
+MemoryHigh=128M
+MemoryMax=192M
+MemorySwapMax=128M
+OOMScoreAdjust=800
+TasksMax=64
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/opt/nrnplay /var/lib/nrnplay /etc/nrnplay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RestrictRealtime=yes

@@ -1,0 +1,13 @@
+# Hourly UTC minute :20, before/after the normal 18:40-19:05 RACE window.
+[Unit]
+Description=NRN Play hourly checkpoint schedule (RACE guards apply)
+
+[Timer]
+OnCalendar=*-*-* *:20:00 UTC
+AccuracySec=1min
+RandomizedDelaySec=0
+Persistent=false
+Unit=nrnplay-checkpoint.service
+
+[Install]
+WantedBy=timers.target
