@@ -8,6 +8,17 @@ const waiting: (() => void)[] = []
 export class PasswordWorkBusy extends Error {
   constructor() { super('Password verification busy') }
 }
+export interface PasswordDelegate {
+  derive(password: string, salt: Buffer): Promise<Buffer>
+  shouldDelegate(): boolean | Promise<boolean>
+  allowLocalFallback(): boolean | Promise<boolean>
+}
+let passwordDelegate: PasswordDelegate | null = null
+/** Optional pressure-aware offload; unconfigured deployments keep the local KDF. */
+export function configurePasswordDelegate(options: PasswordDelegate | null): () => void {
+  passwordDelegate = options
+  return () => { if (passwordDelegate === options) passwordDelegate = null }
+}
 async function slot<T>(work: () => Promise<T>): Promise<T> {
   if (active) {
     if (waiting.length >= MAX_PENDING) throw new PasswordWorkBusy()
@@ -37,9 +48,28 @@ export function passwordIsAcceptable(value: unknown): value is string {
   return value.trim().length > 0 && !/^(.)\1+$/us.test(value) && !common.has(value.normalize('NFKC').toLowerCase())
 }
 function derive(password: string, salt: Buffer): Promise<Buffer> {
-  return slot(() => new Promise((resolve, reject) => {
+  const local = () => new Promise<Buffer>((resolve, reject) => {
     scrypt(password, salt, 32, { N, r: R, p: P, maxmem: 192 * 1024 * 1024 }, (error, key) => error ? reject(error) : resolve(key))
-  }))
+  })
+  return slot(async () => {
+    const delegate = passwordDelegate
+    if (!delegate) return local()
+    let remote: boolean
+    try { remote = await delegate.shouldDelegate() } catch { throw new PasswordWorkBusy() }
+    if (remote === false) return local()
+    if (remote !== true) throw new PasswordWorkBusy()
+    const saltCopy = Buffer.from(salt)
+    try {
+      const key = await delegate.derive(password, saltCopy)
+      if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('Invalid password work result')
+      return Buffer.from(key)
+    } catch {
+      let safe = false
+      try { safe = await delegate.allowLocalFallback() } catch { /* Unknown pressure cannot authorize a local KDF. */ }
+      if (safe !== true) throw new PasswordWorkBusy()
+      return local()
+    } finally { saltCopy.fill(0) }
+  })
 }
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
