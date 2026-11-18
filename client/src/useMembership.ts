@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MembershipAccount, MembershipConfig } from '@shared/membership'
 import type { Lang } from './i18n'
 import { isMembershipSession, isPortalMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type SavedMembershipSession } from './lib/membershipSession'
-import { accountHeaders, cookieAccountKey, isCookieAccountKey, notifyPortalSessionChange, portalCookieEnabled, PORTAL_SESSION_CHANGE } from './lib/accountTransport'
+import { accountCookieEnabled, accountHeaders, cookieAccountKey, isCookieAccountKey, notifyPortalSessionChange, PORTAL_SESSION_CHANGE } from './lib/accountTransport'
 import { CURRENCY_PREFERENCE_KEY, isMembershipCurrency, preferredCurrency, readCurrencyPreference, saveCurrencyPreference, type MembershipCurrency } from '../lib/currency.js'
 import { readPlusOffer, safePlusProviderUrl } from './lib/plusOffer'
 import { subscribeMembershipRefresh } from './lib/membershipRefresh'
@@ -18,7 +18,7 @@ class RequestError extends Error {
 async function request<T>(path: string, token?: string | null, body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 15_000)
-  const portal = portalCookieEnabled()
+  const portal = accountCookieEnabled()
   try {
     const response = await fetch(`${portal ? '' : API_URL}/api/membership/${path}`, {
       method: body === undefined ? 'GET' : 'POST',
@@ -47,7 +47,7 @@ function errorKind(error: unknown, context: 'general' | 'code' | 'credentials' =
 }
 
 export function useMembership() {
-  const portal = portalCookieEnabled()
+  const portal = accountCookieEnabled()
   const [session, setSession] = useState<SavedMembershipSession | null>(() => readMembershipSession(localStorageOrNull()))
   const sessionRef = useRef(session)
   const [account, setAccount] = useState<MembershipAccount | null>(null)
@@ -133,18 +133,22 @@ export function useMembership() {
   }, [portal])
 
   const adoptSession = useCallback((value: unknown): boolean => {
-    if (!isMembershipSession(value)) return false
+    const accepted = portal
+      ? isPortalMembershipSession(value) && { token: cookieAccountKey(value.sessionKey), account: value.account, expiresAt: value.expiresAt }
+      : isMembershipSession(value) && value
+    if (!accepted) return false
     ++authSequence.current
     ++refreshSequence.current
     pendingAuth.current = null
     registration.current = null
-    remember({ token: value.token, expiresAt: value.expiresAt })
-    setAccount(value.account)
+    remember({ token: accepted.token, expiresAt: accepted.expiresAt })
+    setAccount(accepted.account)
+    if (portal) notifyPortalSessionChange(localStorageOrNull())
     setBusy(false)
     setError(null)
     markConnectionReady()
     return true
-  }, [remember, markConnectionReady])
+  }, [remember, markConnectionReady, portal])
 
   // A portal launch chooses its central identity. A failed new handoff must
   // not revive a previous game's account through a late refresh response.

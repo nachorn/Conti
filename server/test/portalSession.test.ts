@@ -13,6 +13,11 @@ const TOKEN = 'A'.repeat(43), OTHER_TOKEN = 'B'.repeat(43), GAME_TOKEN = 'C'.rep
 const expiry = 60 * 60_000
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const portalHeaders = { Origin: PORTAL_ORIGIN, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': '1' }
+const gameAudiences = [
+  ['conti', 'https://conti.nrnplay.com'],
+  ['pocha', 'https://pocha.nrnplay.com'],
+  ['football', 'https://football.nrnplay.com'],
+] as const
 
 class MemoryStore implements SnapshotStore {
   constructor(private value: unknown = null) {}
@@ -33,7 +38,7 @@ async function fixture(t: TestContext) {
     authSecret: 'synthetic-portal-session-fixture-secret-2026', adminEmails: [EMAIL], now: () => clock.now,
     sendCode: async (_email, code, _lang, purpose) => { codes.set(purpose ?? 'account', code) },
   }).load()
-  const server = await createGameServer(new MemoryStore(), { membership, origins: [PORTAL_ORIGIN] })
+  const server = await createGameServer(new MemoryStore(), { membership, origins: [PORTAL_ORIGIN, ...gameAudiences.map(([, origin]) => origin)] })
   const port = await server.listen(0, '127.0.0.1')
   const base = `http://127.0.0.1:${port}`
   t.after(async () => { await server.close(); await membership.close() })
@@ -194,4 +199,73 @@ test('portal password reset leaves only a cookie session and preserves that mode
   }
   assert.equal((await h.call('/api/membership/me', { ...portalHeaders, Cookie: original })).status, 401)
   assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${GAME_TOKEN}` })).status, 401)
+})
+
+test('canonical game handoffs and legacy upgrades are bound to the exact game audience', async t => {
+  for (const [audience, origin] of gameAudiences) await t.test(audience, async scope => {
+    const h = await fixture(scope), rootCookie = await h.upgrade()
+    const game = { Origin: origin, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': audience }
+    const verifier = randomBytes(32).toString('base64url')
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+    const outgoing = await h.call('/api/membership/game-authorize', { ...portalHeaders, Cookie: rootCookie }, { origin, challenge })
+    assert.equal(outgoing.status, 200)
+    const exchange = await h.call('/api/membership/game-exchange', game, { code: (await outgoing.json() as { code: string }).code, verifier })
+    assert.equal(exchange.status, 200)
+    const result: any = await exchange.json()
+    assert.equal(result.session, 'cookie')
+    assert.equal(Object.hasOwn(result, 'token'), false)
+    assert.equal(result.account.isAdmin, undefined)
+    const setter = exchange.headers.get('set-cookie')!
+    assert.match(setter, /^__Host-nrnplay_session=/)
+    assert(!setter.includes('Domain='))
+    const auth = { ...game, Cookie: setter.split(';')[0] }
+    assert.equal((await h.call('/api/membership/me', { 'X-NRN-Portal': audience, 'Sec-Fetch-Site': 'same-origin', Cookie: auth.Cookie })).status, 200)
+    assert.equal((await h.call('/api/admin/dashboard', auth)).status, 403)
+    const revoke = await h.call('/api/membership/sessions/revoke-others', auth, {})
+    assert.equal(revoke.status, 403)
+    assert.equal((await revoke.json() as { error: string }).error, 'primary_session_required')
+    assert.equal((await h.call('/api/membership/logout', { 'X-NRN-Portal': audience, 'Sec-Fetch-Site': 'same-origin', Cookie: auth.Cookie }, {})).status, 403)
+    assert.equal((await h.call('/api/membership/me', { ...auth, Origin: PORTAL_ORIGIN })).status, 403)
+    assert.equal((await h.call('/api/membership/me', { ...portalHeaders, Cookie: auth.Cookie })).status, 401)
+    assert.equal((await h.call('/api/membership/me', { ...portalHeaders, Cookie: rootCookie })).status, 200)
+
+    // A pre-migration bearer may still be full-scope. The game upgrade
+    // replaces only that session and gives the new cookie game privileges.
+    const migrated = await h.call('/api/membership/session/upgrade', { ...game, Authorization: `Bearer ${OTHER_TOKEN}` }, {})
+    assert.equal(migrated.status, 200)
+    const migratedBody: any = await migrated.json()
+    assert.equal(migratedBody.session, 'cookie')
+    assert.equal(migratedBody.account.isAdmin, undefined)
+    assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${OTHER_TOKEN}` })).status, 401)
+    assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${GAME_TOKEN}` })).status, 200)
+  })
+})
+
+test('a game socket ticket is accepted once on its issuing origin', async t => {
+  const h = await fixture(t)
+  const [audience, origin] = gameAudiences[0], [, otherOrigin] = gameAudiences[1]
+  const game = { Origin: origin, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': audience }
+  const migrated = await h.call('/api/membership/session/upgrade', { ...game, Authorization: `Bearer ${OTHER_TOKEN}` }, {})
+  assert.equal(migrated.status, 200)
+  const cookie = migrated.headers.get('set-cookie')!.split(';')[0]
+  const ticketResponse = await h.call('/api/membership/socket-ticket', { ...game, Cookie: cookie }, {})
+  assert.equal(ticketResponse.status, 200)
+  const { ticket } = await ticketResponse.json() as { ticket: string }
+  const handshake = async (selectedOrigin: string) => {
+    const socket = io(h.base, { autoConnect: false, reconnection: false, transports: ['websocket'],
+      extraHeaders: { Origin: selectedOrigin }, auth: { membershipTicket: ticket } })
+    try {
+      const state = new Promise<any>((resolve, reject) => {
+        socket.once('membership_state', resolve)
+        socket.once('connect_error', reject)
+        const timeout = AbortSignal.timeout(2_000)
+        timeout.addEventListener('abort', () => reject(timeout.reason), { once: true })
+      })
+      socket.connect()
+      return await state
+    } finally { socket.close() }
+  }
+  assert.equal((await handshake(otherOrigin)).account, null)
+  assert.equal((await handshake(origin)).account.id, h.account.id)
+  assert.equal((await handshake(origin)).account, null)
 })

@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { NextFunction, Request, Response } from 'express'
 import type { MembershipSession } from '../../shared/membership.js'
 import { RateLimiter } from './security.js'
+import type { CookieAudience } from './portalSession.js'
 
 export const DEFAULT_GAME_ORIGINS = [
   'https://football.nrnplay.com',
@@ -55,7 +56,7 @@ export class GameSignInBroker {
   private readonly exchangeIPs: RateLimiter
   constructor(
     origins: readonly string[],
-    private readonly issueLinkedSession: (sourceTokenHash: string, previousToken: string | undefined, origin: string, portal: boolean) => Promise<MembershipSession>,
+    private readonly issueLinkedSession: (sourceTokenHash: string, previousToken: string | undefined, origin: string, audience?: CookieAudience) => Promise<MembershipSession>,
     private readonly now: () => number = Date.now,
   ) {
     this.origins = new Set(origins)
@@ -99,7 +100,7 @@ export class GameSignInBroker {
     return { code, expiresAt }
   }
 
-  async exchange(code: unknown, verifier: unknown, origin: string | undefined, remoteAddress: string, previousToken?: unknown, portal = false): Promise<MembershipSession> {
+  async exchange(code: unknown, verifier: unknown, origin: string | undefined, remoteAddress: string, previousToken?: unknown, audience?: CookieAudience): Promise<MembershipSession> {
     if (this.exchangeIPs.take(digest(remoteAddress))) throw new GameSignInError('rate_limited', 429)
     if (!origin || !this.origins.has(origin)) throw new GameSignInError('invalid_origin', 403)
     if (typeof code !== 'string' || !challengePattern.test(code) || typeof verifier !== 'string' || !verifierPattern.test(verifier)) throw new GameSignInError('invalid_code')
@@ -114,6 +115,6 @@ export class GameSignInBroker {
     if (!timingSafeEqual(Buffer.from(challenge), Buffer.from(pending.challenge))) throw new GameSignInError('invalid_code')
     // Claim before the async durable write: concurrent replays cannot issue tokens.
     this.codes.delete(key)
-    return this.issueLinkedSession(pending.sourceTokenHash, previousToken, origin, portal)
+    return this.issueLinkedSession(pending.sourceTokenHash, previousToken, origin, audience)
   }
 }

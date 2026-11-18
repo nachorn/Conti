@@ -5,7 +5,7 @@ import { isPochaDeckSize, type PochaDeckSize, type PochaSettings } from './game/
 import { roundSchedule } from './game/pocha/pochaRules.js'
 import type { GameRepository, RoomRecord } from './recovery.js'
 import { RateLimiter, requestLimit } from './security.js'
-import { accountCredential } from './portalSession.js'
+import { accountCredential, type CookieAudience } from './portalSession.js'
 
 export interface MatchParticipant { playerId: string; accountId: string | null; name: string }
 export interface PersonalMatch {
@@ -221,7 +221,7 @@ export function personalStats(results: Iterable<DurableGameResult>, account: str
 
 export function registerPersonalStats(app: Express, options: {
   repository: GameRepository
-  authenticate: (token: string, portal: boolean) => string | null
+  authenticate: (token: string, audience?: CookieAudience) => string | null
   isHealthy: () => boolean
 }): void {
   const peers = requestLimit(new RateLimiter(240, 60_000))
@@ -231,8 +231,8 @@ export function registerPersonalStats(app: Express, options: {
     peers(req, res, next)
   }, (req, res) => {
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
-    const { token, portal } = accountCredential(req)
-    const account = token ? options.authenticate(token, portal) : null
+    const { token, audience } = accountCredential(req)
+    const account = token ? options.authenticate(token, audience) : null
     if (!account) { res.status(401).json({ error: 'unauthorized' }); return }
     const retryAfter = accounts.take(account)
     if (retryAfter) {

@@ -20,7 +20,7 @@ import { beginPersonalMatch, registerPersonalStats } from './personalStats.js'
 import { registerLeagues } from './leagues.js'
 import { registerPlatformAdmin } from './platformAdmin.js'
 import type { FootballAdminClient } from './footballAdmin.js'
-import { portalRequest, portalRequested } from './portalSession.js'
+import { cookieAudience, cookieRequested } from './portalSession.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -45,7 +45,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   app.disable('x-powered-by')
   app.use(securityHeaders)
   app.use(['/api/membership', '/api/leagues', '/api/admin'], (req, res, next) => {
-    if (portalRequested(req) && !portalRequest(req)) {
+    if (cookieRequested(req) && !cookieAudience(req)) {
       res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').status(403).json({ error: 'invalid_request' }); return
     }
     next()
@@ -71,12 +71,12 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   options.membership?.registerRoutes(app, options.origins)
   registerPersonalStats(app, {
     repository,
-    authenticate: (token, portal) => options.membership?.authenticate(token, portal)?.id ?? null,
+    authenticate: (token, audience) => options.membership?.authenticate(token, audience)?.id ?? null,
     isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
   })
   registerLeagues(app, {
     repository,
-    authenticate: (token, portal) => options.membership?.authenticate(token, portal) ?? null,
+    authenticate: (token, audience) => options.membership?.authenticate(token, audience) ?? null,
     isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
     runMutation: work => new Promise((resolve, reject) => {
       if (closing || pending >= 200 || !isHealthy()) { reject(new Error('Server unavailable')); return }
@@ -230,8 +230,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
 
   function membershipAccount(socket: Socket) {
     if (!options.membership?.isHealthy()) return null
-    const account = typeof socket.data.portalMembershipHash === 'string'
-      ? options.membership.authenticatePortalSocket(socket.data.portalMembershipHash)
+    const account = socket.data.cookieMembershipProof
+      ? options.membership.authenticateCookieSocket(socket.data.cookieMembershipProof)
       : typeof socket.data.membershipToken === 'string' ? options.membership.authenticate(socket.data.membershipToken) : null
     if (!account) return null
     // These fields are private to this socket; never put the account in room state.
@@ -240,8 +240,8 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       ...(account.hasPassword === undefined ? {} : { hasPassword: account.hasPassword }) }
   }
   function setSocketMembership(socket: Socket, token: unknown, ticket: unknown) {
-    socket.data.portalMembershipHash = ticket !== undefined
-      ? options.membership?.consumePortalSocketTicket(ticket, socket.handshake.headers.origin) ?? null : null
+    socket.data.cookieMembershipProof = ticket !== undefined
+      ? options.membership?.consumeCookieSocketTicket(ticket, socket.handshake.headers.origin) ?? null : null
     socket.data.membershipToken = ticket === undefined && typeof token === 'string' && token.length <= 2048 ? token : null
   }
 

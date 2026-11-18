@@ -54,8 +54,9 @@ export class AdminAuth {
   access(req: Request): AdminAccess {
     const authorization = req.get('authorization') ?? ''
     if (this.accountVerifier) {
-      const { token, portal } = accountCredential(req)
-      const denied = this.accountVerifier.verify(token, cookie(req, ADMIN_PROOF_COOKIE), portal)
+      const { token, audience } = accountCredential(req)
+      if (audience && audience !== 'portal') return { method: null, error: 'forbidden', status: 403 }
+      const denied = this.accountVerifier.verify(token, cookie(req, ADMIN_PROOF_COOKIE), audience === 'portal')
       return denied ? { method: null, ...denied } : { method: 'account' }
     }
     // An explicitly supplied but invalid credential must not silently fall back to a cookie.
@@ -95,13 +96,15 @@ export class AdminAuth {
   }
   challenge(req: Request, lang: 'en' | 'es') {
     if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
-    const { token, portal } = accountCredential(req)
-    return this.accountVerifier.challenge(token, lang, portal)
+    const { token, audience } = accountCredential(req)
+    if (audience && audience !== 'portal') throw new AdminStepUpError('forbidden', 403)
+    return this.accountVerifier.challenge(token, lang, audience === 'portal')
   }
   confirm(req: Request, res: Response, code: unknown) {
     if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
-    const { token, portal } = accountCredential(req)
-    const proof = this.accountVerifier.confirm(token, code, portal)
+    const { token, audience } = accountCredential(req)
+    if (audience && audience !== 'portal') throw new AdminStepUpError('forbidden', 403)
+    const proof = this.accountVerifier.confirm(token, code, audience === 'portal')
     res.cookie(ADMIN_PROOF_COOKIE, proof, { ...this.proofCookieOptions(), maxAge: ADMIN_PROOF_SESSION_MS })
   }
   issue(req: Request, res: Response, remember: boolean) {

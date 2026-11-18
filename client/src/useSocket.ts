@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Socket, io } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
-import { isCookieAccountKey } from './lib/accountTransport'
+import { accountHeaders, isCookieAccountKey } from './lib/accountTransport'
 import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGame } from './lib/savedGames'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
@@ -32,7 +32,7 @@ async function socketMembership(token: string | null): Promise<{ membershipToken
   if (!isCookieAccountKey(token)) return { membershipToken: token }
   try {
     const response = await fetch('/api/membership/socket-ticket', {
-      method: 'POST', headers: { 'X-NRN-Portal': '1', 'Content-Type': 'application/json' },
+      method: 'POST', headers: { ...accountHeaders(null, true), 'Content-Type': 'application/json' },
       body: '{}', cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(5_000),
     })
     if (!response.ok) return {}

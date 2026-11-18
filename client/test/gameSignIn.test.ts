@@ -10,14 +10,15 @@ import {
 } from '../src/lib/gameSignIn.ts'
 
 const origin = 'https://pocha.nrnplay.com'
+const legacyOrigin = 'https://footballchampion.net'
 const secret = (letter: string) => letter.repeat(43)
 const now = 1_000_000
 function storage(): GameSignInStorage {
   const data = new Map<string, string>()
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } }
 }
-async function pending(store = storage()) {
-  const url = new URL(await createGameSignInRequest({ origin, storage: store, now }))
+async function pending(store = storage(), targetOrigin = origin) {
+  const url = new URL(await createGameSignInRequest({ origin: targetOrigin, storage: store, now }))
   return { store, url, state: url.searchParams.get('state')! }
 }
 function validSession() {
@@ -116,19 +117,19 @@ test('central authorization sends the existing token only in the header and retu
 })
 
 test('StrictMode startup calls share a single exchange and only return a validated server session', async () => {
-  const { store, state } = await pending()
+  const { store, state } = await pending(storage(), legacyOrigin)
   let hash = `#nrn-code=${secret('c')}&state=${state}`
   let calls = 0
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  const consume = () => consumeGameSignIn({ origin, storage: store, now, hash, apiUrl: 'https://api.example.test', scrub: () => { hash = '' },
+  const consume = () => consumeGameSignIn({ origin: legacyOrigin, storage: store, now, hash, apiUrl: 'https://api.example.test', scrub: () => { hash = '' },
     fetch: async (url, init) => {
       ++calls
       assert.equal(hash, '', 'callback cleared before fetch')
       assert.equal(url, 'https://api.example.test/api/membership/game-exchange')
       const body = JSON.parse(String(init?.body))
       assert.equal(body.code, secret('c'))
-      assert.equal(body.origin, origin)
+      assert.equal(body.origin, legacyOrigin)
       assert.match(body.verifier, /^[A-Za-z0-9_-]{43}$/)
       assert.equal(new Headers(init?.headers).has('Authorization'), false)
       await gate
@@ -155,11 +156,11 @@ test('rejected or malformed exchanges cannot become a session', async () => {
 
 test('a previous game credential stays in the private PKCE proof and is sent only to exchange', async () => {
   const store = storage(), previousToken = secret('p')
-  const url = new URL(await createGameSignInRequest({ origin, storage: store, now, previousToken }))
+  const url = new URL(await createGameSignInRequest({ origin: legacyOrigin, storage: store, now, previousToken }))
   assert.equal(url.href.includes(previousToken), false)
   assert.equal([...url.searchParams.keys()].length, 3)
   assert.equal(JSON.parse(store.getItem(GAME_SIGN_IN_STORAGE_KEY)!).previousToken, previousToken)
-  await consumeGameSignIn({ origin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${url.searchParams.get('state')}`, scrub: () => {},
+  await consumeGameSignIn({ origin: legacyOrigin, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${url.searchParams.get('state')}`, scrub: () => {},
     fetch: async (_url, init) => {
       assert.equal(JSON.parse(String(init?.body)).previousToken, previousToken)
       assert.equal(new Headers(init?.headers).has('Authorization'), false)
@@ -169,6 +170,25 @@ test('a previous game credential stays in the private PKCE proof and is sent onl
   const next = new URL(await createGameSignInRequest({ origin, storage: store, now, previousToken: 'invalid old credential' }))
   assert.equal(JSON.parse(store.getItem(GAME_SIGN_IN_STORAGE_KEY)!).previousToken, undefined)
   assert.equal(next.href.includes('invalid old credential'), false)
+})
+
+test('canonical game exchanges carry same-origin cookies and return no reusable game credential', async () => {
+  for (const [target, header] of [['https://conti.nrnplay.com', 'conti'], ['https://pocha.nrnplay.com', 'pocha']]) {
+    const { store, state } = await pending(storage(), target)
+    const { token: _legacy, ...details } = validSession()
+    const cookie = { ...details, session: 'cookie', sessionKey: 'K'.repeat(22) }
+    const result = await consumeGameSignIn({ origin: target, storage: store, now, hash: `#nrn-code=${secret('c')}&state=${state}`, scrub: () => {},
+      fetch: async (url, init) => {
+        assert.equal(url, '/api/membership/game-exchange')
+        assert.equal(init?.credentials, 'same-origin')
+        assert.equal(new Headers(init?.headers).get('X-NRN-Portal'), header)
+        assert.equal(new Headers(init?.headers).has('Authorization'), false)
+        assert.deepEqual(Object.keys(JSON.parse(String(init?.body))).sort(), ['code', 'verifier'])
+        return response(cookie)
+      } })
+    assert.deepEqual(result, cookie)
+    assert.equal(Object.hasOwn(result!, 'token'), false)
+  }
 })
 
 test('a corrupt previous credential or failed exchange cannot restore an earlier account', async () => {

@@ -1,6 +1,6 @@
 import type { MembershipSession } from '@shared/membership'
-import { isMembershipSession } from './membershipSession.ts'
-import { accountHeaders, isCookieAccountKey } from './accountTransport.ts'
+import { isMembershipSession, isPortalMembershipSession, type PortalMembershipSession } from './membershipSession.ts'
+import { accountCookieHeader, accountHeaders, isCookieAccountKey } from './accountTransport.ts'
 
 export const GAME_SIGN_IN_STORAGE_KEY = 'nrn-game-sign-in-v1'
 export const GAME_SIGN_IN_TTL = 10 * 60 * 1000
@@ -136,15 +136,15 @@ export function readGameSignInReturn(options: ReadGameSignInOptions): GameSignIn
 }
 
 interface RequestOptions { fetch?: typeof fetch; apiUrl?: string }
-async function post(path: string, body: unknown, token: string | null, options: RequestOptions): Promise<unknown> {
+async function post(path: string, body: unknown, token: string | null, options: RequestOptions,
+  header = isCookieAccountKey(token) ? accountCookieHeader() ?? '1' : null): Promise<unknown> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15_000)
   try {
-    const portal = isCookieAccountKey(token)
-    const base = portal ? '' : (options.apiUrl ?? apiBaseUrl()).replace(/\/+$/, '')
+    const base = header ? '' : (options.apiUrl ?? apiBaseUrl()).replace(/\/+$/, '')
     const response = await (options.fetch ?? globalThis.fetch)(`${base}/api/membership/${path}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...accountHeaders(token, portal) },
-      body: JSON.stringify(body), cache: 'no-store', credentials: portal ? 'same-origin' : 'omit', signal: controller.signal,
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...accountHeaders(token, !!header, header) },
+      body: JSON.stringify(body), cache: 'no-store', credentials: header ? 'same-origin' : 'omit', signal: controller.signal,
     })
     if (!response.ok) throw new GameSignInError('exchange')
     return await response.json() as unknown
@@ -212,10 +212,11 @@ export function createGameSignInContinuation(options: ContinuationOptions) {
 }
 
 export interface ConsumeGameSignInOptions extends Partial<Omit<ReadGameSignInOptions, 'scrub'>>, RequestOptions { scrub?: () => void }
-let inFlight: { origin: string; storage: GameSignInStorage | null; hash: string; promise: Promise<MembershipSession | null> } | null = null
+type GameSession = MembershipSession | PortalMembershipSession
+let inFlight: { origin: string; storage: GameSignInStorage | null; hash: string; promise: Promise<GameSession | null> } | null = null
 
 /** Browser startup: no callback means null. Repeated StrictMode calls share one exchange. */
-export function consumeGameSignIn(options: ConsumeGameSignInOptions = {}): Promise<MembershipSession | null> {
+export function consumeGameSignIn(options: ConsumeGameSignInOptions = {}): Promise<GameSession | null> {
   const origin = options.origin ?? window.location.origin
   const storage = options.storage === undefined ? browserStorage() : options.storage
   const hash = options.hash ?? window.location.hash
@@ -231,9 +232,13 @@ export function consumeGameSignIn(options: ConsumeGameSignInOptions = {}): Promi
     })
   } catch (error) { return Promise.reject(error) }
   if (!proof) return Promise.resolve(null)
-  const promise = post('game-exchange', proof, null, options).then(value => {
-    if (!isMembershipSession(value, options.now ?? Date.now())) throw new GameSignInError('exchange')
-    return value
+  const header = accountCookieHeader(origin)
+  const body = header ? { code: proof.code, verifier: proof.verifier } : proof
+  const promise = post('game-exchange', body, null, options, header).then(value => {
+    const now = options.now ?? Date.now()
+    if (header && isPortalMembershipSession(value, now)) return value
+    if (!header && isMembershipSession(value, now)) return value
+    throw new GameSignInError('exchange')
   })
   const current = { origin, storage, hash, promise }
   inFlight = current

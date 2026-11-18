@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { isMembershipSession, isPortalMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type MembershipStorage } from '../src/lib/membershipSession.ts'
-import { accountHeaders, cookieAccountKey, portalCookieEnabled } from '../src/lib/accountTransport.ts'
+import { accountCookieHeader, accountHeaders, cookieAccountKey } from '../src/lib/accountTransport.ts'
 
 function storage(): MembershipStorage {
   const data = new Map<string, string>()
@@ -38,9 +38,11 @@ test('an HttpOnly session response has a view key and never passes a bearer toke
   assert.equal(isPortalMembershipSession({ ...valid, sessionKey: 'short' }, 1000), false)
   assert.deepEqual(accountHeaders(cookieAccountKey(valid.sessionKey), true), { 'X-NRN-Portal': '1' })
   assert.deepEqual(accountHeaders(cookieAccountKey(valid.sessionKey), false), {})
-  assert.equal(portalCookieEnabled('https://nrnplay.com'), true)
-  assert.equal(portalCookieEnabled('https://conti.nrnplay.com'), false)
-  assert.equal(portalCookieEnabled('https://nrnplay.com.invalid'), false)
+  assert.equal(accountCookieHeader('https://nrnplay.com'), '1')
+  assert.equal(accountCookieHeader('https://conti.nrnplay.com'), 'conti')
+  assert.equal(accountCookieHeader('https://pocha.nrnplay.com'), 'pocha')
+  assert.equal(accountCookieHeader('https://football.nrnplay.com'), null)
+  assert.equal(accountCookieHeader('https://nrnplay.com.invalid'), null)
 })
 
 test('expired, corrupted, or short credentials are never restored', () => {

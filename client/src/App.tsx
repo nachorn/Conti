@@ -31,6 +31,7 @@ import { UserDashboard } from './components/UserDashboard'
 import { criticalConnectionState } from './lib/connectionFeedback'
 import { useConnectionWarning } from './useConnectionWarning'
 import { adminAccess, adminDestination } from './lib/adminRoute'
+import { accountCookieEnabled } from './lib/accountTransport'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
@@ -128,6 +129,7 @@ export function AdminGate() {
 /** Game routes and socket state. Syncs URL with in-game state. */
 function GameApp() {
   const membership = useMembership()
+  const cookieAccount = accountCookieEnabled()
   const [exitOpen, setExitOpen] = useState(false)
   const [membershipOpen, setMembershipOpen] = useState(() => window.location.hash === '#plus')
   const [membershipSection, setMembershipSection] = useState<'account' | 'plus'>(() => window.location.hash === '#plus' ? 'plus' : 'account')
@@ -214,19 +216,20 @@ function GameApp() {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search)
     if (query.get('nrn-signin') !== '1') return
+    if (cookieAccount && !membership.authReady) return
     query.delete('nrn-signin')
     const search = query.toString()
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? '?' + search : ''}${window.location.hash}`)
-    const previousToken = membership.token
+    const previousToken = cookieAccount ? null : membership.token
     membership.clearLocalSession()
     setSigningIn(true)
     void beginGameSignIn({ previousToken }).catch(() => { setSigningIn(false); setSignInError(true) })
-  }, [membership.clearLocalSession])
+  }, [cookieAccount, membership.authReady, membership.clearLocalSession, membership.token])
 
   const showAccount = () => {
     setAdGateOpen(false)
-    if (!hostedGame || membership.account || membership.token) { setMembershipOpen(true); return }
-    const previousToken = membership.token
+    if (!hostedGame || membership.account || membership.token || cookieAccount && !membership.authReady) { setMembershipOpen(true); return }
+    const previousToken = cookieAccount ? null : membership.token
     membership.clearLocalSession()
     setSigningIn(true); setSignInError(false)
     void beginGameSignIn({ previousToken }).catch(() => { setSigningIn(false); setSignInError(true) })

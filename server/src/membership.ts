@@ -6,7 +6,8 @@ import { createMembershipEmailSender, type EmailSender } from './membershipEmail
 import { SecurityNotices, type SecurityNoticeSender } from './securityNotices.js'
 import { AdminAuth, type AdminAccountVerifier } from './adminAuth.js'
 import { AdminStepUp } from './adminStepUp.js'
-import { accountCredential, allowedPortalOrigin, bearerCredential, clearPortalCookie, portalRequest, portalRequested, PORTAL_ORIGIN, setPortalCookie } from './portalSession.js'
+import { accountCredential, allowedPortalOrigin, bearerCredential, clearPortalCookie, cookieAudience, cookieRequested, cookieRequestOrigin,
+  isCookieAudience, setPortalCookie, type CookieAudience } from './portalSession.js'
 import { RateLimiter } from './security.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
@@ -18,7 +19,8 @@ import type { ManualPlusAudit, ManualPlusReason, PlusAccessState } from '../../s
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
 type Account = { id: string; email: string; createdAt: number; name?: string; passwordHash?: string }
-type Session = { accountId: string; tokenHash: string; expiresAt: number; scope?: 'game'; transport?: 'portal' }
+type Session = { accountId: string; tokenHash: string; expiresAt: number; scope?: 'game'; transport?: CookieAudience }
+type SocketCookieProof = { tokenHash: string; audience: CookieAudience; origin: string; expiresAt: number }
 type ChallengePurpose = 'login' | 'register' | 'reset'
 type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
 type Limit = { key: string; count: number; until: number }
@@ -125,7 +127,8 @@ function decode(value: unknown): Data {
       new Set(v.accounts.map(a => a.id)).size !== v.accounts.length || new Set(v.accounts.map(a => a.email)).size !== v.accounts.length) return fail()
   const accountIds = new Set(v.accounts.map(a => a.id))
   if (!v.sessions.every(s => object(s) && accountIds.has(s.accountId) && digest(s.tokenHash) && time(s.expiresAt) &&
-      (s.scope === undefined || s.scope === 'game') && (s.transport === undefined || s.transport === 'portal')) ||
+      (s.scope === undefined || s.scope === 'game') && (s.transport === undefined || isCookieAudience(s.transport)) &&
+      (s.transport === undefined || s.transport === 'portal' || s.scope === 'game')) ||
       new Set(v.sessions.map(s => s.tokenHash)).size !== v.sessions.length ||
       !v.challenges.every(c => object(c) && normalizeMembershipEmail(c.email) === c.email && id(c.salt) && digest(c.codeHash) && time(c.expiresAt) && time(c.attempts) && c.attempts <= 5 &&
         (c.purpose === undefined || ['login', 'register', 'reset'].includes(c.purpose)) &&
@@ -190,8 +193,8 @@ export class MembershipService {
   private readonly request: typeof fetch
   private readonly appUrl: string | null
   private readonly gameSignIn: GameSignInBroker
-  private readonly portalSocketTickets = new Map<string, { tokenHash: string; expiresAt: number }>()
-  private readonly portalSocketRequests: RateLimiter
+  private readonly cookieSocketTickets = new Map<string, SocketCookieProof>()
+  private readonly cookieSocketRequests: RateLimiter
   private readonly adminEmails: ReadonlySet<string> | null
   private readonly adminStepUp: AdminStepUp | undefined
   private readonly securityNotices: SecurityNotices
@@ -199,11 +202,11 @@ export class MembershipService {
     if (options.authSecret.length < 32) throw new Error('MEMBERSHIP_AUTH_SECRET must contain at least 32 characters')
     this.now = options.now ?? Date.now
     this.securityNotices = new SecurityNotices(options.sendSecurityNotice, this.now)
-    this.portalSocketRequests = new RateLimiter(30, 60_000, this.now)
+    this.cookieSocketRequests = new RateLimiter(30, 60_000, this.now)
     this.adminEmails = options.adminEmails === undefined ? null : new Set(normalizeAdminEmails(options.adminEmails))
     if (this.adminEmails !== null) {
       this.adminStepUp = new AdminStepUp((tokenHash, portal) => {
-        const match = this.accountSession(tokenHash, portal)
+        const match = this.accountSession(tokenHash, portal ? 'portal' : undefined)
         return match ? { id: match.account.id, email: match.account.email,
           eligible: match.session.scope !== 'game' && this.adminEmails!.has(match.account.email) } : null
       }, options.authSecret, options.sendCode, this.now, this.securityNotices)
@@ -212,7 +215,7 @@ export class MembershipService {
     this.appUrl = validAppUrl(options.appUrl)
     this.gameSignIn = new GameSignInBroker(
       validateGameOrigins(options.gameOrigins ?? DEFAULT_GAME_ORIGINS, options.allowLocalGameOrigins === true),
-      (sourceTokenHash, previousToken, origin, portal) => this.linkedSessionByHash(sourceTokenHash, previousToken, allowedPortalOrigin(origin) ? undefined : 'game', portal), this.now,
+      (sourceTokenHash, previousToken, origin, audience) => this.linkedSessionByHash(sourceTokenHash, previousToken, allowedPortalOrigin(origin) ? undefined : 'game', audience), this.now,
     )
   }
   async load() {
@@ -318,43 +321,45 @@ export class MembershipService {
           plus: { active: entitlement.adFree, source: entitlement.source, expiresAt: entitlement.expiresAt } }
       }) }
   }
-  private accountSession(tokenHash: string, portal = false) {
+  private accountSession(tokenHash: string, audience?: CookieAudience) {
     if (!this.isHealthy()) return null
-    const now = this.now(), session = this.data.sessions.find(s => s.tokenHash === tokenHash && s.expiresAt > now && (s.transport === 'portal') === portal)
+    const now = this.now(), session = this.data.sessions.find(s => s.tokenHash === tokenHash && s.expiresAt > now && s.transport === audience)
     const account = session && this.data.accounts.find(a => a.id === session.accountId)
     return session && account ? { session, account } : null
   }
-  authenticate(token: string, portal = false): MembershipAccount | null {
+  authenticate(token: string, audience?: CookieAudience): MembershipAccount | null {
     if (typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
-    const match = this.accountSession(hash(token), portal)
+    const match = this.accountSession(hash(token), audience)
     return match ? this.publicAccount(match.account, this.data, match.session.scope) : null
   }
   authenticateRequest(req: Request): MembershipAccount | null {
-    const { token, portal } = accountCredential(req)
-    return this.authenticate(token, portal)
+    const { token, audience } = accountCredential(req)
+    return this.authenticate(token, audience)
   }
-  authenticatePortalSocket(tokenHash: string): MembershipAccount | null {
-    const match = this.accountSession(tokenHash, true)
+  authenticateCookieSocket(proof: Pick<SocketCookieProof, 'tokenHash' | 'audience'>): MembershipAccount | null {
+    const match = this.accountSession(proof.tokenHash, proof.audience)
     return match ? this.publicAccount(match.account, this.data, match.session.scope) : null
   }
-  consumePortalSocketTicket(ticket: unknown, origin: string | undefined): string | null {
-    if (!allowedPortalOrigin(origin) || typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) return null
+  consumeCookieSocketTicket(ticket: unknown, origin: string | undefined): Pick<SocketCookieProof, 'tokenHash' | 'audience'> | null {
+    if (!origin || typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) return null
     const key = hash(ticket)
-    const proof = this.portalSocketTickets.get(key)
-    this.portalSocketTickets.delete(key)
-    return proof && proof.expiresAt > this.now() && this.accountSession(proof.tokenHash, true) ? proof.tokenHash : null
+    const proof = this.cookieSocketTickets.get(key)
+    if (!proof || origin !== proof.origin) return null
+    this.cookieSocketTickets.delete(key)
+    return proof.expiresAt > this.now() && this.accountSession(proof.tokenHash, proof.audience)
+      ? { tokenHash: proof.tokenHash, audience: proof.audience } : null
   }
-  private portalSocketTicket(req: Request, res: Response) {
-    const { token, portal } = accountCredential(req)
-    if (!portal || !token) throw new MembershipError('unauthorized', 401)
-    const tokenHash = hash(token), match = this.accountSession(tokenHash, true)
+  private cookieSocketTicket(req: Request, res: Response) {
+    const { token, audience } = accountCredential(req)
+    if (!audience || !token) throw new MembershipError('unauthorized', 401)
+    const tokenHash = hash(token), match = this.accountSession(tokenHash, audience)
     if (!match) throw new MembershipError('unauthorized', 401)
-    const now = this.now(), retryAfter = this.portalSocketRequests.take(match.account.id)
+    const now = this.now(), retryAfter = this.cookieSocketRequests.take(match.account.id)
     if (retryAfter) { res.set('Retry-After', String(retryAfter)); throw new MembershipError('rate_limited', 429) }
-    for (const [id, proof] of this.portalSocketTickets) if (proof.expiresAt <= now) this.portalSocketTickets.delete(id)
-    if (this.portalSocketTickets.size >= 2_000) throw new MembershipError('rate_limited', 429)
+    for (const [id, proof] of this.cookieSocketTickets) if (proof.expiresAt <= now) this.cookieSocketTickets.delete(id)
+    if (this.cookieSocketTickets.size >= 2_000) throw new MembershipError('rate_limited', 429)
     const ticket = randomBytes(32).toString('base64url'), expiresAt = Math.min(match.session.expiresAt, now + 60_000)
-    this.portalSocketTickets.set(hash(ticket), { tokenHash, expiresAt })
+    this.cookieSocketTickets.set(hash(ticket), { tokenHash, audience, origin: cookieRequestOrigin(req, audience), expiresAt })
     res.json({ ticket, expiresAt })
   }
   gameSignInCors(issuerOrigins: string[] = []) {
@@ -365,17 +370,17 @@ export class MembershipService {
     if (!this.authenticate(sourceToken)) return Promise.reject(new MembershipError('unauthorized', 401))
     return this.linkedSessionByHash(hash(sourceToken), undefined, 'game')
   }
-  private linkedSessionByHash(sourceTokenHash: string, previousToken: string | undefined, scope: Session['scope'], portal = false): Promise<MembershipSession> {
+  private linkedSessionByHash(sourceTokenHash: string, previousToken: string | undefined, scope: Session['scope'], audience?: CookieAudience): Promise<MembershipSession> {
     return this.mutate(data => {
       // Recheck inside the mutation queue so logout/reset before exchange revokes the proof.
       const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
       const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
       if (!source || !account) throw new MembershipError('unauthorized', 401)
-      const effectiveScope = source.scope === 'game' ? 'game' : scope
+      const effectiveScope = source.scope === 'game' || audience && audience !== 'portal' ? 'game' : scope
       if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
         const previousHash = hash(previousToken)
         const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
-          session.scope === effectiveScope && (session.transport === 'portal') === portal && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
+          session.scope === effectiveScope && session.transport === audience && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
         if (previous) {
           previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
           return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, effectiveScope) }
@@ -385,19 +390,19 @@ export class MembershipService {
       const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
       const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
       data.sessions = data.sessions.filter(session => session.accountId !== account.id)
-        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}), ...(portal ? { transport: 'portal' as const } : {}) })
+        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}), ...(audience ? { transport: audience } : {}) })
       return { token, expiresAt, account: this.publicAccount(account, data, effectiveScope) }
     })
   }
-  async revokeOtherSessions(token: string, lang: Language = 'en', portal = false): Promise<MembershipSession> {
+  async revokeOtherSessions(token: string, lang: Language = 'en', audience?: CookieAudience): Promise<MembershipSession> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new MembershipError('unauthorized', 401)
     const tokenHash = hash(token)
-    const current = this.accountSession(tokenHash, portal)
+    const current = this.accountSession(tokenHash, audience)
     if (!current) throw new MembershipError('unauthorized', 401)
     if (current.session.scope === 'game') throw new MembershipError('primary_session_required', 403)
     const newSession = await this.mutate(data => {
       const session = data.sessions.find(value => value.tokenHash === tokenHash && value.expiresAt > this.now() &&
-        (value.transport === 'portal') === portal)
+        value.transport === audience)
       const account = session && data.accounts.find(value => value.id === session.accountId)
       if (!session || !account) throw new MembershipError('unauthorized', 401)
       if (session.scope === 'game') throw new MembershipError('primary_session_required', 403)
@@ -522,18 +527,19 @@ export class MembershipService {
     await this.reserveSend(email, remoteAddress)
     await this.challenge(email, lang, 'reset')
   }
-  private issueSession(data: Data, account: Account, portal = false): MembershipSession {
+  private issueSession(data: Data, account: Account, audience?: CookieAudience): MembershipSession {
     // Accounts only reach here after email/password proof. A webhook can never
     // create an account, transfer another account's seat or bypass verification.
     for (const subscription of data.bmcSubscriptions) if (subscription.accountId === null && subscription.email === account.email) subscription.accountId = account.id
     const token = randomBytes(32).toString('base64url'), expiresAt = this.now() + 30 * DAY
     const previous = data.sessions.filter(s => s.accountId === account.id).slice(-9)
+    const scope = audience && audience !== 'portal' ? 'game' as const : undefined
     data.sessions = data.sessions.filter(s => s.accountId !== account.id).concat(previous,
-      { accountId: account.id, tokenHash: hash(token), expiresAt, ...(portal ? { transport: 'portal' as const } : {}) })
-    return { token, expiresAt, account: this.publicAccount(account, data) }
+      { accountId: account.id, tokenHash: hash(token), expiresAt, ...(audience ? { transport: audience } : {}), ...(scope ? { scope } : {}) })
+    return { token, expiresAt, account: this.publicAccount(account, data, scope) }
   }
   private respondWithSession(req: Request, res: Response, session: MembershipSession) {
-    if (!portalRequest(req)) { res.json(session); return }
+    if (!cookieAudience(req)) { res.json(session); return }
     setPortalCookie(res, session.token, session.expiresAt, this.now())
     res.json(this.portalSessionView(session.token, session.expiresAt, session.account))
   }
@@ -541,11 +547,12 @@ export class MembershipService {
     const sessionKey = createHmac('sha256', this.options.authSecret).update('nrn:portal-ui-session:v1\0').update(token).digest().subarray(0, 16).toString('base64url')
     return { account, expiresAt, session: 'cookie' as const, sessionKey }
   }
-  private async upgradePortalSession(req: Request, res: Response) {
-    if (!portalRequest(req)) throw new MembershipError('invalid_request', 403)
+  private async upgradeCookieSession(req: Request, res: Response) {
+    const audience = cookieAudience(req)
+    if (!audience) throw new MembershipError('invalid_request', 403)
     // A second tab may already have upgraded. The device cookie, when present,
     // is authoritative and must never be overwritten by stale browser storage.
-    const current = this.accountSession(hash(this.token(req)), true)
+    const current = this.accountSession(hash(this.token(req)), audience)
     if (current) {
       res.json(this.portalSessionView(this.token(req), current.session.expiresAt, this.publicAccount(current.account, this.data, current.session.scope)))
       return
@@ -560,7 +567,8 @@ export class MembershipService {
       if (!previous || !account) throw new MembershipError('unauthorized', 401)
       const token = randomBytes(32).toString('base64url')
       previous.tokenHash = hash(token)
-      previous.transport = 'portal'
+      previous.transport = audience
+      if (audience !== 'portal') previous.scope = 'game'
       return { token, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, previous.scope) }
     }, true, true)
     this.respondWithSession(req, res, replacement)
@@ -581,7 +589,7 @@ export class MembershipService {
     data.challenges = data.challenges.filter(c => c !== challenge)
     return challenge
   }
-  async verifyCode(emailValue: unknown, code: unknown, remoteAddress: string, purpose: 'login' | 'register' = 'login', registrationToken?: unknown, portal = false): Promise<MembershipSession> {
+  async verifyCode(emailValue: unknown, code: unknown, remoteAddress: string, purpose: 'login' | 'register' = 'login', registrationToken?: unknown, audience?: CookieAudience): Promise<MembershipSession> {
     const email = normalizeMembershipEmail(emailValue)
     if (!email || typeof code !== 'string' || !/^\d{6}$/.test(code)) throw new MembershipError('invalid_code')
     if (purpose !== 'login' && purpose !== 'register') throw new MembershipError('invalid_code')
@@ -595,13 +603,13 @@ export class MembershipService {
           ...(challenge.purpose === 'register' ? { name: challenge.name!, passwordHash: challenge.passwordHash! } : {}) }
         data.accounts.push(account)
       }
-      return this.issueSession(data, account, portal)
+      return this.issueSession(data, account, audience)
     }, false)
     if (!result) throw new MembershipError('invalid_code')
     this.notify()
     return result
   }
-  async passwordLogin(emailValue: unknown, password: unknown, remoteAddress: string, portal = false): Promise<MembershipSession> {
+  async passwordLogin(emailValue: unknown, password: unknown, remoteAddress: string, audience?: CookieAudience): Promise<MembershipSession> {
     const email = normalizeMembershipEmail(emailValue)
     if (!email || typeof password !== 'string' || !password.length || Buffer.byteLength(password, 'utf8') > 512) throw new MembershipError('invalid_credentials', 401)
     if (this.limited(`password-ip:${remoteAddress}`, 30) || this.limited(`password-email:${email}`, 10) || this.limited('password-global', 200)) throw new MembershipError('rate_limited', 429)
@@ -619,13 +627,13 @@ export class MembershipService {
       const current = data.accounts.find(a => a.id === account.id)
       // A simultaneous reset invalidates an in-flight password comparison too.
       if (!current || current.passwordHash !== expectedHash) return null
-      return this.issueSession(data, current, portal)
+      return this.issueSession(data, current, audience)
     }, false)
     if (!session) throw new MembershipError('invalid_credentials', 401)
     this.notify()
     return session
   }
-  async confirmPasswordReset(emailValue: unknown, code: unknown, password: unknown, remoteAddress: string, lang: Language = 'en', portal = false): Promise<MembershipSession> {
+  async confirmPasswordReset(emailValue: unknown, code: unknown, password: unknown, remoteAddress: string, lang: Language = 'en', audience?: CookieAudience): Promise<MembershipSession> {
     const email = normalizeMembershipEmail(emailValue)
     if (!email || typeof code !== 'string' || !/^\d{6}$/.test(code)) throw new MembershipError('invalid_code')
     if (!passwordIsAcceptable(password)) throw new MembershipError('invalid_password')
@@ -644,7 +652,7 @@ export class MembershipService {
       if (!account || account.passwordHash !== claim.previousHash) return null
       account.passwordHash = passwordHash
       data.sessions = data.sessions.filter(s => s.accountId !== account.id)
-      return this.issueSession(data, account, portal)
+      return this.issueSession(data, account, audience)
     }, false)
     if (!session) throw new MembershipError('invalid_code')
     this.notify()
@@ -720,8 +728,8 @@ export class MembershipService {
     return { enabled: true, loginEnabled: !!this.options.sendCode, passwordLoginEnabled: true, checkoutEnabled: !!prices.length && !!this.options.sendCode && this.isHealthy(), price: prices[0] ?? null, prices, ads: this.options.ads ?? { provider: 'disabled', publisherId: null },
       ...(this.options.bmc ? { plus: bmcPublicConfig(this.options.bmc, this.isHealthy(), !!this.options.sendCode) } : {}) }
   }
-  async plusCheckout(token: string, currency: unknown, interval: unknown = 'year', portal = false): Promise<string> {
-    const account = this.authenticate(token, portal)
+  async plusCheckout(token: string, currency: unknown, interval: unknown = 'year', audience?: CookieAudience): Promise<string> {
+    const account = this.authenticate(token, audience)
     if (!account) throw new MembershipError('unauthorized', 401)
     if (currency !== this.options.bmc?.currency || !['eur', 'usd'].includes(String(currency))) throw new MembershipError('invalid_currency')
     if (interval !== 'year' && interval !== 'month') throw new MembershipError('invalid_interval')
@@ -801,8 +809,8 @@ export class MembershipService {
       return { ok: true as const, subscriptionId, imported: true }
     }, true, true)
   }
-  async checkout(token: string, currency?: unknown, portal = false): Promise<string> {
-    const account = this.authenticate(token, portal)
+  async checkout(token: string, currency?: unknown, audience?: CookieAudience): Promise<string> {
+    const account = this.authenticate(token, audience)
     if (!account) throw new MembershipError('unauthorized', 401)
     if (this.options.bmc) throw new MembershipError('legacy_checkout_disabled', 409)
     if (this.committedBytes + 4 * 1024 > MAX_SNAPSHOT_BYTES - 256 * 1024) throw new MembershipError('storage_capacity', 503)
@@ -859,7 +867,7 @@ export class MembershipService {
     const run = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store'); res.set('X-Robots-Tag', 'noindex, nofollow')
       Promise.resolve().then(() => {
-        if (portalRequested(req) && !portalRequest(req)) throw new MembershipError('invalid_request', 403)
+        if (cookieRequested(req) && !cookieAudience(req)) throw new MembershipError('invalid_request', 403)
         this.requireHealthy()
         return handler(req, res)
       }).catch(error => {
@@ -876,17 +884,17 @@ export class MembershipService {
       res.json(await this.handleBmcWebhook(req.body, req.get('x-signature-sha256') ?? ''))
     }))
     const json = express.json({ limit: '4kb', inflate: false })
-    app.post('/api/membership/session/upgrade', json, run((req, res) => this.upgradePortalSession(req, res)))
-    app.post('/api/membership/socket-ticket', json, run((req, res) => this.portalSocketTicket(req, res)))
+    app.post('/api/membership/session/upgrade', json, run((req, res) => this.upgradeCookieSession(req, res)))
+    app.post('/api/membership/socket-ticket', json, run((req, res) => this.cookieSocketTicket(req, res)))
     app.post('/api/membership/game-authorize', json, run((req, res) => {
       this.requireAccount(req)
       res.json(this.gameSignIn.authorize(this.token(req), req.body?.origin, req.body?.challenge, req.ip ?? 'unknown'))
     }))
     app.post('/api/membership/game-exchange', json, run(async (req, res) => {
-      const portal = portalRequest(req)
-      const origin = req.get('origin') ?? (portal ? PORTAL_ORIGIN : undefined)
-      const previous = portal ? this.token(req) || undefined : req.body?.previousToken
-      this.respondWithSession(req, res, await this.gameSignIn.exchange(req.body?.code, req.body?.verifier, origin, req.ip ?? 'unknown', previous, portal))
+      const audience = cookieAudience(req)
+      const origin = audience ? cookieRequestOrigin(req, audience) : req.get('origin')
+      const previous = audience ? this.token(req) || undefined : req.body?.previousToken
+      this.respondWithSession(req, res, await this.gameSignIn.exchange(req.body?.code, req.body?.verifier, origin, req.ip ?? 'unknown', previous, audience))
     }))
     app.get('/api/membership/config', run(async (_req, res) => res.json(await this.config())))
     app.post('/api/membership/login', json, run(async (req, res) => {
@@ -895,14 +903,14 @@ export class MembershipService {
       await this.requestCode(req.body?.email, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown'); res.json({ ok: true })
     }))
     app.post('/api/membership/verify', json, run(async (req, res) => {
-      this.respondWithSession(req, res, await this.verifyCode(req.body?.email, req.body?.code, req.ip ?? 'unknown', req.body?.purpose, req.body?.registrationToken, portalRequest(req)))
+      this.respondWithSession(req, res, await this.verifyCode(req.body?.email, req.body?.code, req.ip ?? 'unknown', req.body?.purpose, req.body?.registrationToken, cookieAudience(req)))
     }))
     app.post('/api/membership/register', json, run(async (req, res) => {
       const registrationToken = await this.register(req.body?.name, req.body?.email, req.body?.password, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown')
       res.json({ ok: true, registrationToken })
     }))
     app.post('/api/membership/password-login', json, run(async (req, res) => {
-      this.respondWithSession(req, res, await this.passwordLogin(req.body?.email, req.body?.password, req.ip ?? 'unknown', portalRequest(req)))
+      this.respondWithSession(req, res, await this.passwordLogin(req.body?.email, req.body?.password, req.ip ?? 'unknown', cookieAudience(req)))
     }))
     app.post('/api/membership/password-reset', json, run(async (req, res) => {
       await this.requestPasswordReset(req.body?.email, req.body?.lang === 'es' ? 'es' : 'en', req.ip ?? 'unknown')
@@ -910,27 +918,27 @@ export class MembershipService {
     }))
     app.post('/api/membership/password-reset/confirm', json, run(async (req, res) => {
       this.respondWithSession(req, res, await this.confirmPasswordReset(req.body?.email, req.body?.code, req.body?.password,
-        req.ip ?? 'unknown', req.body?.lang === 'es' ? 'es' : 'en', portalRequest(req)))
+        req.ip ?? 'unknown', req.body?.lang === 'es' ? 'es' : 'en', cookieAudience(req)))
     }))
     app.get('/api/membership/me', run((req, res) => {
       const account = this.requireAccount(req)
       const tokenHash = hash(this.token(req))
       const session = this.data.sessions.find(s => s.tokenHash === tokenHash)!
-      res.json(portalRequest(req) ? this.portalSessionView(this.token(req), session.expiresAt, account) : { account, expiresAt: session.expiresAt })
+      res.json(cookieAudience(req) ? this.portalSessionView(this.token(req), session.expiresAt, account) : { account, expiresAt: session.expiresAt })
     }))
     app.post('/api/membership/logout', run(async (req, res) => {
       if (this.authenticateRequest(req)) {
         const tokenHash = hash(this.token(req))
         await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) })
       }
-      if (portalRequest(req)) clearPortalCookie(res)
+      if (cookieAudience(req)) clearPortalCookie(res)
       res.json({ ok: true })
     }))
     app.post('/api/membership/sessions/revoke-others', json, run(async (req, res) => {
-      this.respondWithSession(req, res, await this.revokeOtherSessions(this.token(req), req.body?.lang === 'es' ? 'es' : 'en', portalRequest(req)))
+      this.respondWithSession(req, res, await this.revokeOtherSessions(this.token(req), req.body?.lang === 'es' ? 'es' : 'en', cookieAudience(req)))
     }))
-    app.post('/api/membership/checkout', json, run(async (req, res) => res.json({ url: await this.checkout(this.token(req), req.body?.currency, portalRequest(req)) })))
-    app.post('/api/membership/plus/checkout', json, run(async (req, res) => res.json({ url: await this.plusCheckout(this.token(req), req.body?.currency, req.body?.interval, portalRequest(req)) })))
+    app.post('/api/membership/checkout', json, run(async (req, res) => res.json({ url: await this.checkout(this.token(req), req.body?.currency, cookieAudience(req)) })))
+    app.post('/api/membership/plus/checkout', json, run(async (req, res) => res.json({ url: await this.plusCheckout(this.token(req), req.body?.currency, req.body?.interval, cookieAudience(req)) })))
     app.get('/api/admin/plus/readiness', run((req, res) => { this.requireAdmin(req, admin); res.json(this.plusReadiness()) }))
     app.get('/api/admin/plus/subscriptions', run((req, res) => {
       this.requireAdmin(req, admin)
