@@ -8,6 +8,7 @@ import { MemberAccess } from './MemberAccess'
 import { PlusAdmin } from './PlusAdmin'
 import { AdminSession, adminFetch, configureAdminToken } from '../lib/adminApi'
 import { AdminAccounts } from './AdminAccounts'
+import { AdminLeagues } from './AdminLeagues'
 import { readAdminOverview } from '../lib/adminOverview'
 
 const copy = {
@@ -71,7 +72,7 @@ const copy = {
   },
 }
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-type Section = 'overview' | 'accounts' | 'continental' | 'pocha' | 'football' | 'plus'
+type Section = 'overview' | 'accounts' | 'leagues' | 'continental' | 'pocha' | 'football' | 'plus'
 
 export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminToken: string; onSignOut: () => void; onSessionExpired: () => void }) {
   const [lang, setLang] = useState<Lang>(() => {
@@ -162,6 +163,7 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
   const hasFilters = !!search
   const tabs: { id: Section; label: string }[] = [
     { id: 'overview', label: lang === 'es' ? 'Resumen' : 'Overview' }, { id: 'accounts', label: lang === 'es' ? 'Usuarios' : 'Users' },
+    { id: 'leagues', label: lang === 'es' ? 'Ligas' : 'Leagues' },
     { id: 'continental', label: 'Conti' }, { id: 'pocha', label: 'Pocha' }, { id: 'football', label: 'FootballChampion' }, { id: 'plus', label: 'Plus' },
   ]
   const currentGame = overview?.games.find(game => game.gameType === section)
@@ -211,6 +213,7 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
         {snapshot.operations && <details className="dashboard-details"><summary>{lang === 'es' ? 'Servidor y almacenamiento' : 'Server and storage'}</summary><OperationsPanel operations={snapshot.operations} lang={lang} /></details>}
         </>}
         {section === 'accounts' && <AdminAccounts lang={lang} onSessionExpired={session.expire} onSaved={overviewChanged} onManagePlus={() => setSection('plus')} />}
+        {section === 'leagues' && <AdminLeagues lang={lang} onSessionExpired={session.expire} />}
         {section === 'plus' && <>
           <PlusAdmin lang={lang} onSessionExpired={session.expire} />
           <details className="dashboard-details"><summary>{lang === 'es' ? 'Cortesías por email y gestión avanzada' : 'Email gifts and advanced access'}</summary><MemberAccess lang={lang} onSessionExpired={session.expire} /></details>

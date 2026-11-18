@@ -84,7 +84,9 @@
 .personal-stats-history details li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; font-size: .8rem; color: #bfcdc3; }
 .personal-stats-history details li span { overflow-wrap: anywhere; }
 .personal-stats-history details li strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.membership-dialog .personal-stats-note { color: #bfcdc3; font-size: .75rem; border-top: 1px solid #ffffff21; padding-top: 1rem; }
+  .membership-dialog .personal-stats-note { color: #bfcdc3; font-size: .75rem; border-top: 1px solid #ffffff21; padding-top: 1rem; }
+  .personal-stats-note a { color: #efd18b; text-decoration: underline; text-underline-offset: .2em; }
+  .personal-stats-note a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .membership-dialog button:focus-visible, .membership-dialog summary:focus-visible { outline: 2px solid #efd18b; outline-offset: 3px; }
 @media (max-width: 460px) {
   .personal-stats-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -171,6 +171,7 @@ export function Lobby({
           <span>NRN Play <span aria-hidden="true">·</span> {title}</span>
           <nav className="lobby-legal-links" aria-label={es ? 'Información del servicio' : 'Service information'}>
             <a href={`/learn/${lang}/help/`}>{es ? 'Ayuda' : 'Help'}</a>
+            <a href={`/learn/${lang}/standings/`}>{es ? 'Resultados y ligas' : 'Results and leagues'}</a>
             <a href={`/learn/${lang}/about/`}>{es ? 'Contacto' : 'Contact'}</a>
             <a href={`/privacy.html#${lang}`}>{es ? 'Privacidad' : 'Privacy'}</a>
             <a href={`/terms.html#${lang}`}>{es ? 'Términos' : 'Terms'}</a>

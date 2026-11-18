@@ -1,4 +1,30 @@
 import type { PersonalStatsTotals } from './personalStats.js'
+import type { LeagueGame, LeagueGameType, LeagueStanding } from './leagues.js'
+
+export interface AdminLeagueSummary {
+  id: string
+  name: string
+  gameType: LeagueGameType
+  ownerName: string
+  createdAt: number
+  closedAt: number | null
+  minGames: number
+  memberCount: number
+  gameCount: number
+}
+export interface AdminLeaguesResponse {
+  generatedAt: number
+  total: number
+  filtered: number
+  offset: number
+  limit: number
+  leagues: AdminLeagueSummary[]
+}
+export interface AdminLeagueDetail extends AdminLeagueSummary {
+  ratingSystem: 'trueskill'
+  standings: (Omit<LeagueStanding, 'isMe'> & { joinedAt: number; isOwner: boolean })[]
+  recentGames: LeagueGame[]
+}
 
 export interface AdminAccount {
   id: string

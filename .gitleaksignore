@@ -1,0 +1,4 @@
+# Reviewed 2026-11-17: exact historical findings only.
+# Test TLS fixture, localStorage key names and a public Cloudflare beacon ID.
+# No path-wide or provider-wide exclusions; new credentials still fail the scan.
+677d3817c070ed498cf80785bed9aab5b85259be:ops/legacy-proxy/test/tls-fixture.mjs:private-key:2

@@ -12,6 +12,8 @@
 .dashboard-brand { color: var(--cream); text-decoration: none; font-size: 1.1rem; font-weight: 600; }
 .dashboard-brand span { display: block; color: var(--cream-muted); font-size: .59rem; letter-spacing: .16em; margin-top: .4rem; }
 .dashboard-back { color: var(--cream-muted); font-size: .83rem; text-decoration: none; }
+.dashboard-note a { color: var(--gold-bright, #efd18b); text-decoration: underline; text-underline-offset: .2em; }
+.dashboard-note a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .dashboard-language, .dashboard-tabs { display: flex; gap: .2rem; border-radius: 9px; padding: .25rem; background: rgba(0,0,0,.2); border: 1px solid rgba(245,240,225,.12); }
 .dashboard-language button, .dashboard-tabs button { background: transparent; color: var(--cream-muted); min-height: 36px; font-size: .78rem; }
 .dashboard-language button { padding: .4rem .65rem; }

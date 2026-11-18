@@ -6,7 +6,7 @@ import { finishedPersonalMatch, parseGameResults, parsePersonalMatch, personalMa
 import { buildLeagueTable, joinedLeague, leagueDetail, LeagueError, leagueSelectionError, leagueStartError, leagueSummary, makeLeague, parseLeagues, roomLeagueSummary, validLeagueMatch, validateLeagueResult, type LeagueTable, type StoredLeague } from './leagues.js'
 import type { LeagueDetail, LeagueGameType, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
 import type { MembershipAccount } from '../../shared/membership.js'
-import type { AdminGameSummary } from '../../shared/platformAdmin.js'
+import type { AdminGameSummary, AdminLeagueDetail, AdminLeaguesResponse, AdminLeagueSummary } from '../../shared/platformAdmin.js'
 
 export interface ResumeCredential { roomId: string; playerId: string; token: string }
 interface SavedSession { playerId: string; tokenHash: string; bot?: boolean }
@@ -88,6 +88,7 @@ export class GameRepository {
   records = new Map<string, RoomRecord>()
   private results = new Map<string, DurableGameResult>()
   private resultsByAccount = new Map<string, DurableGameResult[]>()
+  private resultsByLeague = new Map<string, DurableGameResult[]>()
   private statsCache = new Map<string, PersonalStatsResponse>()
   private committedBytes = 0
   private reservedBytes = STORAGE_CONTROL_RESERVE_BYTES
@@ -152,6 +153,7 @@ export class GameRepository {
     this.records = records
     this.results = results
     this.resultsByAccount.clear()
+    this.resultsByLeague.clear()
     this.statsCache.clear()
     for (const result of results.values()) this.indexResult(result)
     this.leagues = leagues
@@ -245,6 +247,12 @@ export class GameRepository {
   canStartNewGame() { return this.reservedBytes + 8 * 1024 <= MAX_SNAPSHOT_BYTES }
 
   private indexResult(result: DurableGameResult) {
+    if (result.leagueId) {
+      const indexed = this.resultsByLeague.get(result.leagueId) ?? []
+      // The ledger is immutable: keep one reference, never duplicate result contents.
+      indexed.push(result)
+      this.resultsByLeague.set(result.leagueId, indexed)
+    }
     for (const accountId of new Set(result.players.flatMap(player => player.accountId === null ? [] : [player.accountId]))) {
       const indexed = this.resultsByAccount.get(accountId) ?? []
       indexed.push(result)
@@ -269,18 +277,57 @@ export class GameRepository {
   listLeagues(accountId: string): LeagueSummary[] {
     return [...this.leagues.values()].filter(league => league.members.some(m => m.accountId === accountId))
       .sort((a, b) => Number(a.closedAt !== null) - Number(b.closedAt !== null) || b.createdAt - a.createdAt || a.id.localeCompare(b.id))
-      .map(league => leagueSummary(league, accountId, [...this.results.values()].filter(r => r.leagueId === league.id).length))
+      .map(league => leagueSummary(league, accountId, this.resultsByLeague.get(league.id)?.length ?? 0))
   }
 
   getLeagueDetail(id: string, accountId: string): LeagueDetail | null {
     const league = this.leagues.get(id)
     if (!league || !league.members.some(m => m.accountId === accountId)) return null
-    let cached = this.leagueTables.get(id)
-    if (!cached || cached.league !== league || cached.resultCount !== this.results.size) {
-      cached = { league, resultCount: this.results.size, table: buildLeagueTable(league, this.results.values()) }
-      this.leagueTables.set(id, cached)
+    return leagueDetail(league, this.getLeagueTable(league), accountId)
+  }
+
+  private getLeagueTable(league: StoredLeague): LeagueTable {
+    const results = this.resultsByLeague.get(league.id) ?? []
+    let cached = this.leagueTables.get(league.id)
+    if (!cached || cached.league !== league || cached.resultCount !== results.length) {
+      cached = { league, resultCount: results.length, table: buildLeagueTable(league, results) }
+      this.leagueTables.set(league.id, cached)
     }
-    return leagueDetail(league, cached.table, accountId)
+    return cached.table
+  }
+
+  private adminLeagueSummary(league: StoredLeague, gameCount: number): AdminLeagueSummary {
+    return { id: league.id, name: league.name, gameType: league.gameType,
+      ownerName: league.members.find(member => member.accountId === league.ownerAccountId)!.name,
+      createdAt: league.createdAt, closedAt: league.closedAt, minGames: league.minGames,
+      memberCount: league.members.length, gameCount }
+  }
+
+  /** Read-only administration projections; never return invitation codes or account identifiers. */
+  listAdminLeagues(options: { q: string; gameType?: LeagueGameType; status: 'all' | 'active' | 'closed'; offset: number; limit: number }): Omit<AdminLeaguesResponse, 'generatedAt'> {
+    const query = options.q.trim().toLocaleLowerCase()
+    const matches = [...this.leagues.values()].filter(league =>
+      (!options.gameType || league.gameType === options.gameType) &&
+      (options.status === 'all' || (league.closedAt === null ? 'active' : 'closed') === options.status) &&
+      (!query || league.name.toLocaleLowerCase().includes(query) || this.adminLeagueSummary(league, 0).ownerName.toLocaleLowerCase().includes(query)))
+      .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
+    const offset = Math.max(0, options.offset), limit = Math.max(1, Math.min(50, options.limit))
+    return { total: this.leagues.size, filtered: matches.length, offset, limit,
+      leagues: matches.slice(offset, offset + limit).map(league => this.adminLeagueSummary(league, this.resultsByLeague.get(league.id)?.length ?? 0)) }
+  }
+
+  getAdminLeagueDetail(id: string): AdminLeagueDetail | null {
+    const league = this.leagues.get(id)
+    if (!league) return null
+    const table = this.getLeagueTable(league)
+    return { ...this.adminLeagueSummary(league, table.gameCount), ratingSystem: 'trueskill',
+      standings: table.standings.map(row => {
+        const member = league.members.find(item => item.id === row.memberId)!
+        return { memberId: row.memberId, name: row.name, rank: row.rank, rating: row.rating,
+          played: row.played, wins: row.wins, draws: row.draws, losses: row.losses, winRate: row.winRate,
+          provisional: row.provisional, joinedAt: member.joinedAt, isOwner: member.accountId === league.ownerAccountId }
+      }), recentGames: table.recentGames.map(game => ({ id: game.id, finishedAt: game.finishedAt, playerCount: game.playerCount,
+        players: game.players.map(player => ({ memberId: player.memberId, name: player.name, position: player.position, score: player.score })) })) }
   }
 
   /** Call these mutations only from the same application queue as game actions. */

@@ -47,4 +47,27 @@ export function registerPlatformAdmin(app: Express, options: {
       res.json(result)
     } catch { res.status(503).json({ error: 'server_unavailable' }) }
   })
+  app.get('/api/admin/leagues', guard, (req, res) => {
+    const q = req.query.q ?? '', gameType = req.query.gameType, status = req.query.status ?? 'all'
+    const offset = req.query.offset ?? '0', size = req.query.limit ?? '25'
+    if (typeof q !== 'string' || q.length > 100 || /[\u0000-\u001f\u007f]/.test(q) ||
+      gameType !== undefined && gameType !== 'continental' && gameType !== 'pocha' ||
+      status !== 'all' && status !== 'active' && status !== 'closed' ||
+      typeof offset !== 'string' || !/^\d{1,9}$/.test(offset) || typeof size !== 'string' || !/^\d{1,3}$/.test(size) || Number(size) === 0) {
+      res.status(400).json({ error: 'invalid_request' }); return
+    }
+    try {
+      res.json({ generatedAt: Date.now(), ...options.repository.listAdminLeagues({ q, gameType, status, offset: Number(offset), limit: Math.min(50, Number(size)) }) })
+    } catch { res.status(503).json({ error: 'server_unavailable' }) }
+  })
+  app.get('/api/admin/leagues/:id', guard, (req, res) => {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(req.params.id) || ['__proto__', 'prototype', 'constructor'].includes(req.params.id)) {
+      res.status(400).json({ error: 'invalid_request' }); return
+    }
+    try {
+      const league = options.repository.getAdminLeagueDetail(req.params.id)
+      if (!league) { res.status(404).json({ error: 'league_not_found' }); return }
+      res.json({ generatedAt: Date.now(), league })
+    } catch { res.status(503).json({ error: 'server_unavailable' }) }
+  })
 }

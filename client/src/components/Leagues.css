@@ -66,6 +66,8 @@
 .league-room-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1rem; }
 .league-room-setup .membership-text { color: #efd18b; }
 .league-room-setup .membership-error { color: #ffd9d9; }
+.leagues a, .league-room-setup a { color: #efd18b; text-decoration: underline; text-underline-offset: .2em; }
+.leagues a:focus-visible, .league-room-setup a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .membership-tabs.membership-tabs-account { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 380px) {
   .league-list button { flex-wrap: wrap; gap: .55rem; }

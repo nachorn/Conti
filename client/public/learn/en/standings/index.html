@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Which NRN Play games count, how places and ties are decided, and how the TrueSkill standings work in Conti and La Pocha.">
+<meta name="theme-color" content="#092a20">
+<title>Results and standings · NRN Play</title>
+<link rel="canonical" href="https://nrnplay.com/learn/en/standings/">
+<link rel="alternate" hreflang="es" href="https://nrnplay.com/learn/es/standings/">
+<link rel="alternate" hreflang="en" href="https://nrnplay.com/learn/en/standings/">
+<link rel="stylesheet" href="/learn/standings.css">
+</head>
+<body>
+<a class="skip" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/" aria-label="NRN Play, home"><img src="/brand/nrn-play-selected-light.svg" width="158" height="42" alt="NRN Play"></a><nav aria-label="NRN Play guides"><a href="/learn/en/continental/">Conti</a><a href="/learn/en/pocha/">Pocha</a><a href="/learn/en/standings/" aria-current="page">Standings</a><a href="/learn/en/help/">Help</a><a class="language" href="/learn/es/standings/" lang="es" hreflang="es">Español</a></nav></header>
+<main id="main-content">
+<p class="eyebrow">Conti and La Pocha</p><h1>Results and standings</h1>
+<nav class="contents" aria-label="On this page"><a href="#results">Scores and places</a><a href="#eligible">Eligible games</a><a href="#provisional">Provisional players</a><a href="#rating">Rating</a><a href="#order">League order</a><a href="#example">League example</a></nav>
+<section id="results"><h2>The table score decides your place</h2>
+<div class="rule-grid"><div class="rule"><h3>Conti</h3><strong>The lowest total wins.</strong><p>Scores from all seven rounds are added together, including card penalties and closing bonuses.</p></div><div class="rule"><h3>La Pocha</h3><strong>The highest total wins.</strong><p>Scores from every scheduled round are added together, using the settings chosen for that game.</p></div></div>
+<p>Your place is one plus the number of players with a better total. Equal totals share a place, with the next places skipped: <strong>1, 1, 3, 4, 5</strong>.</p>
+<div class="table-scroll" role="region" aria-label="Final score examples for Conti and Pocha" tabindex="0"><table data-example="game-results"><caption>Game 2 in two separate example leagues. These are the final scores at each table.</caption><thead><tr><th scope="col">Player</th><th scope="col">Conti score</th><th scope="col">Conti place</th><th scope="col">Pocha score</th><th scope="col">Pocha place</th></tr></thead><tbody>
+<tr><th scope="row">Alba</th><td>14</td><td>1</td><td>15</td><td>1</td></tr>
+<tr><th scope="row">Bruno</th><td>110</td><td>3</td><td>8</td><td>3</td></tr>
+<tr><th scope="row">Carla</th><td>170</td><td>4</td><td>8</td><td>3</td></tr>
+<tr><th scope="row">Dani</th><td>350</td><td>5</td><td>8</td><td>3</td></tr>
+<tr><th scope="row">Eva</th><td>14</td><td>1</td><td>15</td><td>1</td></tr>
+</tbody></table></div>
+<p>Alba and Eva share first place at both tables. Bruno, Carla and Dani tie for third in Pocha; that tie does not make them winners.</p>
+<details><summary>Points for each hand</summary><p><strong>Conti:</strong> going out scores −10; going out on the same turn you lay your contract scores −10 × the round number. Everyone else scores their remaining cards: 2–10 at face value, J/Q/K at 10, aces at 20 and jokers at 50.</p><p><strong>Pocha defaults:</strong> an exact prediction scores 5 + 2 × tricks won; a miss scores −2 × the difference between tricks bid and won, without an extra bonus. The host can adjust these values before starting.</p><p><a href="/learn/en/continental/#scoring">Conti scoring</a> · <a href="/learn/en/pocha/#scoring">Pocha scoring</a></p></details>
+<h3 id="ties">Win, draw or loss</h3><ul><li><strong>Win:</strong> you finish first on your own.</li><li><strong>Draw:</strong> you share first place.</li><li><strong>Loss:</strong> you finish below first, even if you tie with another player.</li></ul>
+<p>Win rate is <strong>wins ÷ games played × 100</strong>, rounded to one decimal place. Draws count as games played but not as wins. One win, one draw and one loss give a win rate of 33.3%.</p>
+</section>
+<section id="eligible"><h2>Which games count</h2>
+<p>For your personal statistics, sign in <strong>before the deal</strong> and finish the game. Your account is fixed at the start: signing in or switching accounts later cannot transfer that game.</p>
+<p>For the game to count towards a league as well:</p><ol class="steps"><li>The host must select the league in the waiting lobby before starting.</li><li>Everyone at that table must use a different account and belong to that game's league.</li><li>The game must finish with the same participants, without bots or departures.</li></ol>
+<p>Not every league member has to play: a table of four can count in a league with five members. Only the statistics and ratings of the players at that table are updated.</p>
+<p>A temporary disconnection is not a departure if you recover the same seat. Leaving the game or changing its participants prevents that result from counting. A friendly game can count towards your personal statistics without affecting any league.</p>
+</section>
+<section id="provisional"><h2>When you stop being provisional</h2>
+<p>Each league sets a qualifying minimum per player when it is created: between 1 and 50 games, with 5 as the default. That minimum and the game type remain fixed for the league.</p>
+<p>Your rating updates before you reach the minimum, but you appear as <strong>provisional</strong>, without a place. Qualified players appear first even if a provisional player has a higher rating. The minimum refers to your own games in that league, not the group's total games or separate calendar days.</p>
+</section>
+<section id="rating"><h2>A table score is not a league rating</h2>
+<p>Leagues use <strong>TrueSkill</strong>. After each game, the estimated skill of the participants is updated using their opponents and everyone's final place, including ties.</p>
+<p>The calculation receives places, not card-game scores. Finishing with 14 or 140 in Conti does not change the adjustment by itself if the final order and previous history are identical. Scores from different tables are not added up to order the league.</p>
+<p>There is no fixed rating award for a win or deduction for a loss. The uncertainty of the estimate matters too. Each league has its own history; Conti and Pocha leagues are calculated separately.</p>
+<details><summary>How the visible number is calculated</summary><p>The displayed value is a conservative estimate: <code aria-label="mu minus three times sigma">μ − 3σ</code>, rounded to two decimal places. μ is estimated skill and σ is uncertainty. Everyone starts with μ = 25 and σ = 25/3, giving an initial visible rating of 0.</p><p>A negative rating is valid. Equal scores at a table do not require equal ratings: each player brings their previous history.</p></details>
+</section>
+<section id="order"><h2>The exact standings order</h2><ol class="steps"><li>Qualified players before provisional players.</li><li>Higher visible rating.</li><li>If equal, more outright wins.</li><li>If still equal, higher win rate.</li></ol>
+<p>Qualified players with equal rating, wins and win rate share a place. Places may be numbered 1, 1, 3. The display order of players sharing a place is not an additional sporting tiebreaker.</p>
+</section>
+<section id="example"><h2>Example: three games to qualify</h2>
+<p>These two leagues have a minimum of 3 games. Alba, Bruno, Carla and Dani play the first three games; Eva plays the first two and sits out the third. After game 3:</p>
+<div class="table-scroll" role="region" aria-label="Standings after three games" tabindex="0"><table data-example="league-standings"><caption>Ratings calculated from the example games using the same calculation as NRN Play.</caption><thead><tr><th scope="col">Player</th><th scope="col">Played</th><th scope="col">Conti rating</th><th scope="col">Conti place</th><th scope="col">Pocha rating</th><th scope="col">Pocha place</th></tr></thead><tbody>
+<tr><th scope="row">Bruno</th><td>3</td><td>17.65</td><td>1</td><td>15.02</td><td>1</td></tr>
+<tr><th scope="row">Alba</th><td>3</td><td>16.98</td><td>2</td><td>14.93</td><td>2</td></tr>
+<tr><th scope="row">Carla</th><td>3</td><td>9.89</td><td>3</td><td>13.23</td><td>3</td></tr>
+<tr><th scope="row">Dani</th><td>3</td><td>4.80</td><td>4</td><td>13.21</td><td>4</td></tr>
+<tr><th scope="row">Eva</th><td>2</td><td>18.30</td><td>—</td><td>15.97</td><td>—</td></tr>
+</tbody></table></div>
+<div class="example"><h3>Why Eva appears last</h3><p>She has the highest rating in both games but has completed only 2 of the 3 games required. She remains provisional. Her next eligible completed game in each league will allow her to enter its standings.</p></div>
+<p class="note">These examples use fictional players. Each league game is a completed match, not one round of cards. Its rating changes are not fixed awards that other leagues must reproduce.</p>
+</section>
+<section id="history"><h2>History, rematches and closure</h2>
+<p>The server records each final result once. Reloading or reconnecting does not add another game. A completed rematch is a new game.</p>
+<p>Closing a league preserves its standings and history while preventing new members and new games. Games that had already started can still finish and count. Recent tables and personal statistics are separate from each league's standings.</p>
+<p><a href="/account">Open my dashboard</a> · <a href="/learn/en/continental/">Conti rules</a> · <a href="/learn/en/pocha/">La Pocha rules</a></p>
+</section>
+</main>
+<footer class="site-footer"><nav aria-label="Information"><a href="/">Games</a><a href="/learn/en/help/">Help</a><a href="/learn/en/about/">Contact</a><a href="/privacy.html#en">Privacy</a><a href="/terms.html#en">Terms</a></nav></footer>
+</body></html>

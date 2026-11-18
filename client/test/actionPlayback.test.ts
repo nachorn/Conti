@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collectActions } from '../src/lib/actionPlayback.ts'
+import { appendPlayback, collectActions, MAX_PLAYBACK_ACTIONS } from '../src/lib/actionPlayback.ts'
 import { actionSummary } from '../src/lib/tableSummary.ts'
 import type { GameState, PublicAction } from '../src/types.ts'
 
 const action = (id: string, kind: PublicAction['kind'] = 'discard'): PublicAction => ({ id, round: 1, playerId: 'ada', playerName: 'Ada', kind, cards: [], penaltyCount: 0 })
 const state = (activity: PublicAction[], phase: GameState['phase'] = 'playing', round = 1) => ({ roomId: '1234', phase, round, activity }) as GameState
+
+test('paused playback retains the visible play and discards the oldest pending plays at capacity', () => {
+  const visible = action('visible')
+  let queue = [visible]
+  for (let number = 1; number <= 100; number++) queue = appendPlayback(queue, [action(String(number))])
+  assert.equal(queue[0], visible)
+  assert.equal(queue.length, MAX_PLAYBACK_ACTIONS)
+  assert.deepEqual(queue.slice(1).map(item => Number(item.id)), Array.from({ length: MAX_PLAYBACK_ACTIONS - 1 }, (_, index) => 102 - MAX_PLAYBACK_ACTIONS + index))
+})
 
 test('joins and reconnects baseline history without replaying old actions', () => {
   const initial = collectActions(null, state([action('1')]), true)

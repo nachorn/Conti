@@ -1,6 +1,18 @@
 import type { GameState, PublicAction } from '../types'
 
 export interface ActionCursor { scope: string; ids: string[] }
+export const MAX_PLAYBACK_ACTIONS = 24
+
+/** Keep the current card and the newest pending plays while playback is paused. */
+export function appendPlayback(current: PublicAction[], incoming: PublicAction[]): PublicAction[] {
+  if (incoming.length === 0) return current
+  const combined = current.concat(incoming)
+  if (combined.length <= MAX_PLAYBACK_ACTIONS) return combined
+  const visible = current[0]
+  return visible
+    ? [visible, ...combined.slice(-(MAX_PLAYBACK_ACTIONS - 1))]
+    : combined.slice(-MAX_PLAYBACK_ACTIONS)
+}
 
 /** Baseline a join/reconnect instead of replaying old moves as new ones. */
 export function collectActions(cursor: ActionCursor | null, state: GameState, connected: boolean): { cursor: ActionCursor | null; actions: PublicAction[]; reset: boolean } {

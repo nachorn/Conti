@@ -127,6 +127,10 @@
     }
   ],
   "rewrites": [
+    { "source": "/learn/es/standings", "destination": "/learn/es/standings/index.html" },
+    { "source": "/learn/es/standings/", "destination": "/learn/es/standings/index.html" },
+    { "source": "/learn/en/standings", "destination": "/learn/en/standings/index.html" },
+    { "source": "/learn/en/standings/", "destination": "/learn/en/standings/index.html" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" },
     { "source": "/account", "destination": "/index.html" },

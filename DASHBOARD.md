@@ -2,7 +2,9 @@
 
 Open **https://nrnplay.com/admin** while signed into an authorized NRN Play account. The Administration link appears in the header and personal dashboard only for that account. `/dashboard` and administration URLs on Conti or Pocha redirect to the central panel. Administration never joins a game or reclaims a saved seat.
 
-The panel contains Overview, Users, Conti, Pocha, FootballChampion and Plus. Users supports search, pagination, per-game results and Plus gifts lasting 30 days, one year or permanently. Existing Plus access opens the full Plus management tools instead of replacing it with a quick gift.
+The panel contains Overview, Users, Leagues, Conti, Pocha, FootballChampion and Plus. Users supports search, pagination, per-game results and Plus gifts lasting 30 days, one year or permanently. Existing Plus access opens the full Plus management tools instead of replacing it with a quick gift.
+
+Leagues shows members, TrueSkill standings and recent results for each Conti or Pocha league. Administrators can filter by game and status. The view is read-only and keeps invitation codes private. Players can consult the [standings guide](https://nrnplay.com/learn/en/standings/).
 
 ## Account permissions
 

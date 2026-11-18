@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { GameState, PublicAction } from '../types'
 import type { Lang } from '../i18n'
-import { collectActions, actionDisplayTime, type ActionCursor } from '../lib/actionPlayback'
+import { collectActions, actionDisplayTime, appendPlayback, type ActionCursor } from '../lib/actionPlayback'
 import { actionSummary, meldSummary } from '../lib/tableSummary'
 import { orderMeldCardsForDisplay } from '../lib/meldTargeting'
 import { cardLabel } from '../lib/cardActivity'
@@ -30,7 +30,7 @@ export function ActionPopup({ state, lang, connected, boardRef }: { state: GameS
     if (incoming.reset) {
       setQueue([])
       setPaused(false)
-    } else if (incoming.actions.length) setQueue(current => [...current, ...incoming.actions])
+    } else if (incoming.actions.length) setQueue(current => appendPlayback(current, incoming.actions))
   }, [state, connected])
 
   useEffect(() => {

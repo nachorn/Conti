@@ -11,8 +11,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - run: npm ci --ignore-scripts
@@ -22,6 +24,17 @@ jobs:
       - run: npm --prefix server test
       - run: npm --prefix server run build
       - run: npm --prefix client ci
-      - run: npm --prefix client audit --audit-level=high
+      - name: Audit client dependencies (including reviewed open development advisory)
+        run: |
+          npm --prefix client audit --json > client-audit.json || true
+          npm view picomatch version --json > picomatch-version.json
+          node scripts/check-client-audit.mjs client-audit.json client/package-lock.json picomatch-version.json
+      - name: Scan repository history for credentials
+        run: |
+          curl --fail --location --silent --show-error https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz --output /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum --check
+          mkdir /tmp/nrn-gitleaks
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp/nrn-gitleaks gitleaks
+          /tmp/nrn-gitleaks/gitleaks git . --redact=100 --no-banner --log-opts='--all'
       - run: npm --prefix client test
       - run: npm --prefix client run build

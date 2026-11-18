@@ -50,6 +50,7 @@ export function LeagueRoomSetup({ token, roomLeague, gameType, isHost, connected
       ? (es ? 'Esta liga está cerrada. El anfitrión debe elegir otra liga o una partida amistosa para empezar.' : 'This league is closed. The host must choose another league or a friendly game to start.')
       : (es ? 'Todos deben iniciar sesión y unirse a esta liga antes de empezar. El resultado completo actualizará la clasificación TrueSkill.' : 'Everyone must sign in and join this league before starting. The completed result will update the TrueSkill standings.')
       : (es ? 'Juega con invitados o con cuentas. El anfitrión puede elegir una liga antes de empezar.' : 'Play with guests or accounts. The host can choose a league before starting.')}</p>
+    <p><a href={`/learn/${lang}/standings/#eligible`}>{es ? 'Qué partidas cuentan para la liga' : 'Which games count towards the league'}</a></p>
     {!token && <button type="button" className="membership-text" disabled={!connected} onClick={onOpenAccount}>{es ? 'Entrar o crear una cuenta' : 'Sign in or create an account'}</button>}
     {isHost && !token && roomLeague && <button type="button" className="membership-text" disabled={!available} onClick={() => void setLeague(null)}>{es ? 'Jugar una amistosa' : 'Play a friendly game'}</button>}
     {(error || leagues.error) && <p className="membership-error" role="alert">{error || (leagues.error ? leagueErrorText(leagues.error, lang) : '')}</p>}

@@ -260,7 +260,8 @@ export class MembershipService {
   }
   authenticate(token: string): MembershipAccount | null {
     if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
-    const session = this.data.sessions.find(s => s.tokenHash === hash(token) && s.expiresAt > this.now())
+    const tokenHash = hash(token), now = this.now()
+    const session = this.data.sessions.find(s => s.tokenHash === tokenHash && s.expiresAt > now)
     const account = session && this.data.accounts.find(a => a.id === session.accountId)
     return account ? this.publicAccount(account) : null
   }
@@ -722,7 +723,8 @@ export class MembershipService {
     app.post('/api/membership/password-reset/confirm', json, run(async (req, res) => res.json(await this.confirmPasswordReset(req.body?.email, req.body?.code, req.body?.password, req.ip ?? 'unknown'))))
     app.get('/api/membership/me', run((req, res) => {
       const account = this.requireAccount(req)
-      const session = this.data.sessions.find(s => s.tokenHash === hash(this.token(req)))!
+      const tokenHash = hash(this.token(req))
+      const session = this.data.sessions.find(s => s.tokenHash === tokenHash)!
       res.json({ account, expiresAt: session.expiresAt })
     }))
     app.post('/api/membership/logout', run(async (req, res) => {

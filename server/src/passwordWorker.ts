@@ -3,15 +3,28 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const PASSWORD_WORK_PATH = '/internal/password/derive'
 const CONTEXT = 'nrnplay:password-worker:v1'
-const MAX_BODY = 4096, WINDOW_MS = 30_000, MAX_REPLAYS = 4096
+const MAX_BODY = 4096, MAX_READERS = 32, WINDOW_MS = 30_000, MAX_REPLAYS = 4096
 const NONCE = /^[A-Za-z0-9_-]{22}$/, MAC = /^[A-Za-z0-9_-]{43}$/
 const HEADERS = { timestamp: 'x-nrn-password-timestamp', nonce: 'x-nrn-password-nonce', signature: 'x-nrn-password-signature', response: 'x-nrn-password-response' } as const
 const digest = (body: Uint8Array) => createHash('sha256').update(body).digest('hex')
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
-function signingKey(authSecret: string) {
+function legacySigningKey(authSecret: string) {
   const secret = authSecret.trim()
   if (secret.length < 32) throw new Error('Password worker requires the existing account authentication secret')
   return createHmac('sha256', secret).update(CONTEXT).digest()
+}
+/** Offline derivation for a separately provisioned worker; never print this credential. */
+export function derivePasswordWorkerSigningKey(authSecret: string): string {
+  const key = legacySigningKey(authSecret)
+  try { return key.toString('base64url') } finally { key.fill(0) }
+}
+type WorkerCredentials = { authSecret?: string; signingKey?: string }
+function signingKey(options: WorkerCredentials): Buffer {
+  if (options.signingKey === undefined) return legacySigningKey(options.authSecret ?? '')
+  if (typeof options.signingKey !== 'string' || !MAC.test(options.signingKey)) throw new Error('Password worker signing key must be canonical 32-byte base64url')
+  const key = Buffer.from(options.signingKey, 'base64url')
+  if (key.length !== 32 || key.toString('base64url') !== options.signingKey) throw new Error('Password worker signing key must be canonical 32-byte base64url')
+  return key
 }
 function signature(key: Buffer, timestamp: string, nonce: string, body: Uint8Array) {
   return createHmac('sha256', key).update(`${timestamp}\n${nonce}\nPOST\n${PASSWORD_WORK_PATH}\n${digest(body)}`).digest('base64url')
@@ -52,10 +65,10 @@ async function readResponse(response: Response): Promise<Buffer> {
 
 /** No account identifier, stored hash or session credential is sent to the worker. */
 export function createPasswordWorkClient(options: {
-  origin: string; authSecret: string; request?: typeof fetch; now?: () => number; timeoutMs?: number
-}) {
+  origin: string; request?: typeof fetch; now?: () => number; timeoutMs?: number
+} & WorkerCredentials) {
   if (!options.request && process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') throw new Error('Password worker requires verified TLS')
-  const origin = fixedOrigin(options.origin), key = signingKey(options.authSecret)
+  const origin = fixedOrigin(options.origin), key = signingKey(options)
   const request = options.request ?? fetch, now = options.now ?? Date.now
   const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 4000, 4000))
   return {
@@ -101,9 +114,11 @@ export interface PasswordWorkHandler {
 }
 
 /** Standalone Node handler suitable for the existing Render proxy process. */
-export function createPasswordWorkHandler(options: { authSecret: string; now?: () => number }): PasswordWorkHandler {
-  const key = signingKey(options.authSecret), now = options.now ?? Date.now
+export function createPasswordWorkHandler(options: WorkerCredentials & { now?: () => number }): PasswordWorkHandler {
+  const key = signingKey(options), now = options.now ?? Date.now
   const replays = new Map<string, number>(), waiting: Job[] = []
+  // Signatures cannot be verified before the body arrives. Bound that untrusted work too.
+  const readers = new Set<() => void>()
   let active: Job | null = null, closing = false
   const closed: (() => void)[] = []
   const send = (res: ServerResponse, status: number, data: unknown, timestamp = '', nonce = '') => {
@@ -150,19 +165,25 @@ export function createPasswordWorkHandler(options: { authSecret: string; now?: (
     if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(header('content-type')) ||
       (header('content-encoding') && header('content-encoding') !== 'identity')) { send(res, 415, { error: 'invalid_request' }); req.resume(); return }
     if (Number(header('content-length')) > MAX_BODY) { send(res, 413, { error: 'invalid_request' }); req.resume(); return }
+    if (readers.size >= MAX_READERS) { busy(res); req.resume(); return }
     let body: Buffer | undefined
     try {
       body = await new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = []; let length = 0, settled = false
-        const timer = setTimeout(() => { cleanup(); reject(new Error('Invalid request')); req.destroy() }, 5000)
-        const cleanup = () => { settled = true; clearTimeout(timer); req.off('data', data); req.off('end', end); req.off('error', error); req.off('aborted', error) }
+        const timer = setTimeout(() => { if (!settled) { cleanup(); reject(new Error('Invalid request')); req.destroy() } }, 5000)
+        const cleanup = () => {
+          settled = true; clearTimeout(timer); readers.delete(cancel); chunks.length = 0
+          req.off('data', data); req.off('end', end); req.off('error', error); req.off('aborted', error); res.off('close', cancel)
+        }
+        const cancel = () => { if (!settled) { cleanup(); busy(res); req.resume(); reject(new Error('Invalid request')) } }
         const data = (chunk: Buffer) => {
           length += chunk.length
           if (length > MAX_BODY) { cleanup(); send(res, 413, { error: 'invalid_request' }); req.resume(); reject(new Error('Invalid request')); return }
           chunks.push(chunk)
         }
-        const end = () => { if (!settled) { cleanup(); resolve(Buffer.concat(chunks, length)) } }
+        const end = () => { if (!settled) { const result = Buffer.concat(chunks, length); cleanup(); resolve(result) } }
         const error = () => { if (!settled) { cleanup(); reject(new Error('Invalid request')) } }
+        readers.add(cancel); res.once('close', cancel)
         req.on('data', data); req.once('end', end); req.once('error', error); req.once('aborted', error)
       })
       if (!fresh() || !same(proof, signature(key, timestamp, nonce, body))) { send(res, 401, { error: 'unauthorized' }); return }
@@ -196,6 +217,7 @@ export function createPasswordWorkHandler(options: { authSecret: string; now?: (
   handler.status = () => ({ active: active ? 1 : 0, queued: waiting.length })
   handler.close = async () => {
     closing = true; replays.clear()
+    for (const cancel of [...readers]) cancel()
     for (const job of waiting.splice(0)) { job.res.off('close', job.cancelled); job.password = ''; job.salt.fill(0); busy(job.res) }
     if (!active) { key.fill(0); return }
     await new Promise<void>(resolve => closed.push(resolve))

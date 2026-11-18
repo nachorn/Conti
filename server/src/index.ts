@@ -19,7 +19,8 @@ if (process.env.NRN_PASSWORD_WORKER_URL) {
     minimumAvailableMb: threshold('NRN_MIN_AVAILABLE_MEMORY_MB', 256),
     raceThresholdMb: threshold('NRN_RACE_MEMORY_THRESHOLD_MB', 300),
   })
-  const worker = createPasswordWorkClient({ origin: process.env.NRN_PASSWORD_WORKER_URL, authSecret: process.env.MEMBERSHIP_AUTH_SECRET ?? '' })
+  const worker = createPasswordWorkClient({ origin: process.env.NRN_PASSWORD_WORKER_URL,
+    signingKey: process.env.NRN_PASSWORD_WORKER_SIGNING_KEY, authSecret: process.env.MEMBERSHIP_AUTH_SECRET })
   resetPasswordDelegate = configurePasswordDelegate({ derive: worker.derive, shouldDelegate: pressure, allowLocalFallback: async () => !await pressure() })
 }
 

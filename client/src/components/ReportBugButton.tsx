@@ -28,7 +28,8 @@ export function ReportBugButton({
         }
       }}
       title={t(lang, 'reportBugTitle')}
-      aria-label={t(lang, 'reportBug')}
+      aria-label={t(lang, reportCopied ? 'copied' : 'reportBug')}
+      aria-live="polite"
     >
       {reportCopied ? t(lang, 'copied') : t(lang, 'reportBug')}
     </button>

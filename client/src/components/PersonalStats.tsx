@@ -12,6 +12,7 @@ export function PersonalStats({ token, lang, onSignIn, active, gameType }: { tok
   return <section className="personal-stats" aria-labelledby={titleId}>
     <div className="personal-stats-heading"><h3 id={titleId}>{es ? `Estadísticas de ${gameName}` : `${gameName} statistics`}</h3>
       <button type="button" className="membership-text" disabled={loading} onClick={() => void refresh()}>{loading ? (es ? 'Actualizando…' : 'Refreshing…') : (es ? 'Actualizar' : 'Refresh')}</button></div>
+    <p className="personal-stats-note"><a href={`/learn/${lang}/standings/#results`}>{es ? 'Qué partidas cuentan y cómo se decide el resultado' : 'Which games count and how results are decided'}</a></p>
     {loading && !data && <p role="status">{es ? `Cargando tus partidas de ${gameName}…` : `Loading your ${gameName} games…`}</p>}
     {error && <div className="membership-error" role="alert"><p>{error === 'expired' ? (es ? `Vuelve a entrar para consultar tus estadísticas de ${gameName}.` : `Sign in again to see your ${gameName} statistics.`) : (es ? `No hemos podido actualizar tus resultados de ${gameName}. Inténtalo de nuevo.` : `Your ${gameName} results could not be updated. Please try again.`)}</p>
       {error === 'expired' && <button className="membership-secondary" type="button" onClick={onSignIn}>{es ? 'Volver a entrar' : 'Sign in again'}</button>}</div>}
