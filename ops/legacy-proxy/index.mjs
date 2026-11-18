@@ -1,10 +1,12 @@
 import { createLegacyProxy, UPSTREAM_ORIGIN } from './proxy.mjs';
 import { createPasswordWorkHandler } from './passwordWorker.js';
+import { readProxyCredentials } from './credentials.mjs';
 
 const rawPort = process.env.PORT ?? '10000';
 if (!/^\d+$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535) throw new Error('Invalid listener port');
-const passwordWork = createPasswordWorkHandler({ authSecret: process.env.MEMBERSHIP_AUTH_SECRET ?? '' });
-const proxy = createLegacyProxy({ authSecret: process.env.MEMBERSHIP_AUTH_SECRET, handleRequest: passwordWork });
+const credentials = readProxyCredentials(process.env);
+const passwordWork = createPasswordWorkHandler({ signingKey: credentials.signingKey, authSecret: credentials.authSecret });
+const proxy = createLegacyProxy({ legacyKey: credentials.legacyKey, authSecret: credentials.authSecret, handleRequest: passwordWork });
 proxy.server.listen(Number(rawPort), '0.0.0.0', () => {
   console.log(`NRN legacy proxy listening on port ${rawPort}; upstream ${UPSTREAM_ORIGIN}`);
 });

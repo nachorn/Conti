@@ -93,6 +93,18 @@ test('health is local, including HEAD; ready retains upstream status', async (t)
   assert.equal(sent.length, 1);
 });
 
+test('an already derived transport key preserves the exact header bytes without the principal secret', async (t) => {
+  const legacyKey = deriveLegacyProxyKey(authSecret);
+  let received;
+  const { port } = await setup(t, (req, res) => { received = req.headers['x-nrn-legacy-key']; res.end('ok'); }, { legacyKey, authSecret: undefined });
+  assert.equal((await call(port, { path: '/ready' })).status, 200);
+  assert.equal(received, legacyKey);
+  assert.equal(received, createHmac('sha256', authSecret).update('nrnplay:legacy-proxy:v3').digest('hex'));
+  for (const invalid of ['', 'A'.repeat(64), 'a'.repeat(63), 'a'.repeat(65)]) {
+    assert.throws(() => createLegacyProxy({ authSecret, legacyKey: invalid }), /canonical/);
+  }
+});
+
 test('GET keeps application headers and response cookies but replaces forwarding identity', async (t) => {
   let received;
   const { port } = await setup(t, (req, res) => {

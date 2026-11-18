@@ -69,13 +69,16 @@ function rawError(socket, status, code) {
 /** A single fixed HTTPS upstream. request is injectable solely for local TLS tests. */
 export function createLegacyProxy({
   authSecret,
+  legacyKey,
   request = https.request,
   headerTimeoutMs = 30_000,
   idleTimeoutMs = 75_000,
   shutdownGraceMs = 7_500,
   handleRequest,
 } = {}) {
-  const legacyKey = deriveLegacyProxyKey(authSecret);
+  // The scoped key is already derived. Re-hashing it would change the wire protocol.
+  if (legacyKey !== undefined && (typeof legacyKey !== 'string' || !/^[a-f0-9]{64}$/.test(legacyKey))) throw new Error('Legacy proxy key must be canonical SHA-256 hex');
+  const transportKey = legacyKey ?? deriveLegacyProxyKey(authSecret);
   const agent = new https.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 8 });
   const sockets = new Set();
   const upgradedSockets = new Set();
@@ -85,7 +88,7 @@ export function createLegacyProxy({
   function options(req, websocket = false) {
     const headers = cleanHeaders(req.headers, { inbound: true });
     headers.host = upstream.hostname;
-    headers['x-nrn-legacy-key'] = legacyKey;
+    headers['x-nrn-legacy-key'] = transportKey;
     const ip = clientAddress(req.socket);
     if (ip) headers['x-nrn-client-ip'] = ip;
     headers['x-nrn-legacy-hop'] = '1';
