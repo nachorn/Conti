@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { securityNoticeEmail, type SecurityNoticeSender } from './securityNotices.js'
 
 type Language = 'en' | 'es'
 export type EmailSender = (email: string, code: string, lang: Language, purpose?: 'admin') => Promise<void>
+type EmailContent = { subject: string; text: string }
+type MembershipEmailSender = EmailSender & { securityNotice: SecurityNoticeSender }
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send'
@@ -42,8 +45,7 @@ function message(code: string, lang: Language, brand?: string, purpose?: 'admin'
   }
 }
 
-function rawMessage(from: string, to: string, code: string, lang: Language, now: number, brand?: string, purpose?: 'admin'): string {
-  const { subject, text } = message(code, lang, brand, purpose)
+function rawMessage(from: string, to: string, { subject, text }: EmailContent, now: number): string {
   const body = Buffer.from(text.replace(/\n/g, '\r\n'), 'utf8').toString('base64').match(/.{1,76}/g)!.join('\r\n')
   const mime = [
     `From: ${from}`,
@@ -66,12 +68,12 @@ export function createMembershipEmailSender(
   env: NodeJS.ProcessEnv,
   request: typeof fetch = fetch,
   now: () => number = Date.now,
-): EmailSender | undefined {
+): MembershipEmailSender | undefined {
   const provider = env.MEMBERSHIP_EMAIL_PROVIDER?.trim().toLowerCase()
   const brandValue = env.MEMBERSHIP_EMAIL_BRAND
   const brand = brandValue?.trim() || undefined
   if (brandValue && (hasControls(brandValue) || brandValue.length > 60)) return undefined
-  let deliver: EmailSender
+  let deliver: (email: string, content: EmailContent) => Promise<void>
   if (provider === 'gmail') {
     const clientId = env.GOOGLE_CLIENT_ID?.trim()
     const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim()
@@ -99,8 +101,8 @@ export function createMembershipEmailSender(
       })().finally(() => { refreshing = undefined })
       return refreshing
     }
-    deliver = async (email, code, lang, purpose) => {
-      const raw = rawMessage(from, email, code, lang, now(), brand, purpose)
+    deliver = async (email, content) => {
+      const raw = rawMessage(from, email, content, now())
       const token = await accessToken()
       const response = await request(SEND_URL, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
@@ -122,11 +124,11 @@ export function createMembershipEmailSender(
     const replyTo = replyToValue?.trim() || undefined
     if (!key || !from || !resendFrom(from)) return undefined
     if (replyToValue && (hasControls(replyToValue) || (replyTo && !mailbox(replyTo)))) return undefined
-    deliver = async (email, code, lang, purpose) => {
+    deliver = async (email, content) => {
       const response = await request('https://api.resend.com/emails', {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-        body: JSON.stringify({ from, to: [email], ...message(code, lang, brand, purpose), ...(replyTo ? { reply_to: replyTo } : {}) }),
+        body: JSON.stringify({ from, to: [email], ...content, ...(replyTo ? { reply_to: replyTo } : {}) }),
       })
       if (!response.ok) throw unavailable()
       // An uncertain send is not retried: Resend may already have accepted it.
@@ -134,10 +136,19 @@ export function createMembershipEmailSender(
       if (!object(result) || typeof result.id !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(result.id)) throw unavailable()
     }
   } else return undefined
-  return async (email, code, lang, purpose) => {
+  const send = async (email: string, content: EmailContent) => {
     try {
-      if (typeof email !== 'string' || !mailbox(email) || typeof code !== 'string' || !/^\d{6}$/.test(code) || (lang !== 'en' && lang !== 'es')) throw unavailable()
-      await deliver(email, code, lang, purpose)
+      if (typeof email !== 'string' || !mailbox(email)) throw unavailable()
+      await deliver(email, content)
     } catch { throw unavailable() }
   }
+  const sendCode: EmailSender = async (email, code, lang, purpose) => {
+    if (typeof code !== 'string' || !/^\d{6}$/.test(code) || (lang !== 'en' && lang !== 'es')) throw unavailable()
+    await send(email, message(code, lang, brand, purpose))
+  }
+  const securityNotice: SecurityNoticeSender = async (email, activity, lang) => {
+    if (lang !== 'en' && lang !== 'es') throw unavailable()
+    await send(email, securityNoticeEmail(activity, lang))
+  }
+  return Object.assign(sendCode, { securityNotice })
 }

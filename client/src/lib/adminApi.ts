@@ -1,4 +1,5 @@
 import type { DashboardSnapshot } from '@shared/dashboard'
+import { isCookieAccountKey } from './accountTransport.ts'
 
 export type AdminError = 'unauthorized' | 'expired' | 'unconfigured' | 'unavailable' | 'rateLimited' | 'invalidCode'
 export type AdminPhase = 'checking' | 'locked' | 'unavailable' | 'unlocked' | 'logging-out' | 'logout-error'
@@ -40,8 +41,10 @@ export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof
   }
   if (!accountMode) return fetcher(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
   const scope = accountScope, token = scope && !scope.denied ? scope.token() : null
-  if (!scope || !token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return Promise.reject(new Error('Account authorization required'))
-  headers.set('Authorization', `Bearer ${token}`)
+  if (!scope || !token || (!isCookieAccountKey(token) && !/^[A-Za-z0-9_-]{43}$/.test(token))) return Promise.reject(new Error('Account authorization required'))
+  headers.delete('Authorization')
+  if (isCookieAccountKey(token)) headers.set('X-NRN-Portal', '1')
+  else headers.set('Authorization', `Bearer ${token}`)
   const controller = new AbortController()
   const abort = () => controller.abort()
   if (init.signal?.aborted) controller.abort()

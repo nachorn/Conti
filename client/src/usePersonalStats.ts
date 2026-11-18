@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PersonalStats } from '@shared/personalStats'
 import { isPersonalStats } from './lib/personalStats'
+import { accountHeaders, isCookieAccountKey } from './lib/accountTransport'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 export function usePersonalStats(token: string | null, enabled: boolean, gameType: 'pocha' | 'continental') {
@@ -18,8 +19,9 @@ export function usePersonalStats(token: string | null, enabled: boolean, gameTyp
     const timer = window.setTimeout(() => controller.abort(), 15_000)
     setResult(current => ({ token, gameType, data: contextData(current), loading: true, error: null }))
     try {
-      const response = await fetch(`${API_URL}/api/membership/stats?gameType=${gameType}`, {
-        headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: controller.signal,
+      const portal = isCookieAccountKey(token)
+      const response = await fetch(`${portal ? '' : API_URL}/api/membership/stats?gameType=${gameType}`, {
+        headers: accountHeaders(token, portal), credentials: portal ? 'same-origin' : 'omit', cache: 'no-store', signal: controller.signal,
       })
       if (requestId !== sequence.current) return
       if (response.status === 401) { setResult({ token, gameType, data: null, loading: false, error: 'expired' }); return }

@@ -139,6 +139,14 @@
       "destination": "https://api.nrnplay.com/api/admin/:path*"
     },
     {
+      "source": "/api/membership/:path*",
+      "destination": "https://api.nrnplay.com/api/membership/:path*"
+    },
+    {
+      "source": "/api/leagues/:path*",
+      "destination": "https://api.nrnplay.com/api/leagues/:path*"
+    },
+    {
       "source": "/connect",
       "destination": "/index.html"
     },

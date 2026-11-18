@@ -172,7 +172,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
     } else if (!sent) await send(undefined, fields)
     else {
       if (activeMode === 'reset' && fields.password !== fields.confirmation) { setFormError(es ? 'Las contraseñas no coinciden.' : 'The passwords do not match.'); return }
-      const ok = activeMode === 'reset' ? await membership.confirmPasswordReset(fields.email, fields.code, fields.password)
+      const ok = activeMode === 'reset' ? await membership.confirmPasswordReset(fields.email, fields.code, fields.password, lang)
         : activeMode === 'register' ? await membership.verifyRegistration(fields.email, fields.code)
         : await membership.verify(fields.email, fields.code)
       if (ok) finishSignIn()
@@ -222,7 +222,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
             <p>{es ? 'Seguirás conectado aquí. En los demás navegadores y juegos tendrás que volver a entrar.' : 'You’ll stay signed in here. You’ll need to sign in again on your other browsers and games.'}</p>
             <div className="membership-actions">
               <button type="button" className="membership-secondary" disabled={busy} onClick={async () => {
-                if (await membership.revokeOtherSessions()) setSessionControl('closed')
+                if (await membership.revokeOtherSessions(lang)) setSessionControl('closed')
               }}>{es ? 'Confirmar cierre' : 'Confirm sign-out'}</button>
               <button type="button" className="membership-text" disabled={busy} onClick={() => { setSessionControl('idle'); membership.clearError() }}>{es ? 'Cancelar' : 'Cancel'}</button>
             </div>

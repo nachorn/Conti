@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     proxy: {
       '/api/admin': { target: loadEnv(mode, __dirname, 'VITE_').VITE_SOCKET_URL || 'http://localhost:3001' },
+      '/api/membership': { target: loadEnv(mode, __dirname, 'VITE_').VITE_SOCKET_URL || 'http://localhost:3001' },
+      '/api/leagues': { target: loadEnv(mode, __dirname, 'VITE_').VITE_SOCKET_URL || 'http://localhost:3001' },
       '/socket.io': { target: 'http://localhost:3001', ws: true },
     },
   },

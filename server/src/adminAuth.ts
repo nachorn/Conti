@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import express, { type CookieOptions, type Express, type NextFunction, type Request, type Response } from 'express'
 import { RateLimiter, requestLimit } from './security.js'
 import { ADMIN_PROOF_SESSION_MS, AdminStepUpError, type AdminStepUp, type AdminProofDenial } from './adminStepUp.js'
+import { accountCredential } from './portalSession.js'
 
 export const ADMIN_SESSION_COOKIE = 'conti_admin_session'
 export const ADMIN_PROOF_COOKIE = '__Secure-nrn_admin_session'
@@ -13,10 +14,6 @@ export type AdminAccountVerifier = Pick<AdminStepUp, 'verify' | 'challenge' | 'c
 type AdminMethod = 'bearer' | 'cookie' | 'account'
 type AdminAccess = { method: AdminMethod; error?: never; status?: never } | ({ method: null } & AdminProofDenial)
 const same = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b)
-const bearer = (req: Request) => {
-  const authorization = req.get('authorization') ?? ''
-  return authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
-}
 const cookie = (req: Request, name: string) => {
   const values = (req.get('cookie') ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${name}=`))
   return values.length === 1 ? values[0].slice(name.length + 1) : ''
@@ -57,7 +54,8 @@ export class AdminAuth {
   access(req: Request): AdminAccess {
     const authorization = req.get('authorization') ?? ''
     if (this.accountVerifier) {
-      const denied = this.accountVerifier.verify(bearer(req), cookie(req, ADMIN_PROOF_COOKIE))
+      const { token, portal } = accountCredential(req)
+      const denied = this.accountVerifier.verify(token, cookie(req, ADMIN_PROOF_COOKIE), portal)
       return denied ? { method: null, ...denied } : { method: 'account' }
     }
     // An explicitly supplied but invalid credential must not silently fall back to a cookie.
@@ -97,12 +95,14 @@ export class AdminAuth {
   }
   challenge(req: Request, lang: 'en' | 'es') {
     if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
-    return this.accountVerifier.challenge(bearer(req), lang)
+    const { token, portal } = accountCredential(req)
+    return this.accountVerifier.challenge(token, lang, portal)
   }
   confirm(req: Request, res: Response, code: unknown) {
     if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
-    const token = this.accountVerifier.confirm(bearer(req), code)
-    res.cookie(ADMIN_PROOF_COOKIE, token, { ...this.proofCookieOptions(), maxAge: ADMIN_PROOF_SESSION_MS })
+    const { token, portal } = accountCredential(req)
+    const proof = this.accountVerifier.confirm(token, code, portal)
+    res.cookie(ADMIN_PROOF_COOKIE, proof, { ...this.proofCookieOptions(), maxAge: ADMIN_PROOF_SESSION_MS })
   }
   issue(req: Request, res: Response, remember: boolean) {
     if (this.accountOnly || !this.signingKey) throw new Error('Legacy admin authentication is not configured')

@@ -20,6 +20,7 @@ import { beginPersonalMatch, registerPersonalStats } from './personalStats.js'
 import { registerLeagues } from './leagues.js'
 import { registerPlatformAdmin } from './platformAdmin.js'
 import type { FootballAdminClient } from './footballAdmin.js'
+import { portalRequest, portalRequested } from './portalSession.js'
 
 type Result = { ok: boolean; error?: string; code?: string; attemptId?: string; account?: unknown }
 type ActionAck = (result: Result) => void
@@ -43,6 +44,12 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   const app = express()
   app.disable('x-powered-by')
   app.use(securityHeaders)
+  app.use(['/api/membership', '/api/leagues', '/api/admin'], (req, res, next) => {
+    if (portalRequested(req) && !portalRequest(req)) {
+      res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').status(403).json({ error: 'invalid_request' }); return
+    }
+    next()
+  })
   const isHealthy = () => !repository.failed && store.isHealthy?.() !== false
   const corsOrigin = options.origins?.length ? options.origins : true
   if (options.membership) app.use(['/api/membership/game-authorize', '/api/membership/game-exchange'], options.membership.gameSignInCors(options.origins ?? []))
@@ -64,12 +71,12 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   options.membership?.registerRoutes(app, options.origins)
   registerPersonalStats(app, {
     repository,
-    authenticate: token => options.membership?.authenticate(token)?.id ?? null,
+    authenticate: (token, portal) => options.membership?.authenticate(token, portal)?.id ?? null,
     isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
   })
   registerLeagues(app, {
     repository,
-    authenticate: token => options.membership?.authenticate(token) ?? null,
+    authenticate: (token, portal) => options.membership?.authenticate(token, portal) ?? null,
     isHealthy: () => isHealthy() && options.membership?.isHealthy() === true,
     runMutation: work => new Promise((resolve, reject) => {
       if (closing || pending >= 200 || !isHealthy()) { reject(new Error('Server unavailable')); return }
@@ -222,13 +229,20 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   })
 
   function membershipAccount(socket: Socket) {
-    if (!options.membership?.isHealthy() || typeof socket.data.membershipToken !== 'string') return null
-    const account = options.membership.authenticate(socket.data.membershipToken)
+    if (!options.membership?.isHealthy()) return null
+    const account = typeof socket.data.portalMembershipHash === 'string'
+      ? options.membership.authenticatePortalSocket(socket.data.portalMembershipHash)
+      : typeof socket.data.membershipToken === 'string' ? options.membership.authenticate(socket.data.membershipToken) : null
     if (!account) return null
     // These fields are private to this socket; never put the account in room state.
     return { id: account.id, email: account.email, adFree: account.adFree, source: account.source, expiresAt: account.expiresAt,
       ...(account.name === undefined ? {} : { name: account.name }),
       ...(account.hasPassword === undefined ? {} : { hasPassword: account.hasPassword }) }
+  }
+  function setSocketMembership(socket: Socket, token: unknown, ticket: unknown) {
+    socket.data.portalMembershipHash = ticket !== undefined
+      ? options.membership?.consumePortalSocketTicket(ticket, socket.handshake.headers.origin) ?? null : null
+    socket.data.membershipToken = ticket === undefined && typeof token === 'string' && token.length <= 2048 ? token : null
   }
 
   function roomExempt(room: Room) {
@@ -422,7 +436,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     const actions = new RateLimiter(120, 10_000)
     const entryAttempts = new RateLimiter(10, 60_000)
     let verifyingEntry = false
-    socket.data.membershipToken = typeof socket.handshake.auth?.membershipToken === 'string' && socket.handshake.auth.membershipToken.length <= 2048 ? socket.handshake.auth.membershipToken : null
+    setSocketMembership(socket, socket.handshake.auth?.membershipToken, socket.handshake.auth?.membershipTicket)
     socket.emit('membership_state', { account: membershipAccount(socket) })
     // Register events immediately; the queue ensures handshake recovery finishes first.
     if (socket.handshake.auth?.resume !== undefined) enqueue(async () => {
@@ -477,11 +491,11 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       ack?.({ ok: false, error: message, ...(code ? { code } : {}) })
     }
     on('membership_auth', async (payload, ack) => {
-      socket.data.membershipToken = typeof payload?.token === 'string' && payload.token.length <= 2048 ? payload.token : null
+      setSocketMembership(socket, payload?.token, payload?.ticket)
       const account = membershipAccount(socket)
       socket.emit('membership_state', { account })
       if (socket.data.roomId) broadcastGate(socket.data.roomId)
-      ack?.({ ok: payload?.token == null || account !== null, account })
+      ack?.({ ok: (payload?.ticket === undefined ? payload?.token == null : payload?.ticket == null) || account !== null, account })
     })
 
     on('set_league', async (payload, ack) => {

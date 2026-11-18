@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { MembershipAccount, MembershipConfig, MembershipSession } from '@shared/membership'
+import type { MembershipAccount, MembershipConfig } from '@shared/membership'
 import type { Lang } from './i18n'
-import { isMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type SavedMembershipSession } from './lib/membershipSession'
+import { isMembershipSession, isPortalMembershipSession, isStripeCheckoutUrl, MEMBERSHIP_STORAGE_KEY, readMembershipSession, saveMembershipSession, type SavedMembershipSession } from './lib/membershipSession'
+import { accountHeaders, cookieAccountKey, isCookieAccountKey, notifyPortalSessionChange, portalCookieEnabled, PORTAL_SESSION_CHANGE } from './lib/accountTransport'
 import { CURRENCY_PREFERENCE_KEY, isMembershipCurrency, preferredCurrency, readCurrencyPreference, saveCurrencyPreference, type MembershipCurrency } from '../lib/currency.js'
 import { readPlusOffer, safePlusProviderUrl } from './lib/plusOffer'
 import { subscribeMembershipRefresh } from './lib/membershipRefresh'
@@ -17,12 +18,13 @@ class RequestError extends Error {
 async function request<T>(path: string, token?: string | null, body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 15_000)
+  const portal = portalCookieEnabled()
   try {
-    const response = await fetch(`${API_URL}/api/membership/${path}`, {
+    const response = await fetch(`${portal ? '' : API_URL}/api/membership/${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...accountHeaders(token, portal) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      cache: 'no-store', signal: controller.signal,
+      credentials: portal ? 'same-origin' : 'omit', cache: 'no-store', signal: controller.signal,
     })
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { error?: string } | null
@@ -45,6 +47,7 @@ function errorKind(error: unknown, context: 'general' | 'code' | 'credentials' =
 }
 
 export function useMembership() {
+  const portal = portalCookieEnabled()
   const [session, setSession] = useState<SavedMembershipSession | null>(() => readMembershipSession(localStorageOrNull()))
   const sessionRef = useRef(session)
   const [account, setAccount] = useState<MembershipAccount | null>(null)
@@ -125,8 +128,9 @@ export function useMembership() {
   const remember = useCallback((next: SavedMembershipSession | null) => {
     sessionRef.current = next
     setSession(next)
-    setStorageAvailable(saveMembershipSession(localStorageOrNull(), next))
-  }, [])
+    const canStore = saveMembershipSession(localStorageOrNull(), isCookieAccountKey(next?.token) ? null : next)
+    setStorageAvailable(portal || canStore)
+  }, [portal])
 
   const adoptSession = useCallback((value: unknown): boolean => {
     if (!isMembershipSession(value)) return false
@@ -159,24 +163,48 @@ export function useMembership() {
     const current = sessionRef.current
     if (current && rotatingSession.current === current.token) return true
     const sequence = ++refreshSequence.current
-    if (!current) { setAccount(null); return true }
-    if (current.expiresAt <= Date.now()) { remember(null); setAccount(null); setError('expired'); return true }
+    if (!portal && !current) { setAccount(null); return true }
+    if (!portal && current && current.expiresAt <= Date.now()) { remember(null); setAccount(null); setError('expired'); return true }
+    const stillCurrent = () => sequence === refreshSequence.current && (sessionRef.current?.token ?? null) === (current?.token ?? null)
     try {
-      const result = await request<{ account: MembershipAccount; expiresAt: number }>('me', current.token)
-      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return true
-      setAccount(result.account)
-      if (result.expiresAt !== current.expiresAt) remember({ token: current.token, expiresAt: result.expiresAt })
+      if (portal) {
+        let value: unknown
+        try { value = await request('me') }
+        catch (failure) {
+          if (!(failure instanceof RequestError) || failure.status !== 401 || !current || isCookieAccountKey(current.token)) throw failure
+          if (!stillCurrent()) return true
+          try { value = await request('session/upgrade', current.token, {}) }
+          catch (upgradeFailure) {
+            if (!(upgradeFailure instanceof RequestError) || upgradeFailure.status !== 401) throw upgradeFailure
+            // Another tab may have completed the same upgrade first.
+            value = await request('me')
+          }
+        }
+        if (!stillCurrent()) return true
+        if (!isPortalMembershipSession(value)) throw new RequestError(503)
+        const key = cookieAccountKey(value.sessionKey)
+        if (current?.token !== key || current.expiresAt !== value.expiresAt) remember({ token: key, expiresAt: value.expiresAt })
+        setAccount(value.account)
+      } else {
+        const result = await request<{ account: MembershipAccount; expiresAt: number }>('me', current!.token)
+        if (!stillCurrent()) return true
+        setAccount(result.account)
+        if (result.expiresAt !== current!.expiresAt) remember({ token: current!.token, expiresAt: result.expiresAt })
+      }
       setError(null)
       return true
     } catch (failure) {
-      if (sequence !== refreshSequence.current || sessionRef.current?.token !== current.token) return true
+      if (!stillCurrent()) return true
       // Keep the last verified identity in memory during a transient check. A
       // network error is not a signed-out account and never deletes its token.
-      if (failure instanceof RequestError && failure.status === 401) { remember(null); setAccount(null) }
+      if (failure instanceof RequestError && failure.status === 401) {
+        remember(null); setAccount(null)
+        if (portal && !current) { setError(null); return true }
+      }
       reportFailure(failure)
       return failure instanceof RequestError && failure.status === 401
     }
-  }, [remember, reportFailure])
+  }, [portal, remember, reportFailure])
 
   const connectOnce = useCallback((): Promise<boolean> => {
     if (connectionAttempt.current) return connectionAttempt.current
@@ -242,7 +270,7 @@ export function useMembership() {
       // A healthy background validation must not unmount a league form or
       // reset the dashboard while someone is using it.
       const token = sessionRef.current?.token
-      if (token) void connectOnce().then(ready => { if (!ready && live.current && sessionRef.current?.token === token) void refresh() })
+      if (token || portal) void connectOnce().then(ready => { if (!ready && live.current && sessionRef.current?.token === token) void refresh() })
     }, window, document)
     const onStorage = (event: StorageEvent) => {
       if (!event.key || event.key === CURRENCY_PREFERENCE_KEY) {
@@ -251,9 +279,10 @@ export function useMembership() {
         if (next) { setCurrency(next); setCurrencyPending(false) }
         if (event.key) return
       }
-      if (event.key && event.key !== MEMBERSHIP_STORAGE_KEY) return
-      const next = readMembershipSession(localStorageOrNull())
-      if ((sessionRef.current?.token ?? null) !== (next?.token ?? null)) {
+      const portalChanged = portal && event.key === PORTAL_SESSION_CHANGE
+      if (!portalChanged && event.key && event.key !== MEMBERSHIP_STORAGE_KEY) return
+      const next = portalChanged ? null : readMembershipSession(localStorageOrNull())
+      if (portalChanged || (sessionRef.current?.token ?? null) !== (next?.token ?? null)) {
         // A previous credential's pending read cannot certify the new identity
         // or suppress its first validation. Same-token checks keep the view.
         ++authSequence.current
@@ -284,7 +313,7 @@ export function useMembership() {
       connectionAttempt.current = null
       lifecycle.dispose(); window.removeEventListener('storage', onStorage); window.clearInterval(timer); ++refreshSequence.current; ++authSequence.current; registration.current = null
     }
-  }, [refresh, connectOnce])
+  }, [portal, refresh, connectOnce])
 
   const login = (email: string, lang: Lang) => requestCode('login', { email: email.trim(), lang })
   async function authenticate(path: string, body: unknown, context: 'general' | 'code' | 'credentials', sourceToken?: string) {
@@ -297,13 +326,17 @@ export function useMembership() {
     }
     setBusy(true); setError(null)
     try {
-      const value = await request<MembershipSession>(path, sourceToken, body)
+      const value = await request<unknown>(path, sourceToken, body)
       if (sequence !== authSequence.current) return false
-      if (!isMembershipSession(value)) throw new RequestError(503)
+      const accepted = portal
+        ? isPortalMembershipSession(value) && { account: value.account, token: cookieAccountKey(value.sessionKey), expiresAt: value.expiresAt }
+        : isMembershipSession(value) && value
+      if (!accepted) throw new RequestError(503)
       ++refreshSequence.current
-      remember({ token: value.token, expiresAt: value.expiresAt })
+      remember({ token: accepted.token, expiresAt: accepted.expiresAt })
       registration.current = null
-      setAccount(value.account)
+      setAccount(accepted.account)
+      if (portal) notifyPortalSessionChange(localStorageOrNull())
       markConnectionReady()
       return true
     } catch (failure) {
@@ -329,10 +362,10 @@ export function useMembership() {
     return authenticate('verify', { email: email.trim(), code: code.trim(), purpose: 'register', registrationToken: pending.token }, 'code')
   }
   const loginPassword = (email: string, password: string) => authenticate('password-login', { email: email.trim(), password }, 'credentials')
-  const confirmPasswordReset = (email: string, code: string, password: string) => authenticate('password-reset/confirm', { email: email.trim(), code: code.trim(), password }, 'code')
-  const revokeOtherSessions = () => {
+  const confirmPasswordReset = (email: string, code: string, password: string, lang: Lang) => authenticate('password-reset/confirm', { email: email.trim(), code: code.trim(), password, lang }, 'code')
+  const revokeOtherSessions = (lang: Lang) => {
     const token = sessionRef.current?.token
-    return token ? authenticate('sessions/revoke-others', {}, 'general', token) : Promise.resolve(false)
+    return token ? authenticate('sessions/revoke-others', { lang }, 'general', token) : Promise.resolve(false)
   }
   async function requestCode(path: string, body: unknown, received?: (value: unknown) => void) {
     if (pendingAuth.current !== null) return false
@@ -370,6 +403,7 @@ export function useMembership() {
       if (sequence !== authSequence.current) return
       ++refreshSequence.current
       remember(null); setAccount(null)
+      if (portal) notifyPortalSessionChange(localStorageOrNull())
       if (token) markConnectionReady()
     } catch (failure) {
       if (sequence !== authSequence.current) return

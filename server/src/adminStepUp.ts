@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import type { EmailSender } from './membershipEmail.js'
 import { RateLimiter } from './security.js'
+import type { SecurityNotices } from './securityNotices.js'
 
 export const ADMIN_PROOF_SESSION_MS = 30 * 60_000
 const CODE_MS = 10 * 60_000
@@ -11,7 +12,7 @@ const opaqueToken = /^[A-Za-z0-9_-]{43}$/
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 
 type Identity = { id: string; email: string; eligible: boolean }
-type Challenge = { tokenHash: string; salt: string; codeHash: Buffer; expiresAt: number; attempts: number; sent: boolean }
+type Challenge = { tokenHash: string; salt: string; codeHash: Buffer; expiresAt: number; attempts: number; sent: boolean; lang: 'en' | 'es' }
 type Proof = { accountId: string; tokenHash: string; expiresAt: number }
 export type AdminProofDenial = {
   error: 'unauthorized' | 'forbidden' | 'verification_required'
@@ -31,23 +32,24 @@ export class AdminStepUp {
   private delivering = 0
 
   constructor(
-    private readonly lookup: (tokenHash: string) => Identity | null,
+    private readonly lookup: (tokenHash: string, portal: boolean) => Identity | null,
     private readonly secret: string,
     private readonly send: EmailSender | undefined,
     private readonly now: () => number,
+    private readonly notices?: SecurityNotices,
   ) {
     this.sendCooldown = new RateLimiter(1, RESEND_MS, now, 100)
     this.sendQuota = new RateLimiter(3, 15 * 60_000, now, 100)
   }
 
-  private identity(token: string) {
+  private identity(token: string, portal: boolean) {
     const tokenHash = opaqueToken.test(token) ? digest(token) : ''
-    const account = tokenHash ? this.lookup(tokenHash) : null
+    const account = tokenHash ? this.lookup(tokenHash, portal) : null
     return { tokenHash, account }
   }
 
-  private requireIdentity(token: string) {
-    const { tokenHash, account } = this.identity(token)
+  private requireIdentity(token: string, portal: boolean) {
+    const { tokenHash, account } = this.identity(token, portal)
     if (!account) throw new AdminStepUpError('unauthorized', 401)
     if (!account.eligible) throw new AdminStepUpError('forbidden', 403)
     return { tokenHash, account }
@@ -57,15 +59,15 @@ export class AdminStepUp {
     return createHmac('sha256', this.secret).update(`nrn-admin-code:v1\0${accountId}\0${tokenHash}\0${salt}\0${code}`).digest()
   }
 
-  async challenge(token: string, lang: 'en' | 'es') {
-    const { tokenHash, account } = this.requireIdentity(token)
+  async challenge(token: string, lang: 'en' | 'es', portal = false) {
+    const { tokenHash, account } = this.requireIdentity(token, portal)
     if (!this.send) throw new AdminStepUpError('email_not_configured', 503)
     if (this.delivering >= 4) throw new AdminStepUpError('rate_limited', 429, 60)
     const retryAfter = this.sendCooldown.take(account.id) || this.sendQuota.take(account.id)
     if (retryAfter) throw new AdminStepUpError('rate_limited', 429, retryAfter)
     const code = String(randomInt(1_000_000)).padStart(6, '0')
     const salt = randomBytes(16).toString('hex')
-    const challenge: Challenge = { tokenHash, salt, codeHash: this.hashCode(account.id, tokenHash, salt, code), expiresAt: this.now() + CODE_MS, attempts: 0, sent: false }
+    const challenge: Challenge = { tokenHash, salt, codeHash: this.hashCode(account.id, tokenHash, salt, code), expiresAt: this.now() + CODE_MS, attempts: 0, sent: false, lang }
     this.challenges.set(account.id, challenge)
     this.delivering++
     try {
@@ -77,8 +79,8 @@ export class AdminStepUp {
     } finally { this.delivering-- }
   }
 
-  confirm(token: string, code: unknown): string {
-    const { tokenHash, account } = this.requireIdentity(token)
+  confirm(token: string, code: unknown, portal = false): string {
+    const { tokenHash, account } = this.requireIdentity(token, portal)
     const challenge = this.challenges.get(account.id), now = this.now()
     if (typeof code !== 'string' || !/^\d{6}$/.test(code) || !challenge?.sent ||
         challenge.tokenHash !== tokenHash || challenge.expiresAt <= now || challenge.attempts >= MAX_ATTEMPTS) {
@@ -97,11 +99,12 @@ export class AdminStepUp {
     for (const key of active.slice(0, Math.max(0, active.length - MAX_SESSIONS_PER_ACCOUNT + 1))) this.proofs.delete(key)
     const value = randomBytes(32).toString('base64url')
     this.proofs.set(digest(value), { accountId: account.id, tokenHash, expiresAt: now + ADMIN_PROOF_SESSION_MS })
+    this.notices?.schedule(account, 'administration_opened', challenge.lang)
     return value
   }
 
-  verify(token: string, cookie: string): AdminProofDenial | null {
-    const { tokenHash, account } = this.identity(token)
+  verify(token: string, cookie: string, portal = false): AdminProofDenial | null {
+    const { tokenHash, account } = this.identity(token, portal)
     if (!account) return { error: 'unauthorized', status: 401 }
     if (!account.eligible) return { error: 'forbidden', status: 403 }
     const proof = opaqueToken.test(cookie) ? this.proofs.get(digest(cookie)) : undefined

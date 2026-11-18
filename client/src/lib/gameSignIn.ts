@@ -1,5 +1,6 @@
 import type { MembershipSession } from '@shared/membership'
 import { isMembershipSession } from './membershipSession.ts'
+import { accountHeaders, isCookieAccountKey } from './accountTransport.ts'
 
 export const GAME_SIGN_IN_STORAGE_KEY = 'nrn-game-sign-in-v1'
 export const GAME_SIGN_IN_TTL = 10 * 60 * 1000
@@ -139,9 +140,11 @@ async function post(path: string, body: unknown, token: string | null, options: 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15_000)
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(`${(options.apiUrl ?? apiBaseUrl()).replace(/\/+$/, '')}/api/membership/${path}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body), cache: 'no-store', credentials: 'omit', signal: controller.signal,
+    const portal = isCookieAccountKey(token)
+    const base = portal ? '' : (options.apiUrl ?? apiBaseUrl()).replace(/\/+$/, '')
+    const response = await (options.fetch ?? globalThis.fetch)(`${base}/api/membership/${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...accountHeaders(token, portal) },
+      body: JSON.stringify(body), cache: 'no-store', credentials: portal ? 'same-origin' : 'omit', signal: controller.signal,
     })
     if (!response.ok) throw new GameSignInError('exchange')
     return await response.json() as unknown
@@ -154,7 +157,7 @@ async function post(path: string, body: unknown, token: string | null, options: 
 /** Central page only; the server issues a one-use code bound to the target and PKCE challenge. */
 export async function authorizeGameSignIn(request: GameConnectionRequest, token: string, options: RequestOptions & { development?: boolean } = {}): Promise<string> {
   if (!isAllowedGameOrigin(request.origin, options.development ?? developmentMode()) || !SECRET.test(request.challenge) ||
-    !SECRET.test(request.state) || !SECRET.test(token)) throw new GameSignInError('invalid_request')
+    !SECRET.test(request.state) || (!SECRET.test(token) && !isCookieAccountKey(token))) throw new GameSignInError('invalid_request')
   const value = await post('game-authorize', { origin: request.origin, challenge: request.challenge }, token, options)
   if (!value || typeof value !== 'object' || !('code' in value) || typeof value.code !== 'string' || !SECRET.test(value.code)) throw new GameSignInError('exchange')
   return value.code

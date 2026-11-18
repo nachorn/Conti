@@ -1,0 +1,197 @@
+import assert from 'node:assert/strict'
+import { createHash, randomBytes } from 'node:crypto'
+import test, { type TestContext } from 'node:test'
+import { io } from 'socket.io-client'
+import { createGameServer } from '../src/app.js'
+import { MembershipService } from '../src/membership.js'
+import { PORTAL_ORIGIN, PORTAL_SESSION_COOKIE } from '../src/portalSession.js'
+import { ADMIN_PROOF_COOKIE } from '../src/adminAuth.js'
+import type { SnapshotStore } from '../src/storage.js'
+
+const EMAIL = 'portal-fixture@example.test'
+const TOKEN = 'A'.repeat(43), OTHER_TOKEN = 'B'.repeat(43), GAME_TOKEN = 'C'.repeat(43)
+const expiry = 60 * 60_000
+const hash = (value: string) => createHash('sha256').update(value).digest('hex')
+const portalHeaders = { Origin: PORTAL_ORIGIN, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': '1' }
+
+class MemoryStore implements SnapshotStore {
+  constructor(private value: unknown = null) {}
+  async load() { return structuredClone(this.value) }
+  async save(value: unknown) { this.value = structuredClone(value) }
+  async close() {}
+}
+
+async function fixture(t: TestContext) {
+  const clock = { now: Date.now() }
+  const account = { id: 'portal-fixture-account', email: EMAIL, name: 'Portal fixture', createdAt: clock.now }
+  const sessions = [TOKEN, OTHER_TOKEN, GAME_TOKEN].map(token => ({
+    accountId: account.id, tokenHash: hash(token), expiresAt: clock.now + expiry, ...(token === GAME_TOKEN ? { scope: 'game' } : {}),
+  }))
+  const codes = new Map<string, string>()
+  const membership = await new MembershipService({
+    store: new MemoryStore({ version: 1, accounts: [account], sessions, challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [] }),
+    authSecret: 'synthetic-portal-session-fixture-secret-2026', adminEmails: [EMAIL], now: () => clock.now,
+    sendCode: async (_email, code, _lang, purpose) => { codes.set(purpose ?? 'account', code) },
+  }).load()
+  const server = await createGameServer(new MemoryStore(), { membership, origins: [PORTAL_ORIGIN] })
+  const port = await server.listen(0, '127.0.0.1')
+  const base = `http://127.0.0.1:${port}`
+  t.after(async () => { await server.close(); await membership.close() })
+  const call = (path: string, headers: Record<string, string> = {}, body?: unknown) => fetch(base + path, {
+    method: body === undefined ? 'GET' : 'POST', redirect: 'error',
+    headers: body === undefined ? headers : { ...headers, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const upgrade = async (token = TOKEN) => {
+    const response = await call('/api/membership/session/upgrade', { ...portalHeaders, Authorization: `Bearer ${token}` }, {})
+    assert.equal(response.status, 200)
+    const cookie = response.headers.get('set-cookie')!
+    assert(cookie.startsWith(PORTAL_SESSION_COOKIE + '='))
+    for (const attribute of ['Path=/', 'HttpOnly', 'Secure', 'SameSite=Strict']) assert(cookie.includes(attribute))
+    assert(!cookie.includes('Domain='))
+    const result: any = await response.json()
+    assert.equal(result.session, 'cookie')
+    assert.equal(result.account.id, account.id)
+    assert.equal(result.expiresAt, sessions[0].expiresAt)
+    assert.equal(Object.hasOwn(result, 'token'), false)
+    assert.match(result.sessionKey, /^[A-Za-z0-9_-]{22}$/)
+    return cookie.split(';')[0]
+  }
+  return { account, base, call, clock, codes, upgrade }
+}
+
+test('portal upgrade rotates only the current credential and authenticates account, stats and league reads', async t => {
+  const h = await fixture(t), cookie = await h.upgrade()
+  const legacy = (token: string) => ({ Authorization: `Bearer ${token}` })
+  const portal = { ...portalHeaders, Cookie: cookie }
+  assert.equal((await h.call('/api/membership/me', legacy(TOKEN))).status, 401)
+  for (const token of [OTHER_TOKEN, GAME_TOKEN]) assert.equal((await h.call('/api/membership/me', legacy(token))).status, 200)
+  assert.equal((await h.call('/api/membership/me', { Cookie: cookie })).status, 401)
+  assert.equal((await h.call('/api/membership/me', legacy(cookie.slice(cookie.indexOf('=') + 1)))).status, 401)
+  for (const path of ['/api/membership/me', '/api/membership/stats', '/api/leagues']) {
+    const response = await h.call(path, portal)
+    assert.equal(response.status, 200, path)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+  }
+  const fallbackTab = await h.call('/api/membership/session/upgrade', { ...portal, ...legacy(TOKEN) }, {})
+  assert.equal(fallbackTab.status, 200)
+  assert.equal(fallbackTab.headers.get('set-cookie'), null)
+  assert.equal((await h.call('/api/membership/me', { 'X-NRN-Portal': '1', 'Sec-Fetch-Site': 'same-origin', Cookie: cookie })).status, 200)
+  assert.equal((await h.call('/api/membership/me', { 'X-NRN-Portal': '1', Cookie: cookie })).status, 403)
+  assert.equal((await h.call('/api/membership/logout', { ...portal, Origin: 'https://conti.nrnplay.com', 'Sec-Fetch-Site': 'same-site' }, {})).status, 403)
+  assert.equal((await h.call('/api/membership/me', portal)).status, 200)
+})
+
+test('normal portal login and device revocation return only the cookie session contract', async t => {
+  const h = await fixture(t)
+  assert.equal((await h.call('/api/membership/login', portalHeaders, { email: EMAIL })).status, 200)
+  const verified = await h.call('/api/membership/verify', portalHeaders, { email: EMAIL, code: h.codes.get('account') })
+  assert.equal(verified.status, 200)
+  const body: any = await verified.json()
+  assert.equal(body.session, 'cookie'); assert.equal(Object.hasOwn(body, 'token'), false)
+  const cookie = verified.headers.get('set-cookie')!.split(';')[0]
+  const before = await (await h.call('/api/membership/me', { ...portalHeaders, Cookie: cookie })).json() as { sessionKey: string }
+  assert.equal(before.sessionKey, body.sessionKey)
+  const revoke = await h.call('/api/membership/sessions/revoke-others', { ...portalHeaders, Cookie: cookie }, {})
+  assert.equal(revoke.status, 200)
+  const rotated: any = await revoke.json(), replacement = revoke.headers.get('set-cookie')!.split(';')[0]
+  assert.equal(rotated.session, 'cookie'); assert.equal(Object.hasOwn(rotated, 'token'), false); assert.notEqual(replacement, cookie)
+  assert.notEqual(rotated.sessionKey, body.sessionKey)
+  assert.equal((await h.call('/api/membership/me', { ...portalHeaders, Cookie: cookie })).status, 401)
+  const stillHere = await h.call('/api/membership/me', { ...portalHeaders, Cookie: replacement })
+  assert.equal(stillHere.status, 200)
+  assert.equal((await stillHere.json() as { sessionKey: string }).sessionKey, rotated.sessionKey)
+  assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${OTHER_TOKEN}` })).status, 401)
+})
+
+test('admin proof and socket tickets remain separate and are invalidated by portal logout', async t => {
+  const h = await fixture(t), cookie = await h.upgrade()
+  const portal = { ...portalHeaders, Cookie: cookie }
+  assert.equal((await h.call('/api/admin/dashboard', portal)).status, 401)
+  const adminWrite = { ...portal, 'X-Admin-Request': '1' }
+  assert.equal((await h.call('/api/admin/session/challenge', adminWrite, { lang: 'es' })).status, 200)
+  const confirmed = await h.call('/api/admin/session', adminWrite, { code: h.codes.get('admin') })
+  assert.equal(confirmed.status, 200)
+  const proof = confirmed.headers.get('set-cookie')!.split(';')[0]
+  assert(proof.startsWith(ADMIN_PROOF_COOKIE + '='))
+  const both = { ...portal, Cookie: `${cookie}; ${proof}` }
+  assert.equal((await h.call('/api/admin/dashboard', both)).status, 200)
+
+  const proofReply = await h.call('/api/membership/socket-ticket', portal, {})
+  assert.equal(proofReply.status, 200)
+  const ticket: any = await proofReply.json()
+  assert.match(ticket.ticket, /^[A-Za-z0-9_-]{43}$/)
+  assert.equal(ticket.expiresAt, h.clock.now + 60_000)
+  assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${ticket.ticket}` })).status, 401)
+  const socket = io(h.base, { autoConnect: false, reconnection: false, transports: ['websocket'],
+    extraHeaders: { Origin: PORTAL_ORIGIN }, auth: { membershipTicket: ticket.ticket } })
+  t.after(() => { socket.close() })
+  const waiting = (signal: AbortSignal) => new Promise<any>((resolve, reject) => {
+    socket.once('membership_state', resolve)
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+  const signedIn = waiting(AbortSignal.timeout(2_000))
+  socket.connect()
+  assert.equal((await signedIn).account.id, h.account.id)
+  const signedOut = waiting(AbortSignal.timeout(2_000))
+  const logout = await h.call('/api/membership/logout', portal, {})
+  assert.equal(logout.status, 200)
+  assert(logout.headers.get('set-cookie')!.startsWith(`${PORTAL_SESSION_COOKIE}=;`))
+  assert.equal((await signedOut).account, null)
+  assert.equal((await h.call('/api/admin/dashboard', both)).status, 401)
+  assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${OTHER_TOKEN}` })).status, 200)
+  socket.close()
+})
+
+test('portal and legacy game handoffs issue the destination transport without changing game scope', async t => {
+  const h = await fixture(t), cookie = await h.upgrade()
+  const gameOrigin = 'https://conti.nrnplay.com'
+  const proof = () => {
+    const verifier = randomBytes(32).toString('base64url')
+    return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') }
+  }
+  const forGame = proof()
+  const outbound = await h.call('/api/membership/game-authorize', { ...portalHeaders, Cookie: cookie }, { origin: gameOrigin, challenge: forGame.challenge })
+  assert.equal(outbound.status, 200)
+  const game = await h.call('/api/membership/game-exchange', { Origin: gameOrigin }, {
+    code: (await outbound.json() as { code: string }).code, verifier: forGame.verifier,
+  })
+  assert.equal(game.status, 200)
+  assert.equal(game.headers.get('set-cookie'), null)
+  const gameSession: any = await game.json()
+  assert.match(gameSession.token, /^[A-Za-z0-9_-]{43}$/)
+  assert.equal(gameSession.account.id, h.account.id)
+  assert.equal(gameSession.account.isAdmin, undefined)
+  const forPortal = proof()
+  const inbound = await h.call('/api/membership/game-authorize', { Origin: gameOrigin, Authorization: `Bearer ${gameSession.token}` }, {
+    origin: PORTAL_ORIGIN, challenge: forPortal.challenge,
+  })
+  assert.equal(inbound.status, 200)
+  const body = { code: (await inbound.json() as { code: string }).code, verifier: forPortal.verifier }
+  assert.equal((await h.call('/api/membership/game-exchange', { ...portalHeaders, Origin: gameOrigin, 'Sec-Fetch-Site': 'same-site' }, body)).status, 403)
+  const returned = await h.call('/api/membership/game-exchange', portalHeaders, body)
+  assert.equal(returned.status, 200)
+  const returning: any = await returned.json()
+  assert.equal(returning.session, 'cookie')
+  assert.equal(Object.hasOwn(returning, 'token'), false)
+  assert.equal(returning.account.isAdmin, undefined)
+  const fresh = { ...portalHeaders, Cookie: returned.headers.get('set-cookie')!.split(';')[0] }
+  assert.equal((await h.call('/api/membership/me', fresh)).status, 200)
+  assert.equal((await h.call('/api/admin/dashboard', fresh)).status, 403)
+})
+
+test('portal password reset leaves only a cookie session and preserves that mode on password login', async t => {
+  const h = await fixture(t), original = await h.upgrade()
+  const password = 'Fixture-reset-password-2026!'
+  assert.equal((await h.call('/api/membership/password-reset', portalHeaders, { email: EMAIL, lang: 'es' })).status, 200)
+  const reset = await h.call('/api/membership/password-reset/confirm', portalHeaders, { email: EMAIL, code: h.codes.get('account'), password, lang: 'es' })
+  assert.equal(reset.status, 200)
+  for (const response of [reset, await h.call('/api/membership/password-login', portalHeaders, { email: EMAIL, password })]) {
+    assert.equal(response.status, 200)
+    const value: any = await response.json()
+    assert.equal(value.session, 'cookie')
+    assert.equal(Object.hasOwn(value, 'token'), false)
+    assert.match(response.headers.get('set-cookie')!, /^__Host-nrnplay_session=/)
+  }
+  assert.equal((await h.call('/api/membership/me', { ...portalHeaders, Cookie: original })).status, 401)
+  assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${GAME_TOKEN}` })).status, 401)
+})

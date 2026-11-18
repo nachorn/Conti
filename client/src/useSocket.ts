@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Socket, io } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
+import { isCookieAccountKey } from './lib/accountTransport'
 import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGame } from './lib/savedGames'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
 import type { GameState, Card, ActionResult } from './types'
@@ -27,8 +28,25 @@ function deviceStorage(): Storage | null {
   try { return window.localStorage } catch { return null }
 }
 
+async function socketMembership(token: string | null): Promise<{ membershipToken?: string | null; membershipTicket?: string }> {
+  if (!isCookieAccountKey(token)) return { membershipToken: token }
+  try {
+    const response = await fetch('/api/membership/socket-ticket', {
+      method: 'POST', headers: { 'X-NRN-Portal': '1', 'Content-Type': 'application/json' },
+      body: '{}', cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(5_000),
+    })
+    if (!response.ok) return {}
+    const value: unknown = await response.json()
+    if (value && typeof value === 'object' && 'ticket' in value && typeof value.ticket === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value.ticket)) {
+      return { membershipTicket: value.ticket }
+    }
+  } catch { /* The room seat remains independently recoverable. */ }
+  return {}
+}
+
 export function useSocket(membershipToken: string | null = null, onMembershipChange?: () => void) {
   const membershipTokenRef = useRef(membershipToken)
+  const sentMembership = useRef<string | null | undefined>(undefined)
   const membershipChangeRef = useRef(onMembershipChange)
   membershipTokenRef.current = membershipToken
   membershipChangeRef.current = onMembershipChange
@@ -111,7 +129,14 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       autoConnect: false,
       transports: ['websocket', 'polling'],
       // Read at each handshake, not just mount: joined can issue fresh credentials.
-      auth: (callback) => callback({ ...(sessionRef.current ? { resume: sessionRef.current } : {}), membershipToken: membershipTokenRef.current }),
+      auth: callback => {
+        const token = membershipTokenRef.current
+        void socketMembership(token).then(proof => {
+          const current = membershipTokenRef.current === token
+          sentMembership.current = current && (proof.membershipTicket || 'membershipToken' in proof) ? token : undefined
+          callback({ ...(sessionRef.current ? { resume: sessionRef.current } : {}), ...(current ? proof : {}) })
+        })
+      },
       reconnectionDelayMax: 5000,
     })
     socketRef.current = socket
@@ -253,8 +278,15 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
 
   useEffect(() => {
     const socket = socketRef.current
-    if (socket?.connected) socket.emit('membership_auth', { token: membershipToken })
-  }, [membershipToken])
+    if (!socket?.connected || sentMembership.current === membershipToken) return
+    let active = true
+    void socketMembership(membershipToken).then(proof => {
+      if (!active || !socket.connected || membershipTokenRef.current !== membershipToken) return
+      if (proof.membershipTicket || 'membershipToken' in proof) sentMembership.current = membershipToken
+      socket.emit('membership_auth', proof.membershipTicket ? { ticket: proof.membershipTicket } : { token: proof.membershipToken ?? null })
+    })
+    return () => { active = false }
+  }, [membershipToken, connectionStatus])
 
   const send = (event: string, ...args: unknown[]) => {
     const sent = emitWhenReady(socketRef.current, statusRef.current === 'connected', event, ...args)

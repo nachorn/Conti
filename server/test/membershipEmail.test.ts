@@ -292,3 +292,32 @@ test('optional branding also updates Gmail MIME without changing its account or 
   assert.equal(calls[0].url, TOKEN_URL)
   assert.equal(calls[1].url, SEND_URL)
 })
+
+test('Gmail shares its send authorization with localized security notices containing no sign-in code', async () => {
+  const { request, calls } = mockRequest()
+  const send = createMembershipEmailSender(ENV, request)!
+  await send('player@example.com', '001234', 'es')
+  await send.securityNotice('player@example.com', 'administration_opened', 'es')
+  assert.deepEqual(calls.map(call => call.url), [TOKEN_URL, SEND_URL, SEND_URL])
+  const mime = Buffer.from(JSON.parse(calls[2].options.body as string).raw, 'base64url').toString('utf8')
+  const [headers, body] = mime.split('\r\n\r\n')
+  const subject = /Subject: =\?UTF-8\?B\?([^?]+)\?=/.exec(headers)![1]
+  assert.equal(Buffer.from(subject, 'base64').toString('utf8'), 'Se abrió Administración · NRN Play')
+  const content = Buffer.from(body, 'base64').toString('utf8')
+  assert.match(content, /Se abrió Administración en NRN Play/)
+  assert.match(content, /https:\/\/nrnplay.com\/account/)
+  assert.doesNotMatch(content, /001234|test-access-token/)
+})
+
+test('Resend sends only the security notice to the validated mailbox', async () => {
+  const { request, calls } = mockRequest()
+  const send = createMembershipEmailSender(RESEND_ENV, request)!
+  await assert.rejects(send.securityNotice('player@example.com\r\nBcc: other@example.com', 'password_changed', 'en'), { message: 'Email unavailable' })
+  assert.equal(calls.length, 0)
+  await send.securityNotice('player@example.com', 'other_sessions_closed', 'en')
+  const payload = JSON.parse(calls[0].options.body as string)
+  assert.deepEqual(payload.to, ['player@example.com'])
+  assert.equal(payload.subject, 'Your other sessions were signed out · NRN Play')
+  assert.match(payload.text, /^Your other sessions were signed out on NRN Play/)
+  assert.equal(calls[0].url, 'https://api.resend.com/emails')
+})

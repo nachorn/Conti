@@ -3,14 +3,23 @@ import type { MembershipSession } from '@shared/membership'
 export const MEMBERSHIP_STORAGE_KEY = 'conti-membership-session'
 export interface SavedMembershipSession { token: string; expiresAt: number }
 export type MembershipStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+export type PortalMembershipSession = Omit<MembershipSession, 'token'> & { session: 'cookie'; sessionKey: string }
 
 /** Reject malformed successful sign-in responses before remembering credentials. */
 export function isMembershipSession(value: unknown, now = Date.now()): value is MembershipSession {
+  return hasSessionDetails(value, now) && 'token' in value && typeof value.token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value.token)
+}
+
+export function isPortalMembershipSession(value: unknown, now = Date.now()): value is PortalMembershipSession {
+  return hasSessionDetails(value, now) && 'session' in value && value.session === 'cookie' && !('token' in value) &&
+    'sessionKey' in value && typeof value.sessionKey === 'string' && /^[A-Za-z0-9_-]{22}$/.test(value.sessionKey)
+}
+
+function hasSessionDetails(value: unknown, now: number): value is Omit<MembershipSession, 'token'> {
   if (!value || typeof value !== 'object') return false
   const session = value as Partial<MembershipSession>
   const account = session.account
-  return typeof session.token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(session.token) &&
-    typeof session.expiresAt === 'number' && Number.isSafeInteger(session.expiresAt) && session.expiresAt > now &&
+  return typeof session.expiresAt === 'number' && Number.isSafeInteger(session.expiresAt) && session.expiresAt > now &&
     !!account && typeof account.id === 'string' && !!account.id && account.id.length <= 200 && typeof account.email === 'string' && account.email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email) &&
     typeof account.adFree === 'boolean' && (account.source === null || account.source === 'purchase' || account.source === 'gift') &&
     (account.expiresAt === null || (typeof account.expiresAt === 'number' && Number.isSafeInteger(account.expiresAt) && account.expiresAt >= 0)) &&

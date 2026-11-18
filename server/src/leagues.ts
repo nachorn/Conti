@@ -6,6 +6,7 @@ import type { DurableGameResult, PersonalMatch } from './personalStats.js'
 import type { GameRepository } from './recovery.js'
 import { initialLeagueRating, updateLeagueRatings, leagueRatingPoints } from './leagueRating.js'
 import { RateLimiter, requestLimit } from './security.js'
+import { accountCredential } from './portalSession.js'
 
 export interface LeagueMember { id: string; accountId: string; name: string; joinedAt: number }
 interface StoredLeagueSeason { id: string; name: string; startedAt: number; memberCountAtStart: number }
@@ -265,7 +266,7 @@ export function leagueDetail(league: StoredLeague, table: LeagueTable, account: 
 
 export function registerLeagues(app: Express, options: {
   repository: GameRepository
-  authenticate: (token: string) => MembershipAccount | null
+  authenticate: (token: string, portal: boolean) => MembershipAccount | null
   isHealthy: () => boolean
   runMutation: <T>(work: () => Promise<T>) => Promise<T>
 }): void {
@@ -276,8 +277,8 @@ export function registerLeagues(app: Express, options: {
   app.use('/api/leagues', (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
-    const auth = req.get('authorization') ?? ''
-    const account = auth.startsWith('Bearer ') ? options.authenticate(auth.slice(7)) : null
+    const { token, portal } = accountCredential(req)
+    const account = token ? options.authenticate(token, portal) : null
     if (!account) { res.status(401).json({ error: 'unauthorized' }); return }
     res.locals.leagueAccount = account
     requests(req, res, next)

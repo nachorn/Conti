@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { adminFetch, AdminSession, configureAdminToken } from '../src/lib/adminApi.ts'
+import { cookieAccountKey } from '../src/lib/accountTransport.ts'
 
 const first = 'A'.repeat(43), second = 'B'.repeat(43)
 const json = (body: unknown = {}, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -43,6 +44,21 @@ test('a scope change aborts old requests and a late old-account response cannot 
   await load
   assert.equal(session.getState().snapshot, null)
   releaseNext()
+})
+
+test('cookie administration preserves endpoint proof and strips a stale bearer header', async () => {
+  const release = configureAdminToken(() => cookieAccountKey('x'.repeat(22)))
+  try {
+    await adminFetch('/api/admin/session', { method: 'POST', body: '{}', headers: { Authorization: 'stale' } }, async (url, init) => {
+      assert.equal(url, '/api/admin/session')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('Authorization'), null)
+      assert.equal(headers.get('X-NRN-Portal'), '1')
+      assert.equal(headers.get('X-Admin-Request'), '1')
+      assert.equal(init?.credentials, 'same-origin')
+      return json()
+    })
+  } finally { release() }
 })
 
 test('read 401 or 403 invalidates once, aborts sibling requests and prevents cookie fallback', async () => {
