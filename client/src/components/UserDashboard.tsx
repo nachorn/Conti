@@ -26,12 +26,22 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
   const [target, setTarget] = useState(() => parseLeagueAccountTarget(location.hash))
   const [gameType, setGameType] = useState<LeagueGameType>(target?.gameType ?? 'continental')
   const [view, setView] = useState<'stats' | 'leagues'>(target ? 'leagues' : 'stats')
-  const inviteScrubbed = useRef(false)
+  const [linkNavigation, setLinkNavigation] = useState(0)
+  const receivedHash = useRef<string | null>(null)
   useEffect(() => {
-    if (target?.kind !== 'invite' || !location.hash || inviteScrubbed.current) return
-    inviteScrubbed.current = true
-    navigate({ pathname: location.pathname, search: location.search }, { replace: true })
-  }, [target, location.hash, location.pathname, location.search, navigate])
+    if (receivedHash.current === location.hash) return
+    const first = receivedHash.current === null
+    receivedHash.current = location.hash
+    const incoming = parseLeagueAccountTarget(location.hash)
+    if (!incoming) return
+    if (!first) {
+      setTarget(incoming)
+      setGameType(incoming.gameType)
+      setView('leagues')
+      setLinkNavigation(current => current + 1)
+    }
+    if (incoming.kind === 'invite') navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+  }, [location.hash, location.pathname, location.search, navigate])
   const clearTarget = useCallback(() => setTarget(null), [])
   const selectGame = (game: LeagueGameType) => {
     if (game !== gameType) clearTarget()
@@ -102,7 +112,7 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
         </div>
         <div className="user-dashboard-data">
           {view === 'stats' ? <PersonalStats key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain} />
-            : <Leagues key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain}
+            : <Leagues key={`${gameType}-${linkNavigation}`} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain}
               target={target} onTargetHandled={clearTarget} />}
         </div>
       </section>

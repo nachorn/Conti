@@ -261,7 +261,7 @@ export class GameRepository {
 
   private indexResult(result: DurableGameResult) {
     if (result.leagueId) {
-      const ledger = this.resultsByLeague.get(result.leagueId) ?? { bySeason: new Map(), count: 0, latestFinish: -1, latestStart: 0 }
+      const ledger: LeagueLedger = this.resultsByLeague.get(result.leagueId) ?? { bySeason: new Map(), count: 0, latestFinish: -1, latestStart: 0 }
       const id = result.leagueSeasonId ?? ORIGINAL_SEASON_ID
       const season = ledger.bySeason.get(id) ?? []
       // The ledger is immutable: index a single reference to each result.

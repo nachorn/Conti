@@ -93,6 +93,7 @@ test('league selection uses the host and verified members; one real game survive
   await h.action(guest.socket, 'membership_auth', { token: b.token })
   await h.action(host.socket, 'start', { pochaSettings: settings })
   assert.equal(h.server.repository.get(hj.roomId)!.match?.leagueId, league.id)
+  assert.equal(host.updates.league.resultId, null)
   await h.action(host.socket, 'set_league', { leagueId: null }, false)
   // Account changes after the first deal cannot transfer a result to another member.
   await h.action(guest.socket, 'membership_auth', { token: c.token })
@@ -115,6 +116,15 @@ test('league selection uses the host and verified members; one real game survive
   }
   assert(!JSON.stringify(host.updates.league).includes(league.inviteCode))
   assert.equal(host.updates.league.league.id, league.id)
+  const resultId = host.updates.league.resultId
+  assert.equal(resultId, detail.recentGames[0].id)
+  const receipt = await h.api(`/results/${resultId}?roomId=${hj.roomId}`, a.token)
+  assert.equal(receipt.status, 200)
+  assert.equal(receipt.body.status, 'counted')
+  assert.deepEqual(receipt.body.rating, { before: 0, after: detail.standings.find((row: any) => row.isMe).rating,
+    change: detail.standings.find((row: any) => row.isMe).rating })
+  assert.equal((await h.api(`/results/${resultId}`, b.token)).status, 200, 'the account pinned before the deal owns its receipt')
+  assert.equal((await h.api(`/results/${resultId}`, c.token)).status, 404, 'a league member who did not play has no receipt')
   const rejoined = await h.peer(a.token, { roomId: hj.roomId, playerId: hj.playerId, token: hj.resumeToken })
   await h.action(rejoined.socket, 'chat_send', { clientId: 'league-finished', text: 'Buena partida' })
   assert.equal((await h.api(`/${league.id}`, a.token)).body.gameCount, 1)
@@ -127,20 +137,28 @@ test('league selection uses the host and verified members; one real game survive
   } finally { await recovered.close() }
 })
 
-test('closing a league permits the running match to finish and Pocha rematch can return to a friendly lobby', async t => {
+test('existing league games stay with the season pinned at the deal and Pocha can return to a friendly lobby after closing', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const h = await harness(t), a = await h.account('owner@closed.example'), b = await h.account('member@closed.example')
   const league = (await h.api('', a.token, { name: 'Domingo', gameType: 'pocha' })).body
   await h.api('/join', b.token, { code: league.inviteCode })
+  const spring = (await h.api(`/${league.id}/seasons`, a.token, { name: 'Primavera' })).body
   const host = await h.peer(a.token), guest = await h.peer(b.token)
   const hj = await h.enter(host.socket, 'create', { gameType: 'pocha', name: 'Owner' })
   const gj = await h.enter(guest.socket, 'join', { roomId: hj.roomId, name: 'Member' })
   await h.action(host.socket, 'set_league', { leagueId: league.id })
   await h.action(host.socket, 'start', { pochaSettings: settings })
+  assert.equal(h.server.repository.get(hj.roomId)!.match?.leagueSeasonId, spring.seasonId)
+  const summer = (await h.api(`/${league.id}/seasons`, a.token, { name: 'Verano' })).body
+  assert.notEqual(spring.seasonId, summer.seasonId)
   assert.equal((await h.api(`/${league.id}/close`, b.token, {})).status, 403)
   assert.equal((await h.api(`/${league.id}/close`, a.token, {})).status, 200)
   await finish(h, hj.roomId, new Map([[hj.playerId, host.socket], [gj.playerId, guest.socket]]))
-  assert.equal((await h.api(`/${league.id}`, a.token)).body.gameCount, 1)
+  assert.equal((await h.api(`/${league.id}`, a.token)).body.gameCount, 0)
+  const archive = (await h.api(`/${league.id}?seasonId=${spring.seasonId}`, a.token)).body
+  assert.equal(archive.gameCount, 1)
+  const receipt = await h.api(`/results/${archive.recentGames[0].id}`, a.token)
+  assert.deepEqual(receipt.body.season, { id: spring.seasonId, name: 'Primavera' })
   t.mock.timers.tick(4100)
   await h.action(host.socket, 'rematch', {})
   assert.equal(h.server.repository.get(hj.roomId)!.room.phase, 'lobby')
@@ -148,7 +166,7 @@ test('closing a league permits the running match to finish and Pocha rematch can
   await h.action(host.socket, 'set_league', { leagueId: null })
   await h.action(host.socket, 'start', { pochaSettings: settings })
   await finish(h, hj.roomId, new Map([[hj.playerId, host.socket], [gj.playerId, guest.socket]]))
-  assert.equal((await h.api(`/${league.id}`, a.token)).body.gameCount, 1)
+  assert.equal((await h.api(`/${league.id}?seasonId=${spring.seasonId}`, a.token)).body.gameCount, 1)
   assert.equal(h.server.repository.getPersonalStats(a.account.id).overall.played, 2)
 })
 
