@@ -8,6 +8,7 @@ import { beginPersonalMatch } from '../src/personalStats.js'
 import type { SnapshotStore } from '../src/storage.js'
 import type { Card, MeldType } from '../src/types.js'
 import { driveContiGame } from './audit/contiFivePlayerDriver.js'
+import { mockLeagueDeals } from './audit/leagueDeals.js'
 
 class AuditMemoryStore implements SnapshotStore {
   value: unknown = null
@@ -34,7 +35,9 @@ function independentlyValidMeld(type: MeldType, cards: Card[]): boolean {
   return false
 }
 
-test('three full seven-round Conti matches with five synthetic human accounts preserve cards, scores and league history across recovery', { timeout: 180_000 }, async () => {
+test('three full seven-round Conti matches with five synthetic human accounts preserve cards, scores and league history across recovery', { timeout: 180_000 }, async t => {
+  const deals = mockLeagueDeals(t.mock, 0x10f1e5)
+  t.after(() => deals.restore())
   const store = new AuditMemoryStore()
   let repository = new GameRepository(store)
   await repository.load()

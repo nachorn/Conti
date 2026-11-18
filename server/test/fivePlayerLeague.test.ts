@@ -18,6 +18,8 @@ test('five human accounts play three real league games per game through Socket.I
   const directory = await mkdtemp(join(tmpdir(), 'nrn-five-human-'))
   const games = join(directory, 'games.json'), accounts = join(directory, 'accounts.json')
   let child: ChildProcess, requestId = 0, base = '', now = Date.now()
+  const dealSeed = 0x20261117
+  let dealState = dealSeed
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
   const sockets: Socket[] = []
   const request = (command: string, payload: unknown = {}) => new Promise<any>((resolve, reject) => {
@@ -39,11 +41,15 @@ test('five human accounts play three real league games per game through Socket.I
     })
     child.stderr?.on('data', () => { /* Private fixture diagnostics are never copied into the receipt. */ })
     child.on('exit', (code) => { if (child !== runningChild) return; for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error(`Audit child exited (${code})`)) }; pending.clear() })
-    const ready = await request('start', { games, accounts, now }); base = `http://127.0.0.1:${ready.port}`
+    const ready = await request('start', { games, accounts, now, dealState })
+    base = `http://127.0.0.1:${ready.port}`
   }
   const stop = async () => {
     const exited = once(child, 'exit')
-    const result = await request('stop'); now = result.now; await exited
+    const result = await request('stop')
+    now = result.now
+    dealState = result.dealState
+    await exited
   }
   const api = async (path: string, token?: string, body?: unknown) => {
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', redirect: 'error',
@@ -64,7 +70,7 @@ test('five human accounts play three real league games per game through Socket.I
     const ready = waitEvent(socket, resume ? 'joined' : 'connect'); socket.connect(); const joined = await ready
     return { socket, joined }
   }
-  const receipt: any = { syntheticHumans: 5, protocol: 'HTTP membership/leagues + Socket.IO legal actions',
+  const receipt: any = { syntheticHumans: 5, dealSeed, protocol: 'HTTP membership/leagues + Socket.IO legal actions',
     actualBots: 0, injectedResults: 0, games: {}, checks: {} }
   const receiptDirectory = fileURLToPath(new URL('../../output/nrn-five-player-audit/', import.meta.url))
   const saveReceipt = async (completed = false) => {
