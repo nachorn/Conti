@@ -34,7 +34,7 @@ test('league details preserve standings and scores while stripping private data 
     { ...raw.league, recentGames: Array(51).fill(raw.league.recentGames[0]) }]) assert.equal(readAdminLeagueDetail({ ...raw, league: changed }), null)
 })
 
-test('league searches and details use only GET with the current account Bearer and no cookies or mutation', async t => {
+test('league searches and details use only GET with the current account and same-origin proof', async t => {
   scope(t)
   const calls: { path: string; init?: RequestInit }[] = []
   const controller = new AdminLeaguesController({ onSessionExpired() {}, request: (async (path, init) => {
@@ -48,7 +48,7 @@ test('league searches and details use only GET with the current account Bearer a
   for (const call of calls) {
     assert(call.path.startsWith('/api/admin/leagues'))
     assert.equal(call.init?.method, undefined); assert.equal(call.init?.body, undefined)
-    assert.equal(call.init?.credentials, 'omit'); assert.equal(new Headers(call.init?.headers).get('Authorization'), `Bearer ${TOKEN}`)
+    assert.equal(call.init?.credentials, 'same-origin'); assert.equal(new Headers(call.init?.headers).get('Authorization'), `Bearer ${TOKEN}`)
   }
 })
 

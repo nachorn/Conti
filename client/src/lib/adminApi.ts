@@ -1,6 +1,6 @@
 import type { DashboardSnapshot } from '@shared/dashboard'
 
-export type AdminError = 'unauthorized' | 'expired' | 'unconfigured' | 'unavailable' | 'rateLimited'
+export type AdminError = 'unauthorized' | 'expired' | 'unconfigured' | 'unavailable' | 'rateLimited' | 'invalidCode'
 export type AdminPhase = 'checking' | 'locked' | 'unavailable' | 'unlocked' | 'logging-out' | 'logout-error'
 export type AdminState = {
   phase: AdminPhase
@@ -8,18 +8,19 @@ export type AdminState = {
   error: AdminError | null
   busy: boolean
   receivedAt: number
+  codeSent: boolean
 }
 type AdminResponse = { ok: boolean; status: number; body: unknown }
 const sessionConfirmed = (body: unknown) => typeof body === 'object' && body !== null && !Array.isArray(body) && 'ok' in body && body.ok === true
 
-interface AccountScope { token: () => string | null; onUnauthorized: () => void; denied: boolean; requests: Set<AbortController> }
+interface AccountScope { token: () => string | null; onUnauthorized: () => void; onProofExpired: () => void; denied: boolean; requests: Set<AbortController> }
 let accountScope: AccountScope | null = null
 let accountMode = false
 
-/** Account administration never falls back to a remembered master-key cookie. */
-export function configureAdminToken(token: () => string | null, onUnauthorized: () => void = () => {}) {
+/** Account administration sends the current account token and the isolated browser proof. */
+export function configureAdminToken(token: () => string | null, onUnauthorized: () => void = () => {}, onProofExpired: () => void = () => {}) {
   accountMode = true
-  const scope: AccountScope = { token, onUnauthorized, denied: false, requests: new Set() }
+  const scope: AccountScope = { token, onUnauthorized, onProofExpired, denied: false, requests: new Set() }
   for (const request of accountScope?.requests ?? []) request.abort()
   accountScope = scope
   return () => {
@@ -29,7 +30,7 @@ export function configureAdminToken(token: () => string | null, onUnauthorized: 
   }
 }
 
-/** Requests stay same-origin; account mode sends only the current verified bearer. */
+/** Both credentials stay on the portal's same-origin admin API. */
 export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof fetch = fetch) {
   if (!path.startsWith('/api/admin/')) throw new Error('Invalid admin endpoint')
   const headers = new Headers(init.headers)
@@ -38,7 +39,6 @@ export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof
     headers.set('X-Admin-Request', '1')
   }
   if (!accountMode) return fetcher(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
-  if (path.split('?')[0] === '/api/admin/session') return Promise.reject(new Error('Legacy administration sessions are disabled'))
   const scope = accountScope, token = scope && !scope.denied ? scope.token() : null
   if (!scope || !token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return Promise.reject(new Error('Account authorization required'))
   headers.set('Authorization', `Bearer ${token}`)
@@ -47,12 +47,14 @@ export function adminFetch(path: string, init: RequestInit = {}, fetcher: typeof
   if (init.signal?.aborted) controller.abort()
   init.signal?.addEventListener('abort', abort, { once: true })
   scope.requests.add(controller)
-  return fetcher(path, { ...init, headers, credentials: 'omit', cache: 'no-store', signal: controller.signal }).then(async response => {
+  return fetcher(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store', signal: controller.signal }).then(async response => {
     if (controller.signal.aborted || accountScope !== scope || scope.token() !== token) throw new Error('Account authorization changed')
     const readOnly = !init.method || ['GET', 'HEAD'].includes(init.method.toUpperCase())
-    const body = response.status === 403 && !readOnly ? await response.clone().json().catch(() => null) as { error?: string } | null : null
+    const body = response.status === 401 || response.status === 403 && !readOnly
+      ? await response.clone().json().catch(() => null) as { error?: string } | null : null
     if (controller.signal.aborted || accountScope !== scope || scope.token() !== token) throw new Error('Account authorization changed')
-    if ((response.status === 401 || response.status === 403 && (readOnly || body?.error !== 'invalid_request')) && !scope.denied) {
+    if (response.status === 401 && body?.error === 'verification_required') scope.onProofExpired()
+    else if ((response.status === 401 || response.status === 403 && (readOnly || body?.error !== 'invalid_request')) && !scope.denied) {
       scope.denied = true
       for (const request of scope.requests) request.abort()
       scope.onUnauthorized()
@@ -68,7 +70,7 @@ export function adminLoginFields(data: FormData) {
 
 /** Coordinates restore/login/logout so an older request cannot reopen a locked dashboard. */
 export class AdminSession {
-  private state: AdminState = { phase: 'checking', snapshot: null, error: null, busy: false, receivedAt: 0 }
+  private state: AdminState = { phase: 'checking', snapshot: null, error: null, busy: false, receivedAt: 0, codeSent: false }
   private listeners = new Set<() => void>()
   private generation = 0
   private requests = new Set<AbortController>()
@@ -90,12 +92,12 @@ export class AdminSession {
   expire = () => {
     if (this.state.phase !== 'unlocked') return
     this.cancel()
-    this.publish({ phase: 'locked', snapshot: null, error: 'expired' })
+    this.publish({ phase: 'locked', snapshot: null, error: 'expired', codeSent: false })
   }
   private async request(path: string, init: RequestInit = {}): Promise<AdminResponse> {
     const controller = new AbortController()
     this.requests.add(controller)
-    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const timeout = setTimeout(() => controller.abort(), path === '/api/admin/session/challenge' ? 35_000 : 10_000)
     try {
       const response = await adminFetch(path, { ...init, signal: controller.signal }, this.fetcher)
       const body: unknown = await response.json().catch(error => {
@@ -110,6 +112,7 @@ export class AdminSession {
     if (response.status === 401 || response.status === 403) return 'unauthorized'
     if (response.status === 429) return 'rateLimited'
     const body = response.body as { error?: string } | null
+    if (body?.error === 'invalid_code') return 'invalidCode'
     return body?.error === 'dashboard_not_configured' ? 'unconfigured' : 'unavailable'
   }
   refresh = async () => {
@@ -123,7 +126,7 @@ export class AdminSession {
       if (!response.ok) {
         const error = this.failure(response)
         if (error === 'unauthorized' || error === 'unconfigured') {
-          this.publish({ phase: 'locked', snapshot: null, error: error === 'unauthorized' ? (wasUnlocked ? 'expired' : null) : error })
+          this.publish({ phase: 'locked', snapshot: null, codeSent: false, error: error === 'unauthorized' ? (wasUnlocked ? 'expired' : null) : error })
         } else throw new Error('Dashboard unavailable')
         return
       }
@@ -136,8 +139,28 @@ export class AdminSession {
       if (generation === this.generation) this.publish({ busy: false })
     }
   }
-  login = async (fields: ReturnType<typeof adminLoginFields>) => {
-    if (this.state.busy || !fields.password || this.state.phase !== 'locked') return false
+  sendCode = async (lang: 'en' | 'es') => {
+    if (this.state.busy || this.state.phase !== 'locked') return false
+    const generation = this.generation
+    this.publish({ busy: true, error: null })
+    try {
+      const response = await this.request('/api/admin/session/challenge', { method: 'POST', body: JSON.stringify({ lang }) })
+      if (generation !== this.generation) return false
+      if (!response.ok) { this.publish({ error: this.failure(response) }); return false }
+      if (!sessionConfirmed(response.body)) throw new Error('Invalid challenge response')
+      this.publish({ codeSent: true })
+      return true
+    } catch {
+      if (generation === this.generation) this.publish({ error: 'unavailable' })
+      return false
+    } finally {
+      if (generation === this.generation) this.publish({ busy: false })
+    }
+  }
+  login = (fields: ReturnType<typeof adminLoginFields>) => fields.password ? this.establish(fields) : Promise.resolve(false)
+  verifyCode = (code: string) => this.state.codeSent && /^\d{6}$/.test(code) ? this.establish({ code }) : Promise.resolve(false)
+  private async establish(fields: ReturnType<typeof adminLoginFields> | { code: string }) {
+    if (this.state.busy || this.state.phase !== 'locked') return false
     this.cancel()
     const generation = this.generation
     this.publish({ busy: true, error: null })
@@ -152,7 +175,7 @@ export class AdminSession {
       }
       if (!sessionConfirmed(response.body)) throw new Error('Invalid login response')
       created = true
-      this.publish({ phase: 'checking', busy: false })
+      this.publish({ phase: 'checking', busy: false, codeSent: false })
       await this.refresh()
     } catch {
       if (generation === this.generation) this.publish({ error: 'unavailable' })
@@ -165,7 +188,7 @@ export class AdminSession {
     if (this.state.phase === 'logging-out') return
     this.cancel()
     const generation = this.generation
-    this.publish({ phase: 'logging-out', busy: true, snapshot: null, error: null })
+    this.publish({ phase: 'logging-out', busy: true, snapshot: null, error: null, codeSent: false })
     try {
       const response = await this.request('/api/admin/session', { method: 'DELETE' })
       if (generation !== this.generation) return

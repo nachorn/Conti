@@ -1,4 +1,17 @@
 import type { NextFunction, Request, Response } from 'express'
+import type { IncomingMessage } from 'node:http'
+import { isIP } from 'node:net'
+
+const normalizeAddress = (value: string) => value.toLowerCase().replace(/^::ffff:(?=\d+\.)/, '')
+
+/** Caddy supplies the closest client address on the verified single-hop listener. */
+export function socketClientKey(req: Pick<IncomingMessage, 'socket' | 'headers'>, trustLoopbackProxy = false): string {
+  const peer = normalizeAddress(req.socket.remoteAddress ?? 'unknown')
+  if (!trustLoopbackProxy || (peer !== '127.0.0.1' && peer !== '::1')) return peer
+  const header = req.headers['x-forwarded-for']
+  const forwarded = typeof header === 'string' ? header.slice(header.lastIndexOf(',') + 1).trim() : ''
+  return isIP(forwarded) ? normalizeAddress(forwarded) : peer
+}
 
 /** Bounded, process-local counters. Never trust a client-supplied forwarded IP. */
 export class RateLimiter {

@@ -10,12 +10,13 @@ const SERVER_URL = (import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'h
 interface RoomInviteProps {
   onJoin: (roomId: string, name: string) => void | Promise<boolean>
   error: string | null
-  isConnected: boolean
+  entryAvailable: boolean
+  entryPending: boolean
   lang: Lang
   setLang: (lang: Lang) => void
 }
 
-export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomInviteProps) {
+export function RoomInvite({ onJoin, error, entryAvailable, entryPending, lang, setLang }: RoomInviteProps) {
   const { roomId = '' } = useParams<{ roomId: string }>()
   const L = (es: string, en: string) => lang === 'es' ? es : en
   const [info, setInfo] = useState<RoomInviteInfo | null>(null)
@@ -26,12 +27,12 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
   const [joinTimedOut, setJoinTimedOut] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const currentInfo = info?.roomId === roomId ? info : null
-  const canJoin = isConnected && loadState === 'ready' && currentInfo?.status === 'open'
+  const canJoin = entryAvailable && loadState === 'ready' && currentInfo?.status === 'open'
 
   useEffect(() => {
     setInfo(null)
     setLoadState(/^\d{4}$/.test(roomId) ? 'loading' : 'missing')
-    if (!isConnected || !/^\d{4}$/.test(roomId)) return
+    if (!/^\d{4}$/.test(roomId)) return
     let stopped = false
     let request: AbortController | null = null
     let busy = false
@@ -70,11 +71,11 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
       window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [roomId, isConnected, refresh, error])
+  }, [roomId, refresh, error])
 
   useEffect(() => {
-    if (error || !isConnected) { joiningRef.current = false; setJoining(false) }
-  }, [error, isConnected])
+    if (error) { joiningRef.current = false; setJoining(false) }
+  }, [error])
 
   useEffect(() => {
     if (!joining) return
@@ -153,12 +154,12 @@ export function RoomInvite({ onJoin, error, isConnected, lang, setLang }: RoomIn
             maxLength={24} autoComplete="name" enterKeyHint="go" placeholder={L('¿Cómo te llamas?', 'What’s your name?')} required disabled={joining}/>
           {joinError && <p className="room-invite-error" role="alert">{joinError}</p>}
           <button className="room-invite-join" type="submit" disabled={!canJoin || !name.trim() || joining}>
-            {joining ? L('Uniéndote…', 'Joining…') : !isConnected ? L('Conectando…', 'Connecting…') : L('Unirse', 'Join')}
-            {!joining && isConnected && <span aria-hidden="true">→</span>}
+            {joining || entryPending ? L('Uniéndote…', 'Joining…') : L('Unirse', 'Join')}
+            {!joining && !entryPending && <span aria-hidden="true">→</span>}
           </button>
           <p className="room-invite-hint">{L('Entrarás directamente en esta sala.', 'You’ll go straight to this room.')}</p>
         </form>}
-        {(problem || joinTimedOut) && <button className="room-invite-refresh" type="button" onClick={() => setRefresh(value => value + 1)} disabled={!isConnected}>
+        {(problem || joinTimedOut) && <button className="room-invite-refresh" type="button" onClick={() => setRefresh(value => value + 1)} disabled={entryPending}>
           {L('Volver a comprobar', 'Check again')}
         </button>}
       </section>

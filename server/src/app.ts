@@ -12,7 +12,7 @@ import { AdGate, type AdConfig } from './adGate.js'
 import type { MembershipService } from './membership.js'
 import { appendChat } from './roomChat.js'
 import { isPochaDeckSize } from './game/pocha/pochaTypes.js'
-import { RateLimiter, allowedSocketOrigin, requestLimit, securityHeaders, SECURITY_HEADERS } from './security.js'
+import { RateLimiter, allowedSocketOrigin, requestLimit, securityHeaders, SECURITY_HEADERS, socketClientKey } from './security.js'
 import { AdminAuth } from './adminAuth.js'
 import { registerSecurityConfig, type RoomEntryVerifier } from './turnstile.js'
 import { pochaBotAction } from './testBot.js'
@@ -37,7 +37,7 @@ const leagueErrorMessage = (code: string) => leagueErrorMessages[code] ?? 'No se
 const text = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback
 const seconds = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : fallback
 
-export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; footballAdmin?: FootballAdminClient; adConfig?: AdConfig; turnstile?: RoomEntryVerifier } = {}) {
+export async function createGameServer(store: SnapshotStore, options: { origins?: string[]; retentionMs?: number; debug?: boolean; dashboardKey?: string; membership?: MembershipService; footballAdmin?: FootballAdminClient; adConfig?: AdConfig; turnstile?: RoomEntryVerifier; trustSocketLoopbackProxy?: boolean } = {}) {
   const repository = new GameRepository(store, options.retentionMs)
   await repository.load()
   const app = express()
@@ -100,12 +100,15 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   app.get('/ready', (_req, res) => res.status(isHealthy() ? 200 : 503).json({ ok: isHealthy() }))
   const httpServer = createServer(app)
   const connectionAttempts = new RateLimiter(120, 60_000)
+  const globalConnections = new RateLimiter(600, 60_000)
   const roomAttempts = new RateLimiter(60, 60_000)
+  const globalRooms = new RateLimiter(240, 60_000)
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin }, transports: ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024,
     allowRequest: (req, accept) => {
       if (!allowedSocketOrigin(req.headers.origin, options.origins ?? [])) { accept(null, false); return }
-      accept(null, connectionAttempts.take(req.socket.remoteAddress ?? 'unknown') === 0)
+      const key = socketClientKey(req, options.trustSocketLoopbackProxy)
+      accept(null, connectionAttempts.take(key) === 0 && globalConnections.take('connections') === 0)
     },
   })
   io.engine.on('headers', headers => Object.assign(headers, SECURITY_HEADERS))
@@ -298,11 +301,11 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
   }
 
   function broadcast(roomId: string) {
-    const room = repository.get(roomId)?.room
+    const record = repository.get(roomId)
     for (const [id, code] of botRooms) if (code === roomId) botRooms.delete(id)
-    for (const session of repository.get(roomId)?.sessions ?? []) if (session.bot) botRooms.set(session.playerId, roomId)
+    for (const session of record?.sessions ?? []) if (session.bot) botRooms.set(session.playerId, roomId)
     adGate.prune(repository.records.keys())
-    if (!room) {
+    if (!record) {
       adGate.forget(roomId)
       const botTimer = botTimers.get(roomId)
       if (botTimer) clearTimeout(botTimer)
@@ -311,9 +314,11 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
-        socket.emit('state', playerState(repository.get(roomId)!, socket.data.playerId))
-        const leagueId = repository.get(roomId)?.leagueId
-        socket.emit('league_state', { roomId, league: leagueId ? repository.getLeagueSummary(leagueId) : null })
+        socket.emit('state', playerState(record, socket.data.playerId))
+        const settledMatch = record.room.phase === 'game_end' ? record.match : null
+        const leagueId = record.leagueId
+        socket.emit('league_state', { roomId, league: leagueId ? repository.getLeagueSummary(leagueId) : null,
+          resultId: settledMatch?.leagueId ? settledMatch.id : null })
       }
     }
     broadcastGate(roomId)
@@ -434,7 +439,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       const ack = typeof maybeAck === 'function' ? maybeAck as ActionAck : undefined
       const entry = event === 'create' || event === 'join'
       const retryAfter = actions.take('actions') || (entry && (
-        entryAttempts.take('rooms') || roomAttempts.take(socket.request.socket.remoteAddress ?? 'unknown')
+        entryAttempts.take('rooms') || roomAttempts.take(socketClientKey(socket.request, options.trustSocketLoopbackProxy)) || globalRooms.take('rooms')
       ))
       if (retryAfter) {
         const error = 'Too many attempts. Please wait before trying again.'
@@ -559,7 +564,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
           return [player.id, member && member.connected && member.data.roomId === roomId
             ? membershipAccount(member)?.id ?? null : null]
         }))
-        beginPersonalMatch(next, accounts)
+        beginPersonalMatch(next, accounts, Date.now(), next.leagueId ? repository.getActiveLeagueSeasonId(next.leagueId) : undefined)
       }
       if (event.startsWith('debug_') && next.match) next.match.eligible = false
       try {

@@ -2,8 +2,9 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { resolve } from 'node:path'
 import { FileSnapshotStore, PostgresSnapshotStore, MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, localSnapshotPaths, requireInstalledLocalSnapshots, snapshotStorageMode, type SnapshotStore } from './storage.js'
-import { createMembershipEmailSender } from './membershipEmail.js'
+import { createMembershipEmailSender, type EmailSender } from './membershipEmail.js'
 import { AdminAuth, type AdminAccountVerifier } from './adminAuth.js'
+import { AdminStepUp } from './adminStepUp.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
 import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, isBmcSubscriptionId, parseBmcSubscriptions, parsePlusAudit, validateBmcEvent, verifyBmcEvent, type BmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
@@ -13,14 +14,13 @@ import type { AdminAccount } from '../../shared/platformAdmin.js'
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
 type Account = { id: string; email: string; createdAt: number; name?: string; passwordHash?: string }
-type Session = { accountId: string; tokenHash: string; expiresAt: number }
+type Session = { accountId: string; tokenHash: string; expiresAt: number; scope?: 'game' }
 type ChallengePurpose = 'login' | 'register' | 'reset'
 type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
 type Limit = { key: string; count: number; until: number }
 type Order = { id: string; accountId: string; priceId: string; amount: number; currency: string; createdAt: number; sessionId: string | null; paymentIntentId: string | null; url: string | null; state: 'pending' | 'paid' | 'revoked' }
 type Data = { version: 1 | 2; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[]; bmcSubscriptions: BmcSubscription[]; plusAudit: PlusAudit[] }
 type StripePrice = { id: string; amount: number; currency: string }
-type EmailSender = (email: string, code: string, lang: Language) => Promise<void>
 export interface MembershipOptions {
   store: SnapshotStore
   authSecret: string
@@ -86,7 +86,7 @@ function decode(value: unknown): Data {
       (a.passwordHash === undefined || isStoredPasswordHash(a.passwordHash))) ||
       new Set(v.accounts.map(a => a.id)).size !== v.accounts.length || new Set(v.accounts.map(a => a.email)).size !== v.accounts.length) return fail()
   const accountIds = new Set(v.accounts.map(a => a.id))
-  if (!v.sessions.every(s => object(s) && accountIds.has(s.accountId) && digest(s.tokenHash) && time(s.expiresAt)) ||
+  if (!v.sessions.every(s => object(s) && accountIds.has(s.accountId) && digest(s.tokenHash) && time(s.expiresAt) && (s.scope === undefined || s.scope === 'game')) ||
       new Set(v.sessions.map(s => s.tokenHash)).size !== v.sessions.length ||
       !v.challenges.every(c => object(c) && normalizeMembershipEmail(c.email) === c.email && id(c.salt) && digest(c.codeHash) && time(c.expiresAt) && time(c.attempts) && c.attempts <= 5 &&
         (c.purpose === undefined || ['login', 'register', 'reset'].includes(c.purpose)) &&
@@ -148,15 +148,23 @@ export class MembershipService {
   private readonly appUrl: string | null
   private readonly gameSignIn: GameSignInBroker
   private readonly adminEmails: ReadonlySet<string> | null
+  private readonly adminStepUp: AdminStepUp | undefined
   constructor(private readonly options: MembershipOptions) {
     if (options.authSecret.length < 32) throw new Error('MEMBERSHIP_AUTH_SECRET must contain at least 32 characters')
     this.now = options.now ?? Date.now
     this.adminEmails = options.adminEmails === undefined ? null : new Set(normalizeAdminEmails(options.adminEmails))
+    if (this.adminEmails !== null) {
+      this.adminStepUp = new AdminStepUp(tokenHash => {
+        const match = this.accountSession(tokenHash)
+        return match ? { id: match.account.id, email: match.account.email,
+          eligible: match.session.scope !== 'game' && this.adminEmails!.has(match.account.email) } : null
+      }, options.authSecret, options.sendCode, this.now)
+    }
     this.request = options.request ?? fetch
     this.appUrl = validAppUrl(options.appUrl)
     this.gameSignIn = new GameSignInBroker(
       validateGameOrigins(options.gameOrigins ?? DEFAULT_GAME_ORIGINS, options.allowLocalGameOrigins === true),
-      (sourceTokenHash, previousToken) => this.linkedSessionByHash(sourceTokenHash, previousToken), this.now,
+      (sourceTokenHash, previousToken, origin) => this.linkedSessionByHash(sourceTokenHash, previousToken, origin === 'https://nrnplay.com' ? undefined : 'game'), this.now,
     )
   }
   async load() {
@@ -222,7 +230,7 @@ export class MembershipService {
     this.queue = result.catch(() => undefined)
     return result
   }
-  private publicAccount(account: Account, data = this.data): MembershipAccount {
+  private publicAccount(account: Account, data = this.data, scope?: Session['scope']): MembershipAccount {
     const purchased = data.orders.some(o => o.accountId === account.id && o.state === 'paid')
     const gift = data.grants.find(g => g.email === account.email && g.active && (g.expiresAt === null || g.expiresAt > this.now()))
     const bmc = bmcEntitlement(data.bmcSubscriptions, account, this.now())
@@ -230,12 +238,12 @@ export class MembershipService {
     const plus = purchased ? { active: true, expiresAt: null, provider: 'legacy' as const, status: 'active' as const, cancelAtPeriodEnd: false }
       : giftWins ? { active: true, expiresAt: gift!.expiresAt, provider: 'gift' as const, status: 'active' as const, cancelAtPeriodEnd: false } : bmc
     return { id: account.id, email: account.email, ...(account.name === undefined ? {} : { name: account.name }), ...(account.passwordHash === undefined ? {} : { hasPassword: true }),
-      ...(this.adminEmails?.has(account.email) ? { isAdmin: true } : {}), adFree: plus.active,
+      ...(scope !== 'game' && this.adminEmails?.has(account.email) ? { isAdmin: true } : {}), adFree: plus.active,
       source: purchased ? 'purchase' : giftWins || bmc.active && bmc.complimentary ? 'gift' : bmc.active ? 'purchase' : null, expiresAt: plus.expiresAt, plus }
   }
   /** Present even for an explicitly empty allowlist, which disables legacy admin access. */
   adminAccountVerifier(): AdminAccountVerifier | undefined {
-    return this.adminEmails === null ? undefined : token => this.authenticate(token)
+    return this.adminStepUp
   }
   /** Admin-only projection. Credentials, delivery challenges and payment details never leave this service. */
   getAdminAccountSummary(): { total: number; plusActive: number } {
@@ -258,12 +266,16 @@ export class MembershipService {
           plus: { active: entitlement.adFree, source: entitlement.source, expiresAt: entitlement.expiresAt } }
       }) }
   }
-  authenticate(token: string): MembershipAccount | null {
-    if (!this.isHealthy() || typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
-    const tokenHash = hash(token), now = this.now()
-    const session = this.data.sessions.find(s => s.tokenHash === tokenHash && s.expiresAt > now)
+  private accountSession(tokenHash: string) {
+    if (!this.isHealthy()) return null
+    const now = this.now(), session = this.data.sessions.find(s => s.tokenHash === tokenHash && s.expiresAt > now)
     const account = session && this.data.accounts.find(a => a.id === session.accountId)
-    return account ? this.publicAccount(account) : null
+    return session && account ? { session, account } : null
+  }
+  authenticate(token: string): MembershipAccount | null {
+    if (typeof token !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(token)) return null
+    const match = this.accountSession(hash(token))
+    return match ? this.publicAccount(match.account, this.data, match.session.scope) : null
   }
   gameSignInCors(issuerOrigins: string[] = []) {
     return this.gameSignIn.cors([...issuerOrigins, ...(this.appUrl ? [this.appUrl] : []), 'https://nrnplay.com', 'https://www.nrnplay.com'])
@@ -271,9 +283,9 @@ export class MembershipService {
   /** A new game receives a separate session; the source credential never leaves this server. */
   linkedSession(sourceToken: string): Promise<MembershipSession> {
     if (typeof sourceToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(sourceToken)) return Promise.reject(new MembershipError('unauthorized', 401))
-    return this.linkedSessionByHash(hash(sourceToken))
+    return this.linkedSessionByHash(hash(sourceToken), undefined, 'game')
   }
-  private linkedSessionByHash(sourceTokenHash: string, previousToken?: string): Promise<MembershipSession> {
+  private linkedSessionByHash(sourceTokenHash: string, previousToken: string | undefined, scope: Session['scope']): Promise<MembershipSession> {
     return this.mutate(data => {
       // Recheck inside the mutation queue so logout/reset before exchange revokes the proof.
       const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
@@ -282,18 +294,18 @@ export class MembershipService {
       if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
         const previousHash = hash(previousToken)
         const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
-          session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
+          session.scope === scope && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
         if (previous) {
           previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
-          return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data) }
+          return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, scope) }
         }
       }
       const token = randomBytes(32).toString('base64url')
       const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
       const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
       data.sessions = data.sessions.filter(session => session.accountId !== account.id)
-        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt })
-      return { token, expiresAt, account: this.publicAccount(account, data) }
+        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(scope ? { scope } : {}) })
+      return { token, expiresAt, account: this.publicAccount(account, data, scope) }
     })
   }
   private requireAccount(req: Request): MembershipAccount {

@@ -2,9 +2,9 @@ import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 
 import { Room, type RoomSnapshot } from './room.js'
 import { MAX_SNAPSHOT_BYTES, SnapshotCapacityError, snapshotCapacity, type SnapshotStore } from './storage.js'
 import { restoreChat, type ChatMessage } from './roomChat.js'
-import { finishedPersonalMatch, parseGameResults, parsePersonalMatch, personalMatchStillEligible, personalStats, type DurableGameResult, type PersonalMatch, type PersonalStatsResponse } from './personalStats.js'
-import { buildLeagueTable, joinedLeague, leagueDetail, LeagueError, leagueSelectionError, leagueStartError, leagueSummary, makeLeague, parseLeagues, roomLeagueSummary, validLeagueMatch, validateLeagueResult, type LeagueTable, type StoredLeague } from './leagues.js'
-import type { LeagueDetail, LeagueGameType, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
+import { finishedPersonalMatch, parseGameResults, parsePersonalMatch, personalMatchParticipantsUnchanged, personalMatchStillEligible, personalStats, type DurableGameResult, type PersonalMatch, type PersonalStatsResponse } from './personalStats.js'
+import { activeLeagueSeasonId, buildLeagueTable, joinedLeague, leagueDetail, LeagueError, leagueInvitation, leagueSeasonWindows, leagueSelectionError, leagueStartError, leagueSummary, makeInviteCode, makeLeague, ORIGINAL_SEASON_ID, parseLeagues, roomLeagueSummary, startedLeagueSeason, validLeagueMatch, validateLeagueResult, type LeagueTable, type StoredLeague } from './leagues.js'
+import type { LeagueDetail, LeagueGameType, LeagueInvitation, LeagueResultReceipt, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
 import type { MembershipAccount } from '../../shared/membership.js'
 import type { AdminGameSummary, AdminLeagueDetail, AdminLeaguesResponse, AdminLeagueSummary } from '../../shared/platformAdmin.js'
 
@@ -23,12 +23,19 @@ export interface RoomRecord {
   leagueId?: string
 }
 interface SavedRecord extends Omit<RoomRecord, 'room'> { room: RoomSnapshot }
-interface SavedGames { version: 1 | 2 | 3; savedAt: number; rooms: SavedRecord[]; results?: DurableGameResult[]; leagues?: StoredLeague[] }
+interface SavedGames { version: 1 | 2 | 3 | 4; savedAt: number; rooms: SavedRecord[]; results?: DurableGameResult[]; leagues?: StoredLeague[] }
+interface LeagueLedger {
+  bySeason: Map<string, DurableGameResult[]>
+  count: number
+  latestFinish: number
+  latestStart: number
+}
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 const duration = (deadline: number | null, now: number) => deadline === null ? null : Math.max(0, deadline - now)
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const validDuration = (value: unknown) => value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 120_000)
+const seasonKey = (leagueId: string, seasonId = ORIGINAL_SEASON_ID) => `${leagueId}:${seasonId}`
 // Reserve ordinary room growth without treating every small offline room as a
 // maximum-size game. Actual larger rooms reserve their full measured size. This
 // is operational headroom, not an upper-bound guarantee for every legacy state.
@@ -88,7 +95,7 @@ export class GameRepository {
   records = new Map<string, RoomRecord>()
   private results = new Map<string, DurableGameResult>()
   private resultsByAccount = new Map<string, DurableGameResult[]>()
-  private resultsByLeague = new Map<string, DurableGameResult[]>()
+  private resultsByLeague = new Map<string, LeagueLedger>()
   private statsCache = new Map<string, PersonalStatsResponse>()
   private committedBytes = 0
   private reservedBytes = STORAGE_CONTROL_RESERVE_BYTES
@@ -103,13 +110,14 @@ export class GameRepository {
   async load(now = Date.now()): Promise<void> {
     const saved = await this.store.load()
     if (saved === null) return
-    if (!isObject(saved) || ![1, 2, 3].includes(saved.version as number) || typeof saved.savedAt !== 'number' ||
+    if (!isObject(saved) || ![1, 2, 3, 4].includes(saved.version as number) || typeof saved.savedAt !== 'number' ||
       !Number.isFinite(saved.savedAt) || saved.savedAt < 0 || !Array.isArray(saved.rooms) || saved.rooms.length > 500) {
       throw new Error('Invalid game storage snapshot; refusing to overwrite saved games')
     }
     const results = parseGameResults(saved.results)
     const leagues = parseLeagues(saved.leagues)
-    if (leagues.size && saved.version !== 3) throw new Error('League storage requires snapshot format v3')
+    if (leagues.size && saved.version !== 3 && saved.version !== 4) throw new Error('League storage requires snapshot format v3 or newer')
+    if (saved.version !== 4 && [...leagues.values()].some(league => league.seasons)) throw new Error('League seasons require snapshot format v4')
     for (const result of results.values()) {
       if (result.leagueId && !validateLeagueResult(leagues.get(result.leagueId), result)) throw new Error('Invalid saved league result')
     }
@@ -189,7 +197,12 @@ export class GameRepository {
       if (record.match?.eligible && !personalMatchStillEligible(record)) record.match = { ...record.match, eligible: false }
       const result = finishedPersonalMatch(record)
       if (result && !results.has(result.id)) {
-        if (result.leagueId && !validateLeagueResult(this.leagues.get(result.leagueId), result)) throw new Error('Invalid league result')
+        if (result.leagueId) {
+          if (!validateLeagueResult(this.leagues.get(result.leagueId), result)) throw new Error('Invalid league result')
+          // Later commits must never reorder an earlier rating change when two games end during the same clock tick.
+          result.finishedAt = Math.max(result.finishedAt, (this.resultsByLeague.get(result.leagueId)?.latestFinish ?? -1) + 1)
+          if (!Number.isSafeInteger(result.finishedAt)) throw new Error('Invalid league result finish time')
+        }
         results.set(result.id, result)
       }
       next.set(roomId, record)
@@ -248,10 +261,16 @@ export class GameRepository {
 
   private indexResult(result: DurableGameResult) {
     if (result.leagueId) {
-      const indexed = this.resultsByLeague.get(result.leagueId) ?? []
-      // The ledger is immutable: keep one reference, never duplicate result contents.
-      indexed.push(result)
-      this.resultsByLeague.set(result.leagueId, indexed)
+      const ledger = this.resultsByLeague.get(result.leagueId) ?? { bySeason: new Map(), count: 0, latestFinish: -1, latestStart: 0 }
+      const id = result.leagueSeasonId ?? ORIGINAL_SEASON_ID
+      const season = ledger.bySeason.get(id) ?? []
+      // The ledger is immutable: index a single reference to each result.
+      season.push(result)
+      ledger.bySeason.set(id, season)
+      ledger.count++
+      ledger.latestFinish = Math.max(ledger.latestFinish, result.finishedAt)
+      ledger.latestStart = Math.max(ledger.latestStart, result.startedAt)
+      this.resultsByLeague.set(result.leagueId, ledger)
     }
     for (const accountId of new Set(result.players.flatMap(player => player.accountId === null ? [] : [player.accountId]))) {
       const indexed = this.resultsByAccount.get(accountId) ?? []
@@ -266,6 +285,11 @@ export class GameRepository {
     return league ? roomLeagueSummary(league) : null
   }
 
+  getActiveLeagueSeasonId(id: string): string | undefined {
+    const league = this.leagues.get(id)
+    return league && activeLeagueSeasonId(league)
+  }
+
   validateLeagueSelection(id: string, gameType: LeagueGameType, accountId: string | null): string | null {
     return leagueSelectionError(this.leagues.get(id), gameType, accountId)
   }
@@ -277,23 +301,91 @@ export class GameRepository {
   listLeagues(accountId: string): LeagueSummary[] {
     return [...this.leagues.values()].filter(league => league.members.some(m => m.accountId === accountId))
       .sort((a, b) => Number(a.closedAt !== null) - Number(b.closedAt !== null) || b.createdAt - a.createdAt || a.id.localeCompare(b.id))
-      .map(league => leagueSummary(league, accountId, this.resultsByLeague.get(league.id)?.length ?? 0))
+      .map(league => leagueSummary(league, accountId, this.resultsByLeague.get(league.id)?.count ?? 0))
   }
 
-  getLeagueDetail(id: string, accountId: string): LeagueDetail | null {
+  getLeagueDetail(id: string, accountId: string, requestedSeason?: string): LeagueDetail | null {
     const league = this.leagues.get(id)
     if (!league || !league.members.some(m => m.accountId === accountId)) return null
-    return leagueDetail(league, this.getLeagueTable(league), accountId)
+    const seasonId = requestedSeason ?? activeLeagueSeasonId(league) ?? ORIGINAL_SEASON_ID
+    const windows = leagueSeasonWindows(league)
+    if (seasonId !== ORIGINAL_SEASON_ID && !windows.some(season => season.id === seasonId)) throw new LeagueError('league_season_not_found', 404)
+    const seasons = windows.map(season => ({ ...season, gameCount: this.seasonResults(id, season.id).length }))
+    return leagueDetail(league, this.getLeagueTable(league, seasonId), accountId, seasonId, seasons)
   }
 
-  private getLeagueTable(league: StoredLeague): LeagueTable {
-    const results = this.resultsByLeague.get(league.id) ?? []
-    let cached = this.leagueTables.get(league.id)
+  private getLeagueTable(league: StoredLeague, seasonId = activeLeagueSeasonId(league) ?? ORIGINAL_SEASON_ID): LeagueTable {
+    const key = seasonKey(league.id, seasonId)
+    const results = this.seasonResults(league.id, seasonId)
+    let cached = this.leagueTables.get(key)
     if (!cached || cached.league !== league || cached.resultCount !== results.length) {
-      cached = { league, resultCount: results.length, table: buildLeagueTable(league, results) }
-      this.leagueTables.set(league.id, cached)
+      cached = { league, resultCount: results.length, table: buildLeagueTable(league, results, seasonId) }
     }
+    this.leagueTables.delete(key)
+    this.leagueTables.set(key, cached)
+    if (this.leagueTables.size > 128) this.leagueTables.delete(this.leagueTables.keys().next().value!)
     return cached.table
+  }
+
+  private seasonResults(leagueId: string, seasonId = ORIGINAL_SEASON_ID): DurableGameResult[] {
+    return this.resultsByLeague.get(leagueId)?.bySeason.get(seasonId) ?? []
+  }
+
+  getLeagueResultReceipt(matchId: string, accountId: string, roomId?: string): LeagueResultReceipt | null {
+    const result = this.results.get(matchId)
+    const record = !result && roomId ? this.get(roomId) : undefined
+    const match = record?.room.phase === 'game_end' && record.match?.id === matchId ? record.match : undefined
+    const leagueId = result?.leagueId ?? match?.leagueId
+    const league = leagueId ? this.leagues.get(leagueId) : undefined
+    if (!league || !league.members.some(member => member.accountId === accountId)) return null
+    const players = result?.players ?? match?.participants
+    if (!players?.some(player => player.accountId === accountId)) return null
+    const seasonId = result?.leagueSeasonId ?? match?.leagueSeasonId ?? ORIGINAL_SEASON_ID
+    const window = leagueSeasonWindows(league).find(season => season.id === seasonId)
+    const base = { matchId, league: { id: league.id, name: league.name, gameType: league.gameType },
+      ...(window ? { season: { id: window.id, name: window.name } } : {}) }
+    if (!result) return { ...base, status: 'not_counted',
+      reason: record && !personalMatchParticipantsUnchanged(record) ? 'participants_changed' : 'result_unavailable' }
+    const table = this.getLeagueTable(league, seasonId)
+    let rating = table.receipts.get(matchId)?.get(accountId)
+    if (!rating) {
+      const results = this.seasonResults(league.id, seasonId)
+      rating = buildLeagueTable(league, results, seasonId, matchId).receipts.get(matchId)?.get(accountId)
+    }
+    return rating ? { ...base, status: 'counted', rating: { ...rating } } : null
+  }
+
+  previewLeagueInvitation(accountId: string, code: unknown, expectedGameType?: unknown): LeagueInvitation {
+    return leagueInvitation(this.leagues, accountId, code, expectedGameType)
+  }
+
+  async rotateLeagueInvitation(id: string, accountId: string): Promise<LeagueDetail> {
+    const league = this.writableLeague(id, accountId)
+    const next = new Map(this.leagues).set(id, { ...league, inviteCode: makeInviteCode(this.leagues) })
+    await this.persist(this.records, this.results, next)
+    return this.getLeagueDetail(id, accountId)!
+  }
+
+  async startLeagueSeason(id: string, accountId: string, name: unknown): Promise<LeagueDetail> {
+    const league = this.writableLeague(id, accountId)
+    let boundary = Math.max(Date.now(), this.resultsByLeague.get(id)?.latestStart ?? 0)
+    for (const record of this.records.values()) if (record.match?.leagueId === id) boundary = Math.max(boundary, record.match.startedAt)
+    const updated = startedLeagueSeason(league, name, boundary)
+    if (updated !== league) {
+      const next = new Map(this.leagues).set(id, updated)
+      this.assertGrowthCapacity(this.snapshot(this.records, this.results, next))
+      await this.persist(this.records, this.results, next)
+    }
+    return this.getLeagueDetail(id, accountId)!
+  }
+
+  private writableLeague(id: string, accountId: string): StoredLeague {
+    if (this.failed) throw new Error('Game storage unavailable')
+    const league = this.leagues.get(id)
+    if (!league || !league.members.some(member => member.accountId === accountId)) throw new LeagueError('league_not_found', 404)
+    if (league.ownerAccountId !== accountId) throw new LeagueError('league_owner_required', 403)
+    if (league.closedAt !== null) throw new LeagueError('league_closed', 409)
+    return league
   }
 
   private adminLeagueSummary(league: StoredLeague, gameCount: number): AdminLeagueSummary {
@@ -313,7 +405,8 @@ export class GameRepository {
       .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
     const offset = Math.max(0, options.offset), limit = Math.max(1, Math.min(50, options.limit))
     return { total: this.leagues.size, filtered: matches.length, offset, limit,
-      leagues: matches.slice(offset, offset + limit).map(league => this.adminLeagueSummary(league, this.resultsByLeague.get(league.id)?.length ?? 0)) }
+      leagues: matches.slice(offset, offset + limit).map(league =>
+        this.adminLeagueSummary(league, this.seasonResults(league.id, activeLeagueSeasonId(league)).length)) }
   }
 
   getAdminLeagueDetail(id: string): AdminLeagueDetail | null {
@@ -369,7 +462,7 @@ export class GameRepository {
   private snapshot(next: Map<string, RoomRecord>, results = this.results, leagues = this.leagues): SavedGames {
     // An older server accepts only v1. Once account bindings or permanent results
     // exist, v2 makes a rollback refuse startup instead of erasing those fields.
-    const version = leagues.size ? 3 : results.size || [...next.values()].some(record => record.match) ? 2 : 1
+    const version = [...leagues.values()].some(league => league.seasons) ? 4 : leagues.size ? 3 : results.size || [...next.values()].some(record => record.match) ? 2 : 1
     return { version, savedAt: Date.now(), rooms: [...next.values()].map(r => ({
       ...r, room: r.room.toSnapshot(),
     })), ...(results.size ? { results: [...results.values()] } : {}), ...(leagues.size ? { leagues: [...leagues.values()] } : {}) }

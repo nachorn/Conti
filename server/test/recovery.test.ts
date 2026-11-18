@@ -672,7 +672,7 @@ test('startup rejects corrupt room/session snapshots without overwriting existin
   await twoPlayers(existing)
   const valid = structuredClone(existing.store.value) as SavedGamesFixture
   const corruptions: unknown[] = [
-    { version: 4, savedAt: Date.now(), rooms: [] },
+    { version: 5, savedAt: Date.now(), rooms: [] },
     { ...valid, rooms: [{ ...valid.rooms[0]!, sessions: [] }] },
     { ...valid, rooms: [{ ...valid.rooms[0]!, sessions: valid.rooms[0]!.sessions.map(session => ({ ...session, tokenHash: 'not-a-hash' })) }] },
     { ...valid, rooms: [...valid.rooms, valid.rooms[0]] },

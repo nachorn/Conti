@@ -6,7 +6,7 @@ const first = 'A'.repeat(43), second = 'B'.repeat(43)
 const json = (body: unknown = {}, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 const snapshot = { generatedAt: 123, rooms: [], summary: { onlinePlayers: 0, activeRooms: 0, waitingRooms: 0, offlineRooms: 0 } }
 
-test('account admin always uses the current bearer and omits legacy cookies, including mutations', async () => {
+test('account admin sends the current bearer and same-origin browser proof for reads and mutations', async () => {
   let token: string | null = first
   const calls: RequestInit[] = []
   const request: typeof fetch = async (_path, init) => { calls.push(init!); return json() }
@@ -19,7 +19,7 @@ test('account admin always uses the current bearer and omits legacy cookies, inc
     assert.equal(new Headers(calls[0]!.headers).get('Authorization'), `Bearer ${first}`)
     assert.equal(new Headers(calls[1]!.headers).get('Authorization'), `Bearer ${second}`)
     assert.equal(new Headers(calls[1]!.headers).get('X-Admin-Request'), '1')
-    for (const call of calls) { assert.equal(call.credentials, 'omit'); assert.equal(call.cache, 'no-store') }
+    for (const call of calls) { assert.equal(call.credentials, 'same-origin'); assert.equal(call.cache, 'no-store') }
     token = null
     await assert.rejects(adminFetch('/api/admin/accounts', {}, request), /authorization required/)
     assert.equal(calls.length, 2)
@@ -74,11 +74,34 @@ test('a 403 CSRF write error remains an action error; a forbidden role write cle
   } finally { release() }
 })
 
-test('account administration never sends a master-session login or logout request', async () => {
-  const release = configureAdminToken(() => first)
-  let calls = 0
+test('expired admin proof keeps the ordinary session and can request, confirm and revoke a second step', async () => {
+  let invalidated = 0, proofNeeded = 0
+  const release = configureAdminToken(() => first, () => { invalidated++ }, () => { proofNeeded++ })
+  const requests: Array<{ path: string; method?: string; body?: unknown }> = []
+  let open = false
+  const session = new AdminSession(async (url, init) => {
+    const path = String(url), method = init?.method
+    requests.push({ path, method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+    if (path === '/api/admin/dashboard') return open ? json(snapshot) : json({ error: 'verification_required' }, 401)
+    if (path === '/api/admin/session/challenge') return json({ ok: true })
+    if (path === '/api/admin/session') { open = method !== 'DELETE'; return json({ ok: true }) }
+    throw new Error('Unexpected request')
+  })
   try {
-    for (const method of ['POST', 'DELETE']) await assert.rejects(adminFetch('/api/admin/session', { method }, async () => { calls++; return json({ ok: true }) }), /disabled/)
-    assert.equal(calls, 0)
+    await session.refresh()
+    assert.equal(session.getState().phase, 'locked')
+    assert.equal(proofNeeded, 1)
+    assert.equal(invalidated, 0)
+    assert.equal(await session.sendCode('es'), true)
+    assert.equal(session.getState().codeSent, true)
+    assert.equal(await session.verifyCode('012345'), true)
+    assert.equal(session.getState().phase, 'unlocked')
+    await session.logout()
+    assert.equal(session.getState().phase, 'locked')
+    assert.equal(session.getState().codeSent, false)
+    assert.deepEqual(requests[1], { path: '/api/admin/session/challenge', method: 'POST', body: { lang: 'es' } })
+    assert.deepEqual(requests[2], { path: '/api/admin/session', method: 'POST', body: { code: '012345' } })
+    assert.equal(requests.at(-1)?.method, 'DELETE')
+    assert.equal(invalidated, 0)
   } finally { release() }
 })

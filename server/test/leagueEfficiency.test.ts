@@ -115,8 +115,9 @@ test('synthetic league growth benchmark records work and latency without flaky t
   const afterStart = performance.now(), after = countGlobalVisits(repo, readAll), afterUnrelatedMs = performance.now() - afterStart
   assert(isDeepStrictEqual(after.result, before))
   const phase = process.env.NRN_LEAGUE_BENCHMARK_PHASE === 'baseline' ? 'baseline' : 'after'
-  const index = (repo as unknown as { resultsByLeague?: Map<string, DurableGameResult[]> }).resultsByLeague
-  const additionalIndexReferences = index ? [...index.values()].reduce((total, results) => total + results.length, 0) : 0
+  const index = (repo as unknown as { resultsByLeague?: Map<string, { bySeason: Map<string, DurableGameResult[]> }> }).resultsByLeague
+  const seasonEntries = index ? [...index.values()].flatMap(ledger => [...ledger.bySeason.values()]) : []
+  const additionalIndexReferences = seasonEntries.reduce((total, results) => total + results.length, 0)
   const evidence = { scope: 'Synthetic MemoryStore only, no production state or network', phase, leagues: 20, gamesPerLeague: 100, recordedGames: 2000,
     coldMs: Math.round(coldMs * 100) / 100, warmMs: Math.round(warmMs * 100) / 100, afterUnrelatedMs: Math.round(afterUnrelatedMs * 100) / 100,
     globalResultEntriesVisitedAfterUnrelated: after.visits, additionalIndexReferences }

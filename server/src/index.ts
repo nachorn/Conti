@@ -35,11 +35,16 @@ for (const origin of origins) {
   }
 }
 const turnstile = turnstileFromEnvironment(process.env, origins)
+const host = process.env.LISTEN_HOST || '0.0.0.0'
+if (!['0.0.0.0', '127.0.0.1', '::', '::1'].includes(host)) throw new Error('LISTEN_HOST must be a supported bind address')
+const proxyHops = process.env.MEMBERSHIP_TRUST_PROXY_HOPS
+if (proxyHops && !/^[1-3]$/.test(proxyHops)) throw new Error('MEMBERSHIP_TRUST_PROXY_HOPS must be 1, 2, or 3 for a verified proxy topology')
 const store = await createSnapshotStore()
 const membership = await createMembershipService()
 const server = await createGameServer(store, {
   origins,
   turnstile,
+  trustSocketLoopbackProxy: proxyHops === '1' && (host === '127.0.0.1' || host === '::1'),
   debug: process.env.NODE_ENV !== 'production' && process.env.ENABLE_DEBUG_ACTIONS === 'true',
   dashboardKey: process.env.ADMIN_DASHBOARD_KEY,
   membership,
@@ -47,12 +52,7 @@ const server = await createGameServer(store, {
 })
 // Leave proxy headers untrusted by default. Set a bounded hop count only after
 // verifying that the production service cannot be reached around that proxy.
-if (process.env.MEMBERSHIP_TRUST_PROXY_HOPS) {
-  if (!/^[1-3]$/.test(process.env.MEMBERSHIP_TRUST_PROXY_HOPS)) throw new Error('MEMBERSHIP_TRUST_PROXY_HOPS must be 1, 2, or 3 for a verified proxy topology')
-  server.app.set('trust proxy', Number(process.env.MEMBERSHIP_TRUST_PROXY_HOPS))
-}
-const host = process.env.LISTEN_HOST || '0.0.0.0'
-if (!['0.0.0.0', '127.0.0.1', '::', '::1'].includes(host)) throw new Error('LISTEN_HOST must be a supported bind address')
+if (proxyHops) server.app.set('trust proxy', Number(proxyHops))
 const port = await server.listen(Number(process.env.PORT) || 3001, host)
 console.log(`Continental Rummy server listening on port ${port}; game recovery enabled`)
 

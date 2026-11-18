@@ -1,6 +1,6 @@
 import express, { type Express, type Request, type Response } from 'express'
 import { randomBytes, randomUUID } from 'node:crypto'
-import type { LeagueDetail, LeagueGame, LeagueGameType, LeagueStanding, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
+import type { LeagueDetail, LeagueGame, LeagueGameType, LeagueInvitation, LeagueRatingChange, LeagueSeason, LeagueStanding, LeagueSummary, RoomLeagueSummary } from '../../shared/leagues.js'
 import type { MembershipAccount } from '../../shared/membership.js'
 import type { DurableGameResult, PersonalMatch } from './personalStats.js'
 import type { GameRepository } from './recovery.js'
@@ -8,6 +8,9 @@ import { initialLeagueRating, updateLeagueRatings, leagueRatingPoints } from './
 import { RateLimiter, requestLimit } from './security.js'
 
 export interface LeagueMember { id: string; accountId: string; name: string; joinedAt: number }
+interface StoredLeagueSeason { id: string; name: string; startedAt: number; memberCountAtStart: number }
+export const ORIGINAL_SEASON_ID = 'original'
+const MAX_SEASONS = 50
 export interface StoredLeague {
   id: string
   name: string
@@ -19,6 +22,7 @@ export interface StoredLeague {
   minGames: number
   ratingVersion: 1
   members: LeagueMember[]
+  seasons?: StoredLeagueSeason[]
 }
 type Identity = Pick<MembershipAccount, 'id' | 'name'>
 export class LeagueError extends Error {
@@ -30,6 +34,23 @@ const time = (value: unknown): value is number => Number.isSafeInteger(value) &&
 const name = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value)
 const game = (value: unknown): value is LeagueGameType => value === 'pocha' || value === 'continental'
 const fail = (): never => { throw new Error('Invalid league storage; refusing to overwrite leagues') }
+
+function parseSeasons(value: unknown, createdAt: number, closedAt: number | null, members: LeagueMember[]): StoredLeagueSeason[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_SEASONS) return fail()
+  const seasons: StoredLeagueSeason[] = []
+  const ids = new Set([ORIGINAL_SEASON_ID])
+  for (const raw of value) {
+    const previous = seasons[seasons.length - 1]
+    if (!object(raw) || !id(raw.id) || ids.has(raw.id) || !name(raw.name, 60) || !time(raw.startedAt) ||
+        raw.startedAt < (previous?.startedAt ?? createdAt) || (closedAt !== null && raw.startedAt > closedAt) ||
+        typeof raw.memberCountAtStart !== 'number' || !Number.isSafeInteger(raw.memberCountAtStart) ||
+        raw.memberCountAtStart < (previous?.memberCountAtStart ?? 1) || raw.memberCountAtStart > members.length) return fail()
+    ids.add(raw.id)
+    seasons.push({ id: raw.id, name: raw.name, startedAt: raw.startedAt, memberCountAtStart: raw.memberCountAtStart })
+  }
+  return seasons
+}
 
 export function parseLeagues(value: unknown): Map<string, StoredLeague> {
   if (value === undefined) return new Map()
@@ -53,8 +74,10 @@ export function parseLeagues(value: unknown): Map<string, StoredLeague> {
         !members.some(m => m.accountId === raw.ownerAccountId)) return fail()
     ownerCounts.set(raw.ownerAccountId, (ownerCounts.get(raw.ownerAccountId) ?? 0) + 1)
     if (ownerCounts.get(raw.ownerAccountId)! > 20) return fail()
+    const closedAt = raw.closedAt as number | null
+    const seasons = parseSeasons(raw.seasons, raw.createdAt, closedAt, members)
     const league: StoredLeague = { id: raw.id, name: raw.name, gameType: raw.gameType, ownerAccountId: raw.ownerAccountId, inviteCode: raw.inviteCode,
-      createdAt: raw.createdAt, closedAt: raw.closedAt as number | null, minGames: Number(raw.minGames), ratingVersion: 1, members }
+      createdAt: raw.createdAt, closedAt, minGames: Number(raw.minGames), ratingVersion: 1, members, ...(seasons ? { seasons } : {}) }
     leagues.set(league.id, league); codes.add(league.inviteCode)
   }
   return leagues
@@ -69,29 +92,70 @@ export function makeLeague(leagues: Map<string, StoredLeague>, account: Identity
   if (!Number.isSafeInteger(minGames) || Number(minGames) < 1 || Number(minGames) > 50) throw new LeagueError('invalid_min_games')
   const all = [...leagues.values()]
   if (all.length >= 2_000 || all.filter(l => l.ownerAccountId === account.id).length >= 20 || all.filter(l => l.members.some(m => m.accountId === account.id)).length >= 100) throw new LeagueError('league_limit', 429)
-  let inviteCode: string
-  do { inviteCode = randomBytes(5).toString('hex').toUpperCase() } while (all.some(l => l.inviteCode === inviteCode))
-  return { id: randomUUID(), name: leagueName, gameType: input.gameType, ownerAccountId: account.id, inviteCode, createdAt: now, closedAt: null,
+  return { id: randomUUID(), name: leagueName, gameType: input.gameType, ownerAccountId: account.id, inviteCode: makeInviteCode(leagues), createdAt: now, closedAt: null,
     minGames: Number(minGames), ratingVersion: 1, members: [{ id: randomUUID(), accountId: account.id, name: name(account.name, 24) ? account.name : 'Jugador', joinedAt: now }] }
 }
 
-export function joinedLeague(leagues: Map<string, StoredLeague>, account: Identity, code: unknown, now = Date.now(), expectedGameType?: unknown): StoredLeague {
+export function makeInviteCode(leagues: Map<string, StoredLeague>): string {
+  const codes = new Set([...leagues.values()].map(league => league.inviteCode))
+  let code: string
+  do { code = randomBytes(5).toString('hex').toUpperCase() } while (codes.has(code))
+  return code
+}
+
+function invitedLeague(leagues: Map<string, StoredLeague>, code: unknown, expectedGameType?: unknown): StoredLeague {
   if (expectedGameType !== undefined && !game(expectedGameType)) throw new LeagueError('invalid_game_type')
   const normalized = typeof code === 'string' ? code.trim().toUpperCase() : ''
   if (!/^[A-F0-9]{10}$/.test(normalized)) throw new LeagueError('invalid_invite_code')
   const league = [...leagues.values()].find(l => l.inviteCode === normalized)
   if (!league) throw new LeagueError('league_not_found', 404)
   if (expectedGameType !== undefined && league.gameType !== expectedGameType) throw new LeagueError('league_wrong_game', 409)
+  return league
+}
+
+export function leagueInvitation(leagues: Map<string, StoredLeague>, accountId: string, code: unknown, expectedGameType?: unknown): LeagueInvitation {
+  const league = invitedLeague(leagues, code, expectedGameType)
+  return { ...roomLeagueSummary(league), isMember: league.members.some(member => member.accountId === accountId) }
+}
+
+export function joinedLeague(leagues: Map<string, StoredLeague>, account: Identity, code: unknown, now = Date.now(), expectedGameType?: unknown): StoredLeague {
+  const league = invitedLeague(leagues, code, expectedGameType)
   if (league.members.some(m => m.accountId === account.id)) return league
   if (league.closedAt !== null) throw new LeagueError('league_closed', 409)
   if (league.members.length >= 200) throw new LeagueError('league_full', 409)
   if ([...leagues.values()].filter(l => l.members.some(m => m.accountId === account.id)).length >= 100) throw new LeagueError('league_limit', 429)
-  return { ...league, members: [...league.members, { id: randomUUID(), accountId: account.id, name: name(account.name, 24) ? account.name : 'Jugador', joinedAt: now }] }
+  const joinedAt = Math.max(now, league.createdAt, league.seasons?.[league.seasons.length - 1].startedAt ?? 0)
+  return { ...league, members: [...league.members, { id: randomUUID(), accountId: account.id, name: name(account.name, 24) ? account.name : 'Jugador', joinedAt }] }
+}
+
+export function activeLeagueSeasonId(league: StoredLeague): string | undefined {
+  return league.seasons?.[league.seasons.length - 1].id
+}
+
+export function leagueSeasonWindows(league: StoredLeague): Omit<LeagueSeason, 'gameCount'>[] {
+  if (!league.seasons) return []
+  return [
+    { id: ORIGINAL_SEASON_ID, name: null, startedAt: league.createdAt, endedAt: league.seasons[0].startedAt },
+    ...league.seasons.map(({ id, name, startedAt }, index) => ({ id, name, startedAt, endedAt: league.seasons![index + 1]?.startedAt ?? league.closedAt })),
+  ]
+}
+
+export function startedLeagueSeason(league: StoredLeague, requestedName: unknown, now = Date.now()): StoredLeague {
+  const seasonName = typeof requestedName === 'string' ? requestedName.trim() : null
+  if (!name(seasonName, 60)) throw new LeagueError('invalid_season_name')
+  const seasons = league.seasons ?? []
+  const current = seasons[seasons.length - 1]
+  if (current?.name === seasonName) return league
+  if (seasons.length >= MAX_SEASONS) throw new LeagueError('league_season_limit', 409)
+  const startedAt = Math.max(now, current?.startedAt ?? league.createdAt, ...league.members.map(member => member.joinedAt))
+  return { ...league, seasons: [...seasons, { id: randomUUID(), name: seasonName, startedAt, memberCountAtStart: league.members.length }] }
 }
 
 export function leagueSummary(league: StoredLeague, account: string, gameCount: number): LeagueSummary {
+  const activeSeasonId = activeLeagueSeasonId(league)
   return { id: league.id, name: league.name, gameType: league.gameType, createdAt: league.createdAt, closedAt: league.closedAt,
-    minGames: league.minGames, memberCount: league.members.length, gameCount, isOwner: league.ownerAccountId === account }
+    minGames: league.minGames, memberCount: league.members.length, gameCount, isOwner: league.ownerAccountId === account,
+    ...(activeSeasonId ? { activeSeasonId } : {}) }
 }
 export function roomLeagueSummary(league: StoredLeague): RoomLeagueSummary {
   return { id: league.id, name: league.name, gameType: league.gameType, closedAt: league.closedAt }
@@ -111,36 +175,70 @@ export function leagueStartError(league: StoredLeague | undefined, gameType: Lea
   return null
 }
 
-export function validLeagueMatch(league: StoredLeague | undefined, gameType: LeagueGameType, match: Pick<PersonalMatch, 'startedAt' | 'participants'>): boolean {
-  return !!league && league.gameType === gameType && match.startedAt >= league.createdAt &&
-    (league.closedAt === null || match.startedAt <= league.closedAt) && match.participants.length >= 2 &&
+export function validLeagueMatch(league: StoredLeague | undefined, gameType: LeagueGameType, match: Pick<PersonalMatch, 'startedAt' | 'participants' | 'leagueSeasonId'>): boolean {
+  if (!league || league.gameType !== gameType || match.startedAt < league.createdAt) return false
+  const seasons = league.seasons
+  let nextSeason: StoredLeagueSeason | undefined
+  if (match.leagueSeasonId) {
+    const index = seasons?.findIndex(season => season.id === match.leagueSeasonId) ?? -1
+    if (index < 0 || match.startedAt < seasons![index].startedAt) return false
+    nextSeason = seasons![index + 1]
+  } else {
+    nextSeason = seasons?.[0]
+  }
+  if (nextSeason && match.startedAt > nextSeason.startedAt) return false
+  const memberLimit = nextSeason?.memberCountAtStart ?? league.members.length
+  return (league.closedAt === null || match.startedAt <= league.closedAt) && match.participants.length >= 2 &&
     new Set(match.participants.map(p => p.accountId)).size === match.participants.length &&
-    match.participants.every(p => p.accountId && league.members.some(m => m.accountId === p.accountId && m.joinedAt <= match.startedAt))
+    match.participants.every(p => p.accountId && league.members.some((m, i) => i < memberLimit && m.accountId === p.accountId && m.joinedAt <= match.startedAt))
 }
 export function validateLeagueResult(league: StoredLeague | undefined, result: DurableGameResult): boolean {
-  return validLeagueMatch(league, result.gameType, { startedAt: result.startedAt, participants: result.players.map((p, i) => ({ playerId: String(i), accountId: p.accountId, name: p.name })) })
+  return validLeagueMatch(league, result.gameType, { startedAt: result.startedAt, leagueSeasonId: result.leagueSeasonId,
+    participants: result.players.map((p, i) => ({ playerId: String(i), accountId: p.accountId, name: p.name })) })
 }
 
 type TableStanding = Omit<LeagueStanding, 'isMe'> & { accountId: string }
-export interface LeagueTable { standings: TableStanding[]; recentGames: LeagueGame[]; gameCount: number }
+export interface LeagueTable {
+  standings: TableStanding[]
+  recentGames: LeagueGame[]
+  gameCount: number
+  receipts: Map<string, Map<string, LeagueRatingChange>>
+}
 /** Replay only the server's immutable, chronological result ledger. */
-export function buildLeagueTable(league: StoredLeague, results: Iterable<DurableGameResult>): LeagueTable {
-  const games = [...results].filter(r => r.leagueId === league.id).sort((a, b) => a.finishedAt - b.finishedAt || a.id.localeCompare(b.id))
-  const ratings = new Map(league.members.map(m => [m.accountId, initialLeagueRating()]))
-  const rows = new Map(league.members.map(m => [m.accountId, { accountId: m.accountId, memberId: m.id, name: m.name, rank: null as number | null,
+export function buildLeagueTable(league: StoredLeague, results: Iterable<DurableGameResult>, seasonId = activeLeagueSeasonId(league) ?? ORIGINAL_SEASON_ID, receiptId?: string): LeagueTable {
+  const games = [...results].filter(r => r.leagueId === league.id && (r.leagueSeasonId ?? ORIGINAL_SEASON_ID) === seasonId)
+    .sort((a, b) => a.finishedAt - b.finishedAt || a.id.localeCompare(b.id))
+  const seasonIndex = league.seasons?.findIndex(season => season.id === seasonId) ?? -1
+  const nextSeason = league.seasons?.[seasonIndex + 1]
+  // Membership is append-only. Remembering the roster size at the next opening
+  // keeps the archive stable even when a new member joins during that same tick.
+  const members = nextSeason ? league.members.slice(0, nextSeason.memberCountAtStart) : league.members
+  const ratings = new Map(members.map(m => [m.accountId, initialLeagueRating()]))
+  const rows = new Map(members.map(m => [m.accountId, { accountId: m.accountId, memberId: m.id, name: m.name, rank: null as number | null,
     rating: 0, played: 0, wins: 0, draws: 0, losses: 0, winRate: 0, provisional: true }]))
-  for (const result of games) {
+  const receipts = new Map<string, Map<string, LeagueRatingChange>>()
+  const recentStart = Math.max(0, games.length - 50)
+  for (const [i, result] of games.entries()) {
     if (!validateLeagueResult(league, result)) throw new Error('Invalid league result participants')
     const updated = updateLeagueRatings(result.players.map(p => ({ id: p.accountId!, ...ratings.get(p.accountId!)!, position: p.position })))
     const winners = result.players.filter(p => p.position === 1).length
+    const receipt = i >= recentStart || result.id === receiptId ? new Map<string, LeagueRatingChange>() : undefined
     for (const player of result.players) {
-      ratings.set(player.accountId!, updated.get(player.accountId!)!)
-      const row = rows.get(player.accountId!)!
+      const accountId = player.accountId!
+      const rating = updated.get(accountId)!
+      if (receipt) {
+        const before = leagueRatingPoints(ratings.get(accountId)!)
+        const after = leagueRatingPoints(rating)
+        receipt.set(accountId, { before, after, change: Math.round((after - before) * 100) / 100 })
+      }
+      ratings.set(accountId, rating)
+      const row = rows.get(accountId)!
       row.played++
       if (player.position !== 1) row.losses++
       else if (winners === 1) row.wins++
       else row.draws++
     }
+    if (receipt) receipts.set(result.id, receipt)
   }
   for (const row of rows.values()) {
     row.rating = leagueRatingPoints(ratings.get(row.accountId)!)
@@ -155,12 +253,13 @@ export function buildLeagueTable(league: StoredLeague, results: Iterable<Durable
     if (!previous || previous.rating !== row.rating || previous.wins !== row.wins || previous.winRate !== row.winRate) rank = i + 1
     row.rank = rank
   }
-  const recentGames = games.slice(-50).reverse().map(result => ({ id: result.id, finishedAt: result.finishedAt, playerCount: result.players.length,
-    players: result.players.map(p => ({ memberId: league.members.find(m => m.accountId === p.accountId)!.id, name: p.name, position: p.position, score: p.score })).sort((a, b) => a.position - b.position || a.memberId.localeCompare(b.memberId)) }))
-  return { standings, recentGames, gameCount: games.length }
+  const recentGames = games.slice(recentStart).reverse().map(result => ({ id: result.id, finishedAt: result.finishedAt, playerCount: result.players.length,
+    players: result.players.map(p => ({ memberId: rows.get(p.accountId!)!.memberId, name: p.name, position: p.position, score: p.score })).sort((a, b) => a.position - b.position || a.memberId.localeCompare(b.memberId)) }))
+  return { standings, recentGames, gameCount: games.length, receipts }
 }
-export function leagueDetail(league: StoredLeague, table: LeagueTable, account: string): LeagueDetail {
-  return { ...leagueSummary(league, account, table.gameCount), inviteCode: league.inviteCode, ratingSystem: 'trueskill', ratingVersion: 1,
+export function leagueDetail(league: StoredLeague, table: LeagueTable, account: string, seasonId: string, seasons: LeagueSeason[]): LeagueDetail {
+  return { ...leagueSummary(league, account, table.gameCount), memberCount: table.standings.length, inviteCode: league.inviteCode, ratingSystem: 'trueskill', ratingVersion: 1,
+    ...(seasons.length ? { seasonId, seasons } : {}),
     standings: table.standings.map(({ accountId, ...row }) => ({ ...row, isMe: accountId === account })), recentGames: structuredClone(table.recentGames) }
 }
 
@@ -172,6 +271,8 @@ export function registerLeagues(app: Express, options: {
 }): void {
   const requests = requestLimit(new RateLimiter(120, 60_000))
   const creates = new RateLimiter(5, 60 * 60_000), joins = new RateLimiter(30, 60 * 60_000), writes = new RateLimiter(60, 60 * 60_000)
+  const invitePreviews = new RateLimiter(40, 60 * 60_000)
+  const resultReads = new RateLimiter(30, 60_000)
   app.use('/api/leagues', (req, res, next) => {
     res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow')
     if (!options.isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
@@ -201,14 +302,36 @@ export function registerLeagues(app: Express, options: {
     budget(joins, account, res); budget(writes, account, res)
     res.json(await options.runMutation(() => options.repository.joinLeague(account, req.body?.code, req.body?.expectedGameType)))
   }))
+  app.post('/api/leagues/invite/preview', json, run((req, res, account) => {
+    budget(invitePreviews, account, res)
+    res.json(options.repository.previewLeagueInvitation(account.id, req.body?.code, req.body?.expectedGameType))
+  }))
+  app.get('/api/leagues/results/:matchId', run((req, res, account) => {
+    budget(resultReads, account, res)
+    const { matchId } = req.params, { roomId } = req.query
+    if (!id(matchId) || (roomId !== undefined && (typeof roomId !== 'string' || !/^\d{4}$/.test(roomId)))) throw new LeagueError('invalid_request')
+    const value = options.repository.getLeagueResultReceipt(matchId, account.id, roomId)
+    if (!value) throw new LeagueError('league_result_not_found', 404)
+    res.json(value)
+  }))
   app.get('/api/leagues/:id', run((req, res, account) => {
-    const value = options.repository.getLeagueDetail(req.params.id, account.id)
+    const seasonId = req.query.seasonId
+    if (seasonId !== undefined && !id(seasonId)) throw new LeagueError('invalid_request')
+    const value = options.repository.getLeagueDetail(req.params.id, account.id, seasonId)
     if (!value) throw new LeagueError('league_not_found', 404)
     res.json(value)
   }))
   app.post('/api/leagues/:id/close', json, run(async (req, res, account) => {
     budget(writes, account, res)
     res.json(await options.runMutation(() => options.repository.closeLeague(req.params.id, account.id)))
+  }))
+  app.post('/api/leagues/:id/invite/rotate', json, run(async (req, res, account) => {
+    budget(writes, account, res)
+    res.json(await options.runMutation(() => options.repository.rotateLeagueInvitation(req.params.id, account.id)))
+  }))
+  app.post('/api/leagues/:id/seasons', json, run(async (req, res, account) => {
+    budget(writes, account, res)
+    res.json(await options.runMutation(() => options.repository.startLeagueSeason(req.params.id, account.id, req.body?.name)))
   }))
   app.use('/api/leagues', (error: unknown, _req: Request, res: Response, _next: unknown) => {
     if (!res.headersSent) res.status(object(error) && error.type === 'entity.too.large' ? 413 : object(error) && error.type === 'encoding.unsupported' ? 415 : 400).json({ error: 'invalid_request' })

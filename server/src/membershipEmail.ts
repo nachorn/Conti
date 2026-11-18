@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 type Language = 'en' | 'es'
-type EmailSender = (email: string, code: string, lang: Language) => Promise<void>
+export type EmailSender = (email: string, code: string, lang: Language, purpose?: 'admin') => Promise<void>
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send'
@@ -27,7 +27,13 @@ function resendFrom(value: string): boolean {
   return !!named && named[1].trim().length > 0 && mailbox(named[2])
 }
 
-function message(code: string, lang: Language, brand?: string) {
+function message(code: string, lang: Language, brand?: string, purpose?: 'admin') {
+  if (purpose === 'admin') return {
+    subject: lang === 'es' ? 'Tu código de Administración · NRN Play' : 'Your Administration code · NRN Play',
+    text: lang === 'es'
+      ? `Tu código para abrir Administración es ${code}. Caduca en 10 minutos y solo se puede usar una vez.\n\nSi no lo has solicitado, puedes ignorar este correo.`
+      : `Your code to open Administration is ${code}. It expires in 10 minutes and can only be used once.\n\nIf you did not request this, you can ignore this email.`,
+  }
   return {
     subject: lang === 'es' ? `Tu código de acceso · ${brand ?? 'Continental y Pocha'}` : `Your sign-in code · ${brand ?? 'Continental & Pocha'}`,
     text: lang === 'es'
@@ -36,8 +42,8 @@ function message(code: string, lang: Language, brand?: string) {
   }
 }
 
-function rawMessage(from: string, to: string, code: string, lang: Language, now: number, brand?: string): string {
-  const { subject, text } = message(code, lang, brand)
+function rawMessage(from: string, to: string, code: string, lang: Language, now: number, brand?: string, purpose?: 'admin'): string {
+  const { subject, text } = message(code, lang, brand, purpose)
   const body = Buffer.from(text.replace(/\n/g, '\r\n'), 'utf8').toString('base64').match(/.{1,76}/g)!.join('\r\n')
   const mime = [
     `From: ${from}`,
@@ -93,8 +99,8 @@ export function createMembershipEmailSender(
       })().finally(() => { refreshing = undefined })
       return refreshing
     }
-    deliver = async (email, code, lang) => {
-      const raw = rawMessage(from, email, code, lang, now(), brand)
+    deliver = async (email, code, lang, purpose) => {
+      const raw = rawMessage(from, email, code, lang, now(), brand, purpose)
       const token = await accessToken()
       const response = await request(SEND_URL, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
@@ -116,11 +122,11 @@ export function createMembershipEmailSender(
     const replyTo = replyToValue?.trim() || undefined
     if (!key || !from || !resendFrom(from)) return undefined
     if (replyToValue && (hasControls(replyToValue) || (replyTo && !mailbox(replyTo)))) return undefined
-    deliver = async (email, code, lang) => {
+    deliver = async (email, code, lang, purpose) => {
       const response = await request('https://api.resend.com/emails', {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-        body: JSON.stringify({ from, to: [email], ...message(code, lang, brand), ...(replyTo ? { reply_to: replyTo } : {}) }),
+        body: JSON.stringify({ from, to: [email], ...message(code, lang, brand, purpose), ...(replyTo ? { reply_to: replyTo } : {}) }),
       })
       if (!response.ok) throw unavailable()
       // An uncertain send is not retried: Resend may already have accepted it.
@@ -128,10 +134,10 @@ export function createMembershipEmailSender(
       if (!object(result) || typeof result.id !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(result.id)) throw unavailable()
     }
   } else return undefined
-  return async (email, code, lang) => {
+  return async (email, code, lang, purpose) => {
     try {
       if (typeof email !== 'string' || !mailbox(email) || typeof code !== 'string' || !/^\d{6}$/.test(code) || (lang !== 'en' && lang !== 'es')) throw unavailable()
-      await deliver(email, code, lang)
+      await deliver(email, code, lang, purpose)
     } catch { throw unavailable() }
   }
 }

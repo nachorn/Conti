@@ -1,16 +1,26 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import express, { type CookieOptions, type Express, type NextFunction, type Request, type Response } from 'express'
 import { RateLimiter, requestLimit } from './security.js'
+import { ADMIN_PROOF_SESSION_MS, AdminStepUpError, type AdminStepUp, type AdminProofDenial } from './adminStepUp.js'
 
 export const ADMIN_SESSION_COOKIE = 'conti_admin_session'
+export const ADMIN_PROOF_COOKIE = '__Secure-nrn_admin_session'
 export const ADMIN_REMEMBER_MS = 30 * 24 * 60 * 60_000
 export const ADMIN_SESSION_MS = 12 * 60 * 60_000
 const COOKIE_PATH = '/api/admin'
 const hash = (value: string) => createHash('sha256').update(value).digest()
-export type AdminAccountVerifier = (token: string) => { isAdmin?: boolean } | null
+export type AdminAccountVerifier = Pick<AdminStepUp, 'verify' | 'challenge' | 'confirm' | 'revoke'>
 type AdminMethod = 'bearer' | 'cookie' | 'account'
-type AdminAccess = { method: AdminMethod; error?: never; status?: never } | { method: null; error: 'unauthorized' | 'forbidden'; status: 401 | 403 }
+type AdminAccess = { method: AdminMethod; error?: never; status?: never } | ({ method: null } & AdminProofDenial)
 const same = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b)
+const bearer = (req: Request) => {
+  const authorization = req.get('authorization') ?? ''
+  return authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
+}
+const cookie = (req: Request, name: string) => {
+  const values = (req.get('cookie') ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${name}=`))
+  return values.length === 1 ? values[0].slice(name.length + 1) : ''
+}
 const normalizeOrigin = (value: string | undefined): string | null => {
   if (!value) return null
   try {
@@ -19,7 +29,7 @@ const normalizeOrigin = (value: string | undefined): string | null => {
   } catch { return null }
 }
 
-/** Legacy cookies have a fixed lifetime. Account-only mode verifies MembershipService on every request. */
+/** Account administration requires both the current account session and a recent email proof. */
 export class AdminAuth {
   private readonly passwordHash: Buffer | null
   private readonly signingKey: Buffer | null
@@ -47,14 +57,12 @@ export class AdminAuth {
   access(req: Request): AdminAccess {
     const authorization = req.get('authorization') ?? ''
     if (this.accountVerifier) {
-      const account = authorization.startsWith('Bearer ') ? this.accountVerifier(authorization.slice(7)) : null
-      return account?.isAdmin === true ? { method: 'account' } : account
-        ? { method: null, error: 'forbidden', status: 403 } : { method: null, error: 'unauthorized', status: 401 }
+      const denied = this.accountVerifier.verify(bearer(req), cookie(req, ADMIN_PROOF_COOKIE))
+      return denied ? { method: null, ...denied } : { method: 'account' }
     }
     // An explicitly supplied but invalid credential must not silently fall back to a cookie.
     if (authorization) return authorization.startsWith('Bearer ') && this.validPassword(authorization.slice(7)) ? { method: 'bearer' } : { method: null, error: 'unauthorized', status: 401 }
-    const cookies = (req.get('cookie') ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${ADMIN_SESSION_COOKIE}=`))
-    return cookies.length === 1 && this.validSession(cookies[0].slice(ADMIN_SESSION_COOKIE.length + 1))
+    return this.validSession(cookie(req, ADMIN_SESSION_COOKIE))
       ? { method: 'cookie' } : { method: null, error: 'unauthorized', status: 401 }
   }
   authenticate(req: Request): AdminMethod | null {
@@ -64,6 +72,14 @@ export class AdminAuth {
     // This header cannot be sent by HTML forms, and credentialed cross-origin CORS is disabled.
     if (req.get('x-admin-request') !== '1') return false
     const originHeader = req.get('origin')
+    if (this.accountOnly) {
+      const site = req.get('sec-fetch-site')
+      if (site && site !== 'same-origin' && site !== 'none') return false
+      if (!originHeader) return true
+      const origin = normalizeOrigin(originHeader)
+      return origin === 'https://nrnplay.com' || process.env.NODE_ENV !== 'production' && origin !== null &&
+        /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(origin)
+    }
     if (!originHeader) return true
     const origin = normalizeOrigin(originHeader)
     if (!origin) return false
@@ -76,6 +92,18 @@ export class AdminAuth {
   private cookieOptions(req: Request): CookieOptions {
     return { httpOnly: true, secure: this.secure(req), sameSite: 'strict', path: COOKIE_PATH }
   }
+  private proofCookieOptions(): CookieOptions {
+    return { httpOnly: true, secure: true, sameSite: 'strict', path: COOKIE_PATH }
+  }
+  challenge(req: Request, lang: 'en' | 'es') {
+    if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
+    return this.accountVerifier.challenge(bearer(req), lang)
+  }
+  confirm(req: Request, res: Response, code: unknown) {
+    if (!this.accountVerifier) throw new AdminStepUpError('dashboard_not_configured', 503)
+    const token = this.accountVerifier.confirm(bearer(req), code)
+    res.cookie(ADMIN_PROOF_COOKIE, token, { ...this.proofCookieOptions(), maxAge: ADMIN_PROOF_SESSION_MS })
+  }
   issue(req: Request, res: Response, remember: boolean) {
     if (this.accountOnly || !this.signingKey) throw new Error('Legacy admin authentication is not configured')
     const lifetime = remember ? ADMIN_REMEMBER_MS : ADMIN_SESSION_MS
@@ -86,7 +114,12 @@ export class AdminAuth {
       ...this.cookieOptions(req), ...(remember ? { maxAge: lifetime, expires: new Date(issued + lifetime) } : {}),
     })
   }
-  clear(req: Request, res: Response) { res.clearCookie(ADMIN_SESSION_COOKIE, this.cookieOptions(req)) }
+  clear(req: Request, res: Response) {
+    if (this.accountVerifier) {
+      this.accountVerifier.revoke(cookie(req, ADMIN_PROOF_COOKIE))
+      res.clearCookie(ADMIN_PROOF_COOKIE, this.proofCookieOptions())
+    } else res.clearCookie(ADMIN_SESSION_COOKIE, this.cookieOptions(req))
+  }
 }
 
 export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: () => boolean) {
@@ -97,14 +130,23 @@ export function registerAdminSessions(app: Express, auth: AdminAuth, isHealthy: 
     if (!auth.allowWrite(req)) { res.status(403).json({ error: 'invalid_request' }); return }
     next()
   }
+  const proofError = (error: unknown, res: Response) => {
+    if (!(error instanceof AdminStepUpError)) { res.status(503).json({ error: 'server_unavailable' }); return }
+    if (error.retryAfter) res.set('Retry-After', String(error.retryAfter))
+    res.status(error.status).json({ error: error.code })
+  }
+  app.post('/api/admin/session/challenge', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb', inflate: false }), async (req, res) => {
+    if (!isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
+    if (!req.is('application/json') || (req.body?.lang !== 'es' && req.body?.lang !== 'en')) { res.status(400).json({ error: 'invalid_request' }); return }
+    try { await auth.challenge(req, req.body.lang); res.json({ ok: true }) } catch (error) { proofError(error, res) }
+  })
   app.post('/api/admin/session', privateResponse, writeRequest, requestLimit(new RateLimiter(10, 60_000)), express.json({ limit: '1kb', inflate: false }), (req, res) => {
     if (!auth.configured) { res.status(503).json({ error: 'dashboard_not_configured' }); return }
     if (auth.accountOnly) {
       if (!isHealthy()) { res.status(503).json({ error: 'server_unavailable' }); return }
-      const access = auth.access(req)
-      if (!access.method) { res.status(access.status).json({ error: access.error }); return }
-      // Account sessions belong to MembershipService; never mint a master-key cookie here.
-      res.json({ ok: true }); return
+      if (!req.is('application/json')) { res.status(400).json({ error: 'invalid_request' }); return }
+      try { auth.confirm(req, res, req.body?.code); res.json({ ok: true }) } catch (error) { proofError(error, res) }
+      return
     }
     if (!req.is('application/json') || typeof req.body?.password !== 'string' || typeof req.body?.remember !== 'boolean') { res.status(400).json({ error: 'invalid_request' }); return }
     if (!auth.validPassword(req.body.password)) { res.status(401).json({ error: 'unauthorized' }); return }

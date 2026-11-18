@@ -27,10 +27,11 @@ export interface PochaBoardProps {
   isConnected?: boolean
   error?: string | null
   lobbyExtra?: ReactNode
+  leagueResultExtra?: ReactNode
 }
 
 export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, onStart, onConfigure, onNextRound, onRematch,
-  onBid, onPlayCard, isConnected = true, error, lobbyExtra }: PochaBoardProps) {
+  onBid, onPlayCard, isConnected = true, error, lobbyExtra, leagueResultExtra }: PochaBoardProps) {
   const L = (es: string, en: string) => lang === 'es' ? es : en
   const [selected, setSelected] = useState<string | null>(null)
   const [bid, setBid] = useState<number | null>(null)
@@ -137,6 +138,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
             {state.phase === 'game_end' && <p>{L('Mayor puntuación · ', 'Top score · ')}{Math.max(...state.players.map(p => p.score))} pt</p>}
             {state.lastTrick && <p className="pocha-result-last-winner">{L('Última baza para ', 'Last trick won by ')}<strong>{name(state.lastTrick.winnerId)}</strong></p>}
             <ResultTable state={state} lang={lang} />
+            {state.phase === 'game_end' && leagueResultExtra}
             {state.phase === 'game_end' && lobbyExtra}
             {isHost ? <button className="pocha-primary" disabled={!available} onClick={state.phase === 'game_end' ? onRematch : onNextRound}>
               {state.phase === 'game_end' ? L('Preparar otra partida', 'Set up another game') : L('Siguiente ronda', 'Next round') + ' · ' + state.schedule[state.handNumber] + L(' cartas', ' cards')}</button>

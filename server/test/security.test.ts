@@ -3,10 +3,23 @@ import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
 import { io, type Socket } from 'socket.io-client'
 import { createGameServer } from '../src/app.js'
-import { RateLimiter } from '../src/security.js'
+import { RateLimiter, socketClientKey } from '../src/security.js'
+import type { IncomingMessage } from 'node:http'
 
 const ORIGIN = 'https://conti-six.vercel.app'
 const KEY = 'local-security-test-admin-key-with-32-characters'
+
+test('the verified loopback proxy separates socket budgets by the immediate forwarded client', () => {
+  const request = (peer: string, client?: string) => ({
+    socket: { remoteAddress: peer } as IncomingMessage['socket'],
+    headers: { 'x-forwarded-for': client },
+  })
+  assert.equal(socketClientKey(request('::ffff:127.0.0.1', '198.51.100.4'), true), '198.51.100.4')
+  assert.equal(socketClientKey(request('::1', '198.51.100.4, 2001:db8::a'), true), '2001:db8::a')
+  assert.equal(socketClientKey(request('127.0.0.1', 'unknown'), true), '127.0.0.1')
+  assert.equal(socketClientKey(request('::ffff:127.0.0.1', '198.51.100.4')), '127.0.0.1')
+  assert.equal(socketClientKey(request('192.0.2.1', '198.51.100.4'), true), '192.0.2.1')
+})
 
 async function harness(t: TestContext) {
   let saves = 0

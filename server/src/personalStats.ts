@@ -14,6 +14,7 @@ export interface PersonalMatch {
   eligible: boolean
   /** Selected league is pinned before the deal, never inferred from later joins. */
   leagueId?: string
+  leagueSeasonId?: string
 }
 export interface DurableGameResult {
   id: string
@@ -25,6 +26,7 @@ export interface DurableGameResult {
   deckCount?: 2 | 3
   settings?: PochaSettings
   leagueId?: string
+  leagueSeasonId?: string
 }
 
 // The client contract stays independent of runtime rule sources. The server
@@ -45,7 +47,7 @@ const uniqueAccounts = (players: { accountId: string | null }[]) => {
 const positions = (scores: number[], gameType: DurableGameResult['gameType']) => scores.map(score => 1 + scores.filter(other => gameType === 'pocha' ? other > score : other < score).length)
 
 /** Pin only authenticated account IDs at game start; guests remain guests for this game. */
-export function beginPersonalMatch(record: RoomRecord, accounts: Record<string, string | null>, now = Date.now()): void {
+export function beginPersonalMatch(record: RoomRecord, accounts: Record<string, string | null>, now = Date.now(), leagueSeasonId?: string): void {
   const participants = record.room.players.map(player => ({
     playerId: player.id, accountId: validId(accounts[player.id]) ? accounts[player.id] : null, name: player.name,
   }))
@@ -53,6 +55,7 @@ export function beginPersonalMatch(record: RoomRecord, accounts: Record<string, 
     id: randomUUID(), startedAt: now, participants,
     eligible: participants.length >= 2 && record.room.players.every(p => p.connected) && !record.sessions.some(s => s.bot) && uniqueAccounts(participants),
     ...(record.leagueId ? { leagueId: record.leagueId } : {}),
+    ...(record.leagueId && leagueSeasonId ? { leagueSeasonId } : {}),
   }
 }
 
@@ -60,6 +63,7 @@ export function parsePersonalMatch(value: unknown): PersonalMatch | undefined {
   if (value === undefined) return undefined
   if (!object(value) || !validId(value.id) || !validTime(value.startedAt) || typeof value.eligible !== 'boolean' ||
       (value.leagueId !== undefined && !validId(value.leagueId)) ||
+      (value.leagueSeasonId !== undefined && (!validId(value.leagueSeasonId) || value.leagueId === undefined)) ||
       !Array.isArray(value.participants) || value.participants.length < 2 || value.participants.length > 10) return fail()
   const participants = value.participants.map(raw => {
     if (!object(raw) || !validId(raw.playerId) || !validName(raw.name)) return fail()
@@ -67,7 +71,8 @@ export function parsePersonalMatch(value: unknown): PersonalMatch | undefined {
   })
   if (new Set(participants.map(p => p.playerId)).size !== participants.length || (value.eligible && !uniqueAccounts(participants))) return fail()
   return { id: value.id, startedAt: value.startedAt, eligible: value.eligible, participants,
-    ...(value.leagueId === undefined ? {} : { leagueId: value.leagueId as string }) }
+    ...(value.leagueId === undefined ? {} : { leagueId: value.leagueId as string }),
+    ...(value.leagueSeasonId === undefined ? {} : { leagueSeasonId: value.leagueSeasonId as string }) }
 }
 
 function cleanSettings(value: unknown, players: number, deckSize: PochaDeckSize = 48): PochaSettings {
@@ -106,6 +111,10 @@ export function parseGameResults(value: unknown): Map<string, DurableGameResult>
       if (!validId(raw.leagueId)) return fail()
       result.leagueId = raw.leagueId
     }
+    if (raw.leagueSeasonId !== undefined) {
+      if (!result.leagueId || !validId(raw.leagueSeasonId)) return fail()
+      result.leagueSeasonId = raw.leagueSeasonId
+    }
     if (raw.deckSize !== undefined) {
       if (raw.gameType !== 'pocha' || !isPochaDeckSize(raw.deckSize)) return fail()
       result.deckSize = raw.deckSize
@@ -123,12 +132,16 @@ export function parseGameResults(value: unknown): Map<string, DurableGameResult>
   return results
 }
 
-/** A departure or a test bot makes the entire run ineligible, even if play continues. */
-export function personalMatchStillEligible(record: RoomRecord): boolean {
+export function personalMatchParticipantsUnchanged(record: RoomRecord): boolean {
   const match = record.match
-  if (!match?.eligible || record.sessions.some(s => s.bot) || record.room.players.length !== match.participants.length) return false
+  if (!match || record.sessions.some(s => s.bot) || record.room.players.length !== match.participants.length) return false
   const ids = new Set(record.room.players.map(p => p.id))
   return match.participants.every(p => ids.has(p.playerId)) && uniqueAccounts(match.participants)
+}
+
+/** A departure or a test bot makes the entire run ineligible, even if play continues. */
+export function personalMatchStillEligible(record: RoomRecord): boolean {
+  return record.match?.eligible === true && personalMatchParticipantsUnchanged(record)
 }
 
 /** Results are derived from completed server history, never from a client payload. */
@@ -170,6 +183,7 @@ export function finishedPersonalMatch(record: RoomRecord, now = Date.now()): Dur
     id: match.id, gameType: room.gameType, startedAt: match.startedAt, finishedAt: now,
     players: match.participants.map((p, i) => ({ accountId: p.accountId, name: p.name, score: finalScores.get(p.playerId)!, position: ranks[i] })),
     ...(match.leagueId ? { leagueId: match.leagueId } : {}),
+    ...(match.leagueSeasonId ? { leagueSeasonId: match.leagueSeasonId } : {}),
     ...(room.pocha ? { deckSize: room.pocha.deckSize, settings: cleanSettings(room.pocha.settings, match.participants.length, room.pocha.deckSize) } : { deckCount: room.deckCount }),
   }
 }

@@ -14,17 +14,15 @@ import { readAdminOverview } from '../lib/adminOverview'
 const copy = {
   en: {
     brand: 'NRN Play', owner: 'ADMIN', title: 'Administration',
-    subtitle: '', back: 'Back to games',
-    private: 'Private access', privateInfo: 'Enter your administration key.',
-    accessKey: 'Access key', unlock: 'Open dashboard', connecting: 'Connecting…', lock: 'Sign out',
-    remember: 'Remember me for 30 days', checking: 'Checking your saved session…', signingOut: 'Signing out…',
-    restoreError: 'Your saved session could not be checked. Try again when your connection returns.',
-    logoutError: 'Sign out could not be confirmed. Try again to remove access from this device.',
-    retry: 'Try again', retryLogout: 'Retry sign out', expired: 'Your session has expired. Please enter your access key again.',
-    keyHint: 'Only remember access on your own device. Sign out to remove it.',
-    unauthorized: 'That access key is not valid. Please try again.',
-    rateLimited: 'Too many attempts. Please wait one minute before trying again.',
-    unconfigured: 'Private access has not been set up yet. Contact the app owner to enable it.',
+    back: 'Back to games', connecting: 'Connecting…', lock: 'Lock dashboard',
+    checking: 'Checking access…', signingOut: 'Locking dashboard…',
+    logoutError: 'The session could not be closed. Please try again.',
+    retry: 'Try again', expired: 'Your admin session has expired.',
+    verifyTitle: 'Verify your access', sendCode: 'Email me a code', resendCode: 'Send another code',
+    codeSent: 'Enter the six-digit code sent to your email.', codeLabel: 'Email code', unlock: 'Open dashboard',
+    invalidCode: 'The code is incorrect or expired.', unauthorized: 'Your access could not be verified.',
+    rateLimited: 'Too many attempts. Wait a few minutes and try again.',
+    unconfigured: 'Administration verification is unavailable.',
     unavailable: 'The live update could not be loaded. Please try again.',
     stale: 'Updates interrupted. The information below is from the last successful refresh.',
     live: 'Live', reconnecting: 'Waiting for update', refresh: 'Refresh', updating: 'Updating…',
@@ -43,17 +41,15 @@ const copy = {
   },
   es: {
     brand: 'NRN Play', owner: 'ADMIN', title: 'Administración',
-    subtitle: '', back: 'Volver a los juegos',
-    private: 'Acceso privado', privateInfo: 'Introduce tu clave de administración.',
-    accessKey: 'Clave de acceso', unlock: 'Abrir panel', connecting: 'Conectando…', lock: 'Cerrar sesión',
-    remember: 'Recordarme durante 30 días', checking: 'Comprobando tu sesión guardada…', signingOut: 'Cerrando sesión…',
-    restoreError: 'No se pudo comprobar tu sesión guardada. Inténtalo de nuevo cuando recuperes la conexión.',
-    logoutError: 'No se pudo confirmar el cierre de sesión. Inténtalo de nuevo para quitar el acceso de este dispositivo.',
-    retry: 'Reintentar', retryLogout: 'Reintentar cierre de sesión', expired: 'Tu sesión ha caducado. Introduce tu clave de acceso de nuevo.',
-    keyHint: 'Recuerda el acceso solo en tu dispositivo. Cierra sesión para quitarlo.',
-    unauthorized: 'La clave de acceso no es válida. Inténtalo de nuevo.',
-    rateLimited: 'Demasiados intentos. Espera un minuto antes de volver a intentarlo.',
-    unconfigured: 'El acceso privado aún no está configurado. Contacta con el propietario para activarlo.',
+    back: 'Volver a los juegos', connecting: 'Conectando…', lock: 'Bloquear panel',
+    checking: 'Comprobando acceso…', signingOut: 'Bloqueando el panel…',
+    logoutError: 'No se pudo cerrar la sesión. Inténtalo de nuevo.',
+    retry: 'Reintentar', expired: 'La sesión de administración ha caducado.',
+    verifyTitle: 'Verifica tu acceso', sendCode: 'Enviarme un código', resendCode: 'Enviar otro código',
+    codeSent: 'Introduce el código de seis dígitos que te enviamos por email.', codeLabel: 'Código del email', unlock: 'Abrir panel',
+    invalidCode: 'El código es incorrecto o ha caducado.', unauthorized: 'No se pudo verificar tu acceso.',
+    rateLimited: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
+    unconfigured: 'La verificación de Administración no está disponible.',
     unavailable: 'No se pudo cargar la actualización. Inténtalo de nuevo.',
     stale: 'Actualizaciones interrumpidas. Se muestra la última información recibida.',
     live: 'En directo', reconnecting: 'Esperando actualización', refresh: 'Actualizar', updating: 'Actualizando…',
@@ -74,14 +70,15 @@ const copy = {
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 type Section = 'overview' | 'accounts' | 'leagues' | 'continental' | 'pocha' | 'football' | 'plus'
 
-export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminToken: string; onSignOut: () => void; onSessionExpired: () => void }) {
+export function Dashboard({ adminToken, onAccountExpired }: { adminToken: string; onAccountExpired: () => void }) {
   const [lang, setLang] = useState<Lang>(() => {
     try { const saved = localStorage.getItem('conti-language'); if (saved === 'en' || saved === 'es') return saved } catch { /* Optional preference. */ }
     return navigator.language.toLowerCase().startsWith('es') ? 'es' : 'en'
   })
   const c = copy[lang]
   const [session] = useState(() => new AdminSession())
-  const { phase, snapshot, error, busy: loading, receivedAt } = useSyncExternalStore(session.subscribe, session.getState)
+  const { phase, snapshot, error, busy: loading, receivedAt, codeSent } = useSyncExternalStore(session.subscribe, session.getState)
+  const [code, setCode] = useState('')
   const [clock, setClock] = useState(Date.now())
   const [showOffline, setShowOffline] = useState(false)
   const [query, setQuery] = useState('')
@@ -92,11 +89,12 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
   const [overviewRevision, setOverviewRevision] = useState(0)
   const overviewChanged = useCallback(() => setOverviewRevision(value => value + 1), [])
   const heading = useRef<HTMLHeadingElement>(null)
-  const unauthorized = useRef(onSessionExpired)
-  unauthorized.current = onSessionExpired
+  const codeInput = useRef<HTMLInputElement>(null)
+  const unauthorized = useRef(onAccountExpired)
+  unauthorized.current = onAccountExpired
   const unlocked = snapshot !== null
 
-  useLayoutEffect(() => configureAdminToken(() => adminToken, () => { session.expire(); unauthorized.current() }), [adminToken, session])
+  useLayoutEffect(() => configureAdminToken(() => adminToken, () => { session.expire(); unauthorized.current() }, session.expire), [adminToken, session])
 
   useEffect(() => {
     document.documentElement.lang = lang
@@ -106,6 +104,7 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
   useEffect(() => {
     if (unlocked) heading.current?.focus()
   }, [unlocked, phase])
+  useEffect(() => { if (codeSent) codeInput.current?.focus() }, [codeSent])
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 5_000)
     return () => window.clearInterval(timer)
@@ -150,9 +149,11 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
   }, [unlocked, session, overviewRevision])
 
   function lock() {
-    session.expire()
-    setQuery(''); setShowOffline(false); setSection('overview'); setOverview(null)
-    onSignOut()
+    setQuery(''); setShowOffline(false); setSection('overview'); setOverview(null); setCode('')
+    void session.logout()
+  }
+  const sendCode = async () => {
+    if (await session.sendCode(lang)) { setCode(''); codeInput.current?.focus() }
   }
   const fresh = !!snapshot && !error && clock - receivedAt < 15_000
   const search = normalized(query.trim())
@@ -193,7 +194,23 @@ export function Dashboard({ adminToken, onSignOut, onSessionExpired }: { adminTo
         {phase === 'unavailable' ? <><h2 id="dashboard-login-title">{lang === 'es' ? 'Panel no disponible' : 'Dashboard unavailable'}</h2>
           <p className="dashboard-error" role="alert">{c.unavailable}</p>
           <button className="dashboard-primary" disabled={loading} onClick={() => void session.refresh()}>{loading ? c.connecting : c.retry}</button></>
-          : <p id="dashboard-login-title" role="status">{lang === 'es' ? 'Comprobando acceso…' : 'Checking access…'}</p>}
+          : phase === 'logout-error' ? <><h2 id="dashboard-login-title">{c.lock}</h2>
+            <p className="dashboard-error" role="alert">{c.logoutError}</p>
+            <button type="button" className="dashboard-primary" onClick={lock}>{c.retry}</button></>
+          : phase === 'locked' ? <>
+            <h2 id="dashboard-login-title">{c.verifyTitle}</h2>
+            {error && <p className="dashboard-error" role="alert">{c[error]}</p>}
+            {codeSent ? <>
+              <p>{c.codeSent}</p>
+              <form onSubmit={event => { event.preventDefault(); void session.verifyCode(code) }}>
+                <label htmlFor="dashboard-code">{c.codeLabel}</label>
+                <input id="dashboard-code" ref={codeInput} type="text" inputMode="numeric" autoComplete="one-time-code"
+                  maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} required />
+                <button type="submit" className="dashboard-primary" disabled={loading || code.length !== 6}>{c.unlock}</button>
+              </form>
+              <button type="button" className="dashboard-button" disabled={loading} onClick={() => void sendCode()}>{c.resendCode}</button>
+            </> : <button type="button" className="dashboard-primary" disabled={loading} onClick={() => void sendCode()}>{loading ? c.connecting : c.sendCode}</button>}
+          </> : <p id="dashboard-login-title" role="status">{phase === 'logging-out' ? c.signingOut : c.checking}</p>}
       </section> : <>
         {!fresh && <p className="dashboard-error" role="alert">{c.stale}</p>}
         <nav className="dashboard-main-tabs" aria-label={lang === 'es' ? 'Secciones de administración' : 'Administration sections'}>

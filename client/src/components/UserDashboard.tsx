@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import type { LeagueGameType } from '@shared/leagues'
 import type { Lang } from '../i18n'
 import type { MembershipController } from '../useMembership'
 import { gameCatalog } from '../lib/gameCatalog'
@@ -9,6 +10,7 @@ import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
 import { accountView } from '../lib/accountReadiness'
 import { adminDestination } from '../lib/adminRoute'
+import { parseLeagueAccountTarget } from '../lib/leagueLinks'
 import './Membership.css'
 import './UserDashboard.css'
 
@@ -19,8 +21,22 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
   onOpenPlus: () => void
 }) {
   const es = lang === 'es'
-  const [gameType, setGameType] = useState<'continental' | 'pocha'>('continental')
-  const [view, setView] = useState<'stats' | 'leagues'>('stats')
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [target, setTarget] = useState(() => parseLeagueAccountTarget(location.hash))
+  const [gameType, setGameType] = useState<LeagueGameType>(target?.gameType ?? 'continental')
+  const [view, setView] = useState<'stats' | 'leagues'>(target ? 'leagues' : 'stats')
+  const inviteScrubbed = useRef(false)
+  useEffect(() => {
+    if (target?.kind !== 'invite' || !location.hash || inviteScrubbed.current) return
+    inviteScrubbed.current = true
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+  }, [target, location.hash, location.pathname, location.search, navigate])
+  const clearTarget = useCallback(() => setTarget(null), [])
+  const selectGame = (game: LeagueGameType) => {
+    if (game !== gameType) clearTarget()
+    setGameType(game)
+  }
   const { active: plusActive } = useCosmetics()
   const { account, token } = membership
   const identity = accountView(membership)
@@ -34,8 +50,10 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
     </div>
 
     {!account ? identity === 'signed-out' ? <section className="user-dashboard-gate" aria-labelledby="user-dashboard-access-title">
-      <h2 id="user-dashboard-access-title">{es ? 'Tu cuenta de NRN Play' : 'Your NRN Play account'}</h2>
-      <p>{es ? 'Entra para ver tus resultados, ligas y ajustes de cuenta.' : 'Sign in to view your results, leagues and account settings.'}</p>
+      <h2 id="user-dashboard-access-title">{target?.kind === 'invite'
+        ? (es ? 'Invitación a una liga' : 'League invitation') : (es ? 'Tu cuenta de NRN Play' : 'Your NRN Play account')}</h2>
+      <p>{target?.kind === 'invite' ? (es ? 'Entra en tu cuenta para ver la invitación.' : 'Sign in to view the invitation.')
+        : (es ? 'Entra para ver tus resultados, ligas y ajustes de cuenta.' : 'Sign in to view your results, leagues and account settings.')}</p>
       <button className="user-dashboard-button" type="button" onClick={onOpenAccount} aria-haspopup="dialog">{es ? 'Entrar o crear cuenta' : 'Sign in or create an account'}</button>
     </section> : null : <>
       <div className="user-dashboard-account-grid">
@@ -74,17 +92,18 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
       <section className="user-dashboard-results" aria-labelledby="user-dashboard-results-title">
         <div className="user-dashboard-section-heading"><h2 id="user-dashboard-results-title">{es ? 'Resultados y ligas' : 'Results and leagues'}</h2>
           <div className="user-dashboard-switch" role="group" aria-label={es ? 'Juego' : 'Game'}>
-            <button type="button" aria-pressed={gameType === 'continental'} onClick={() => setGameType('continental')}>Conti</button>
-            <button type="button" aria-pressed={gameType === 'pocha'} onClick={() => setGameType('pocha')}>La Pocha</button>
+            <button type="button" aria-pressed={gameType === 'continental'} onClick={() => selectGame('continental')}>Conti</button>
+            <button type="button" aria-pressed={gameType === 'pocha'} onClick={() => selectGame('pocha')}>La Pocha</button>
           </div>
         </div>
         <div className="user-dashboard-switch user-dashboard-view" role="group" aria-label={es ? 'Ver resultados o ligas' : 'View results or leagues'}>
-          <button type="button" aria-pressed={view === 'stats'} onClick={() => setView('stats')}>{es ? 'Estadísticas' : 'Statistics'}</button>
+          <button type="button" aria-pressed={view === 'stats'} onClick={() => { clearTarget(); setView('stats') }}>{es ? 'Estadísticas' : 'Statistics'}</button>
           <button type="button" aria-pressed={view === 'leagues'} onClick={() => setView('leagues')}>{es ? 'Ligas' : 'Leagues'}</button>
         </div>
         <div className="user-dashboard-data">
           {view === 'stats' ? <PersonalStats key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain} />
-            : <Leagues key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain} />}
+            : <Leagues key={gameType} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain}
+              target={target} onTargetHandled={clearTarget} />}
         </div>
       </section>
     </>}

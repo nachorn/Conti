@@ -107,6 +107,7 @@ interface GameBoardProps {
   onDebugSkipRound?: () => void
   onSetSeat?: (seatIndex: number) => void
   lobbyExtra?: ReactNode
+  leagueResultExtra?: ReactNode
 }
 
 export function GameBoard(props: GameBoardProps) {
@@ -138,6 +139,7 @@ function GameBoardContent({
   onDebugSkipRound,
   onSetSeat,
   lobbyExtra,
+  leagueResultExtra,
 }: GameBoardProps) {
   const arrangeHintId = useId()
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
@@ -795,6 +797,7 @@ function GameBoardContent({
           )}
           <RoundRecap result={state.roundHistory?.find(r => r.round === state.round)} lang={lang} />
           <ScoreHistory state={state} lang={lang} />
+          {leagueResultExtra}
           {lobbyExtra}
           {isHost ? <button className="game-next-round-btn" onClick={onRematch} disabled={!isConnected || state.players.length < 2}>{lang === 'es' ? 'Jugar de nuevo con este grupo' : 'Play again with this group'}</button>
             : <p className="game-wait-host-msg">{lang === 'es' ? 'El anfitrión puede iniciar otra partida con este grupo.' : 'The host can start another game with this group.'}</p>}

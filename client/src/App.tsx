@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
@@ -34,6 +34,7 @@ import { adminAccess, adminDestination } from './lib/adminRoute'
 
 const GameBoard = lazy(() => import('./components/GameBoard').then(module => ({ default: module.GameBoard })))
 const PochaBoard = lazy(() => import('./components/PochaBoard').then(module => ({ default: module.PochaBoard })))
+const LeagueResult = lazy(() => import('./components/LeagueResult').then(module => ({ default: module.LeagueResult })))
 const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })))
 
 // Capture and scrub the one-use callback before mounting analytics, account
@@ -112,23 +113,16 @@ function AdminEntry({ legacy = false }: { legacy?: boolean }) {
 /** Account verification is separate from game state and never mounts a room socket. */
 export function AdminGate() {
   const membership = useMembership()
-  const navigate = useNavigate()
   const [lang] = usePlatformLanguage()
   const [rechecking, setRechecking] = useState(false)
-  const [leaving, setLeaving] = useState(false)
   const access = adminAccess(membership)
-  if (access === 'denied' && !leaving) return <Navigate to={membership.account ? '/' : '/account'} replace />
-  if (leaving) return <p role="status">{lang === 'es' ? 'Cerrando sesión…' : 'Signing out…'}</p>
+  if (access === 'denied') return <Navigate to={membership.account ? '/' : '/account'} replace />
   if (access === 'pending' || rechecking) return membership.connectionWarning ? <div className="nrn-connection-corner"><ServerConnectionWarning accountUnavailable lang={lang} onRetry={() => void membership.retryConnection()} /></div> : null
   const revalidate = () => {
     setRechecking(true)
     void membership.refresh().finally(() => setRechecking(false))
   }
-  const signOut = () => {
-    setLeaving(true)
-    void membership.logout().finally(() => navigate('/account', { replace: true }))
-  }
-  return <Suspense fallback={null}><Dashboard key={membership.token} adminToken={membership.token!} onSignOut={signOut} onSessionExpired={revalidate} /></Suspense>
+  return <Suspense fallback={null}><Dashboard key={membership.token} adminToken={membership.token!} onAccountExpired={revalidate} /></Suspense>
 }
 
 /** Game routes and socket state. Syncs URL with in-game state. */
@@ -144,15 +138,19 @@ function GameApp() {
   const [showPochaDev, setShowPochaDev] = useState(false)
   const [showContinentalDev, setShowContinentalDev] = useState(false)
   const [chatPreviewTarget, setChatPreviewTarget] = useState<HTMLDivElement | null>(null)
+  const [enteringRoom, setEnteringRoom] = useState(false)
+  const roomEntryPending = useRef(false)
   const navigate = useNavigate()
   const location = useLocation()
+  const entryLocation = useRef(location.key)
+  entryLocation.current = location.key
   const hostedGame = hostedCardGame(window.location.hostname)
   const isPlatformPage = ['/', '/conti', '/pocha'].includes(location.pathname)
   const pochaMock = usePochaMockState({ phase: 'playing', playerCount: 4 })
   const continentalMock = useContinentalMockState()
   const {
     state,
-    roomLeague, configureLeague,
+    roomLeague, leagueResultId, configureLeague,
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, continueSavedGame, deviceStorageAvailable,
     adGate,
@@ -183,8 +181,10 @@ function GameApp() {
     recoveryRoomId,
     sessionStorageAvailable,
     reconnect,
+    ensureConnected,
   } = useSocket(membership.token, membership.refresh)
-  const socketRelevant = !showPochaDev && !showContinentalDev && !!(hostedGame || location.pathname !== '/' || recoveryRoomId !== null)
+  const socketRelevant = !showPochaDev && !showContinentalDev && connectionStatus !== 'idle'
+  const canEnterRoom = !enteringRoom && !recoveryRoomId
   const recoveryRejected = recoveryRoomId !== null && !!error && !state
   const criticalConnection = criticalConnectionState(connectionStatus, recoveryRoomId, sessionStorageAvailable, recoveryRejected)
   const recoveringSeat = recoveryRoomId !== null && connectionStatus !== 'connected'
@@ -302,42 +302,45 @@ function GameApp() {
     // must not abandon the saved seat or briefly show the wrong screen.
   }
 
-  const handleCreateContinental = async (name: string, deckCount?: 2 | 3) => {
-    if (!isConnected) return
-    const proof = await roomVerification.verify()
-    if (proof !== null) create(name, 'continental', deckCount, undefined, proof)
+  const enterRoom = async (submit: (proof: string | undefined) => boolean) => {
+    if (roomEntryPending.current || recoveryRoomId) return false
+    const origin = entryLocation.current
+    roomEntryPending.current = true
+    setEnteringRoom(true)
+    try {
+      if (!await ensureConnected() || origin !== entryLocation.current) return false
+      const proof = await roomVerification.verify()
+      return proof !== null && origin === entryLocation.current && submit(proof)
+    } finally {
+      roomEntryPending.current = false
+      setEnteringRoom(false)
+    }
   }
+
+  const handleCreateContinental = (name: string, deckCount?: 2 | 3) =>
+    enterRoom(proof => create(name, 'continental', deckCount, undefined, proof))
 
   const openPochaPreview = (deckSize: PochaDeckSize) => {
     pochaMock.reset(deckSize)
     setShowPochaDev(true)
     navigate('/game')
   }
-  const handleCreatePocha = async (deckSize: PochaDeckSize, name: string) => {
-    if (!isConnected) return
-    const proof = await roomVerification.verify()
-    if (proof !== null) create(name, 'pocha', undefined, deckSize, proof)
-  }
+  const handleCreatePocha = (deckSize: PochaDeckSize, name: string) =>
+    enterRoom(proof => create(name, 'pocha', undefined, deckSize, proof))
 
-  const handleJoin = async (id: string, name: string) => {
-    if (!isConnected) return false
-    const proof = await roomVerification.verify()
-    if (proof === null) return false
-    join(id, name, proof)
-    return true
-  }
+  const handleJoin = (id: string, name: string) => enterRoom(proof => join(id, name, proof))
 
   const renderLobby = (gameType: 'continental' | 'pocha') => <Lobby
     key={gameType}
     gameType={gameType}
     playerName={membership.account?.name}
     savedGames={<SavedGames games={savedGames.filter(game => game.gameType === gameType)} lang={lang}
-      connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} />}
+      connected={canEnterRoom} resume={resumeSavedGame} forget={removeSavedGame} />}
     onCreateContinental={handleCreateContinental}
     onCreatePocha={handleCreatePocha}
     onJoin={handleJoin}
     error={error}
-    isConnected={isConnected}
+    isConnected={canEnterRoom}
     lang={lang}
     setLang={setLang}
     onOpenPochaDev={openPochaPreview}
@@ -405,7 +408,7 @@ function GameApp() {
             hostedGame ? renderLobby(hostedGame) : <Home lang={lang} accountName={membership.account?.name} signedIn={!!membership.token} error={error} onOpenAccount={() => navigate('/account')} profileHref={platformAccountHref()}
               onOpenPlus={openPlus} plusActive={hasCosmeticAccess(membership.account)}
               savedGames={savedGames.length > 0 ? <SavedGames games={savedGames} lang={lang}
-                connected={isConnected && !recoveryRoomId} resume={resumeSavedGame} forget={removeSavedGame} /> : undefined} />
+                connected={canEnterRoom} resume={resumeSavedGame} forget={removeSavedGame} /> : undefined} />
           }
         />
         <Route path="/conti" element={renderLobby('continental')} />
@@ -416,7 +419,8 @@ function GameApp() {
             <RoomInvite
               onJoin={handleJoin}
               error={error}
-              isConnected={isConnected}
+              entryAvailable={canEnterRoom}
+              entryPending={enteringRoom}
               lang={lang}
               setLang={setLang}
             />
@@ -426,6 +430,9 @@ function GameApp() {
           path="/game"
           element={
             <GamePage
+              leagueResultExtra={state?.phase === 'game_end' && leagueResultId && <Suspense fallback={null}>
+                <LeagueResult token={membership.token} matchId={leagueResultId} roomId={roomId} lang={lang} />
+              </Suspense>}
               lobbyExtra={state && <LeagueRoomSetup token={membership.token} roomLeague={roomLeague}
                 gameType={state.gameType ?? 'continental'} isHost={state.players[0]?.id === socketId}
                 nextGame={state.phase === 'game_end'}
@@ -491,6 +498,7 @@ function GamePage(props: Parameters<typeof GamePageContent>[0]) {
 }
 
 function GamePageContent({
+  leagueResultExtra,
   lobbyExtra,
   onContinueSaved,
   pochaAction,
@@ -522,6 +530,7 @@ function GamePageContent({
   rematch,
   setSeat,
 }: {
+  leagueResultExtra?: ReactNode
   lobbyExtra?: ReactNode
   onContinueSaved: () => Promise<ActionResult>
   pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
@@ -605,6 +614,7 @@ function GamePageContent({
     if (gameType === 'pocha') {
       return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
         lobbyExtra={lobbyExtra}
+        leagueResultExtra={leagueResultExtra}
         isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction} onConfigure={configurePocha}
         onStart={() => start()} onNextRound={nextRound} onRematch={rematch} /> : null
     }
@@ -612,6 +622,7 @@ function GamePageContent({
       <GameBoard
         state={state}
         lobbyExtra={lobbyExtra}
+        leagueResultExtra={leagueResultExtra}
         socketId={socketId}
         isConnected={isConnected}
         lang={lang}

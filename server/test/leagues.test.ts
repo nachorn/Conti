@@ -31,7 +31,7 @@ async function setup(n = 6, minGames = 5) {
   for (let i = 1; i < n; i++) await repo.joinLeague(account(i), league.inviteCode)
   return { store, repo, league }
 }
-function playing(leagueId: string, members: number[], roomId = '1234'): RoomRecord {
+function playing(leagueId: string, members: number[], roomId = '1234', seasonId?: string): RoomRecord {
   const room = new Room({ roomId, gameType: 'pocha' })
   const sessions = members.map(member => {
     const { credential, session } = issueCredential(roomId)
@@ -40,7 +40,7 @@ function playing(leagueId: string, members: number[], roomId = '1234'): RoomReco
   })
   const record: RoomRecord = { room, sessions, updatedAt: Date.now(), paused: null, chat: [], leagueId }
   assert.equal(room.startPochaGame({ mode: 'normal', maxCards: 1, oneCardRounds: 1, peakRounds: 1 }).ok, true)
-  beginPersonalMatch(record, Object.fromEntries(room.players.map((p, i) => [p.id, account(members[i]).id])))
+  beginPersonalMatch(record, Object.fromEntries(room.players.map((p, i) => [p.id, account(members[i]).id])), Date.now(), seasonId)
   return record
 }
 function finish(record: RoomRecord) {
@@ -155,6 +155,108 @@ test('league closure blocks new games and admits a game already dealt, including
   await restored.commit('1234', inProgress)
   assert.equal(restored.getLeagueDetail(league.id, account(0).id)!.gameCount, 1)
   assert.equal(validLeagueMatch(store.value.leagues[0], 'pocha', { ...inProgress.match!, startedAt: closed.closedAt! + 1 }), false)
+})
+
+test('seasons are optional, freeze a started game and archive the roster and ranking across restart', async () => {
+  const { store, repo, league } = await setup(3, 2)
+  const owner = account(0).id
+  const original = playing(league.id, [0, 1], '1234')
+  await repo.commit('1234', original)
+  assert.equal(repo.getLeagueDetail(league.id, owner)!.seasons, undefined)
+  assert.equal(store.value.version, 3)
+  await assert.rejects(repo.startLeagueSeason(league.id, account(1).id, 'Primavera'), /league_owner_required/)
+  await assert.rejects(repo.startLeagueSeason(league.id, owner, '  '), /invalid_season_name/)
+  const spring = await repo.startLeagueSeason(league.id, owner, ' Primavera ')
+  assert.equal(store.value.version, 4)
+  assert(spring.activeSeasonId)
+  assert.equal(spring.activeSeasonId, spring.seasonId)
+  assert.equal(repo.getActiveLeagueSeasonId(league.id), spring.activeSeasonId)
+  assert.equal(spring.gameCount, 0)
+  const priorSaves = store.saves
+  assert.equal((await repo.startLeagueSeason(league.id, owner, 'Primavera')).seasonId, spring.seasonId)
+  assert.equal(store.saves, priorSaves, 'repeating the same season request does not create another season')
+  const firstSpring = playing(league.id, [0, 1], '1235', spring.activeSeasonId)
+  finish(firstSpring)
+  await repo.commit('1235', firstSpring)
+  const lastSpring = playing(league.id, [0, 2], '1236', spring.activeSeasonId)
+  await repo.commit('1236', lastSpring)
+  const summer = await repo.startLeagueSeason(league.id, owner, 'Verano')
+  assert(summer.activeSeasonId)
+  assert.notEqual(summer.activeSeasonId, spring.activeSeasonId)
+  assert.equal(summer.gameCount, 0)
+  await repo.joinLeague(account(3), league.inviteCode)
+
+  const restored = new GameRepository(store)
+  await restored.load()
+  for (const roomId of ['1234', '1236']) {
+    const record = restored.records.get(roomId)!
+    finish(record)
+    await restored.commit(roomId, record)
+  }
+  const firstSummer = playing(league.id, [0, 3], '1237', summer.activeSeasonId)
+  finish(firstSummer)
+  await restored.commit('1237', firstSummer)
+
+  const current = restored.getLeagueDetail(league.id, owner)!
+  assert.equal(current.seasonId, summer.activeSeasonId)
+  assert.equal(current.memberCount, 4)
+  assert.equal(current.gameCount, 1)
+  assert.equal(current.standings.filter(row => row.played === 0).length, 2)
+  assert.deepEqual(current.seasons?.map(season => [season.name, season.gameCount]), [[null, 1], ['Primavera', 2], ['Verano', 1]])
+  assert.equal(current.seasons?.[2].endedAt, null)
+  const history = restored.getLeagueDetail(league.id, account(3).id, spring.seasonId)!
+  assert.equal(history.memberCount, 3)
+  assert(history.standings.every(row => !row.isMe))
+  assert.equal(history.gameCount, 2)
+  const legacy = restored.getLeagueDetail(league.id, owner, 'original')!
+  assert.equal(legacy.gameCount, 1)
+  assert.equal(legacy.memberCount, 3)
+  assert.equal(restored.listLeagues(owner)[0].gameCount, 4)
+  assert.equal(restored.getPersonalStats(owner).overall.played, 4)
+  assert.throws(() => restored.getLeagueDetail(league.id, owner, 'unknown-season'), /league_season_not_found/)
+  assert.equal(restored.getLeagueDetail(league.id, 'stranger', spring.seasonId), null)
+  const beforeClose = structuredClone(store.value)
+  await restored.closeLeague(league.id, owner)
+  assert((restored.getLeagueDetail(league.id, owner)!.seasons?.at(-1)?.endedAt ?? 0) > 0)
+  await assert.rejects(restored.startLeagueSeason(league.id, owner, 'Otoño'), /league_closed/)
+  store.value = { ...beforeClose, version: 3 }
+  await assert.rejects(new GameRepository(store).load(), /seasons require snapshot format v4/)
+})
+
+test('rating receipts describe the exact durable game, apply only to its players and survive room cleanup', async () => {
+  const { store, repo, league } = await setup(3, 2)
+  const accountId = account(0).id
+  const first = playing(league.id, [0, 1], '1234')
+  finish(first)
+  await repo.commit('1234', first)
+  const firstReceipt = repo.getLeagueResultReceipt(first.match!.id, accountId)
+  assert(firstReceipt?.status === 'counted')
+  assert.equal(firstReceipt.rating.before, 0)
+  assert.equal(repo.getLeagueResultReceipt(first.match!.id, account(2).id), null)
+  const second = playing(league.id, [0, 1], '1235')
+  finish(second)
+  await repo.commit('1235', second)
+  const secondReceipt = repo.getLeagueResultReceipt(second.match!.id, accountId)
+  assert(secondReceipt?.status === 'counted')
+  assert.equal(secondReceipt.rating.before, firstReceipt.rating.after)
+  assert.equal(secondReceipt.rating.after, repo.getLeagueDetail(league.id, accountId)!.standings.find(row => row.isMe)?.rating)
+  assert.equal(secondReceipt.rating.change, Math.round((secondReceipt.rating.after - secondReceipt.rating.before) * 100) / 100)
+  assert.deepEqual(repo.getLeagueResultReceipt(first.match!.id, accountId), firstReceipt)
+  assert(!JSON.stringify(secondReceipt).includes('account-'))
+
+  const invalid = playing(league.id, [0, 1], '1236')
+  finish(invalid)
+  invalid.match!.eligible = false
+  await repo.commit('1236', invalid)
+  const excluded = repo.getLeagueResultReceipt(invalid.match!.id, accountId, '1236')
+  assert(excluded?.status === 'not_counted' && excluded.reason === 'result_unavailable')
+  assert.equal(repo.getLeagueResultReceipt(invalid.match!.id, accountId, '1234'), null)
+  assert.equal(repo.getLeagueResultReceipt(invalid.match!.id, account(2).id, '1236'), null)
+  await repo.commitRemovalBatch(['1234', '1235', '1236'])
+  const restored = new GameRepository(store)
+  await restored.load()
+  assert.deepEqual(restored.getLeagueResultReceipt(first.match!.id, accountId), firstReceipt)
+  assert.deepEqual(restored.getLeagueResultReceipt(second.match!.id, accountId), secondReceipt)
 })
 
 test('ties use the complete final ranking and conservative provisional players do not take qualified places', async () => {
@@ -301,8 +403,38 @@ test('HTTP leagues require a session, keep business errors and serialize mutatio
   assert.equal(store.saves, savesBeforeWrongGame + 1, 'legacy join persists once and a same-game rejoin is idempotent')
   assert.equal((await call('/join', 'scoped', { code: created.inviteCode, expectedGameType: 'pocha' })).status, 200)
   assert.equal(repo.getLeagueDetail(created.id, account(3).id)!.memberCount, 3)
+  const inviteBody = { code: created.inviteCode, expectedGameType: 'pocha' }
+  assert.equal((await call('/invite/preview', null, inviteBody)).status, 401)
+  const preview = await call('/invite/preview', 'stranger', inviteBody)
+  assert.equal(preview.status, 200)
+  assert.equal(preview.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(await preview.json(), { id: created.id, name: created.name, gameType: 'pocha', closedAt: null, isMember: false })
+  assert.equal((await call('/invite/preview', 'stranger', { ...inviteBody, expectedGameType: 'continental' })).status, 409)
+  assert.equal((await call('/' + created.id + '/invite/rotate', 'other', {})).status, 403)
+  const rotate = await call('/' + created.id + '/invite/rotate', 'owner', {})
+  assert.equal(rotate.status, 200)
+  const rotated = await rotate.json() as { inviteCode: string }
+  assert.notEqual(rotated.inviteCode, created.inviteCode)
+  assert.equal((await call('/invite/preview', 'stranger', inviteBody)).status, 404)
+  assert.equal((await call('/join', 'stranger', inviteBody)).status, 404)
+  assert.equal(repo.getLeagueDetail(created.id, account(1).id)!.memberCount, 3)
+  const started = await call('/' + created.id + '/seasons', 'owner', { name: 'Primavera' })
+  assert.equal(started.status, 200)
+  const spring = await started.json() as { seasonId: string }
+  const historical = await call('/' + created.id + '?seasonId=original', 'other')
+  assert.equal(historical.status, 200)
+  const game = playing(created.id, [0, 1], '1234', spring.seasonId)
+  finish(game)
+  await repo.commit('1234', game)
+  const receiptPath = '/results/' + game.match!.id + '?roomId=1234'
+  assert.equal((await call(receiptPath, null)).status, 401)
+  assert.equal((await call(receiptPath, 'scoped')).status, 404)
+  const receipt = await call(receiptPath, 'owner')
+  assert.equal(receipt.status, 200)
+  assert.equal(receipt.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(await receipt.json(), repo.getLeagueResultReceipt(game.match!.id, account(0).id))
   assert.equal((await call('/' + created.id + '/close', 'other', {})).status, 403)
   assert.equal((await call('/' + created.id + '/close', 'owner', {})).status, 200)
-  assert.equal((await call('/join', 'stranger', { code: created.inviteCode })).status, 409)
+  assert.equal((await call('/join', 'stranger', { code: rotated.inviteCode })).status, 409)
   assert.equal(repo.getLeagueDetail(created.id, account(0).id)!.memberCount, 3)
 })

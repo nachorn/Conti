@@ -55,7 +55,7 @@ export class GameSignInBroker {
   private readonly exchangeIPs: RateLimiter
   constructor(
     origins: readonly string[],
-    private readonly issueLinkedSession: (sourceTokenHash: string, previousToken?: string) => Promise<MembershipSession>,
+    private readonly issueLinkedSession: (sourceTokenHash: string, previousToken: string | undefined, origin: string) => Promise<MembershipSession>,
     private readonly now: () => number = Date.now,
   ) {
     this.origins = new Set(origins)
@@ -114,6 +114,6 @@ export class GameSignInBroker {
     if (!timingSafeEqual(Buffer.from(challenge), Buffer.from(pending.challenge))) throw new GameSignInError('invalid_code')
     // Claim before the async durable write: concurrent replays cannot issue tokens.
     this.codes.delete(key)
-    return this.issueLinkedSession(pending.sourceTokenHash, previousToken)
+    return this.issueLinkedSession(pending.sourceTokenHash, previousToken, origin)
   }
 }

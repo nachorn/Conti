@@ -25,6 +25,15 @@
     <p>It depends on <strong>where you finished, who you played and whether anyone tied</strong>. Finishing ahead of a favourite usually helps more than beating a lower-rated player. With the same opponents and the same finishing order, winning by 1 point or 50 counts the same.</p>
     <p>TrueSkill estimates your level and subtracts a margin for uncertainty. At first it knows little about you. More games usually shrink that margin, so your rating can rise even when you don’t win.</p>
   </section>
+  <section id="between-games">
+    <h2>What changes between games?</h2>
+    <ol class="rating-steps">
+      <li><strong>Before you play.</strong> TrueSkill starts with each player’s estimated skill and how confident it is in that estimate.</li>
+      <li><strong>When you finish.</strong> It compares the finishing order with what it expected. The adjustment depends on the whole table, including ties.</li>
+      <li><strong>For the next game.</strong> It saves the new ratings for those who played. If you sit a game out, your rating stays the same, though your place can move if someone overtakes you.</li>
+    </ol>
+    <p class="rating-movement" data-example="rating-movement">Bruno won his third game and rose from <data value="13.67">13.67</data> to <data value="17.65">17.65</data>. Eva sat that game out and stayed on <data value="18.30">18.30</data>.</p>
+  </section>
   <section>
     <h2 id="provisional">When do I get a place?</h2>
     <p>Each league sets a minimum number of games per player. Your rating moves from the first game. Until you meet the minimum, you’re <strong>provisional</strong>.</p>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { io, type Socket } from 'socket.io-client'
+import type { Socket, io } from 'socket.io-client'
 import { pushLog } from './lib/reportBug'
 import { readSavedGames, rememberGame, forgetGame, SAVED_GAMES_KEY, type SavedGame } from './lib/savedGames'
 import { emitWhenReady, isRoomSession, readRoomSession, writeRoomSession, type RoomSession } from './lib/roomSession'
@@ -13,7 +13,7 @@ const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
   (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'resuming' | 'replaced' | 'paused'
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'resuming' | 'replaced' | 'paused'
 
 function tabStorage(): Storage | null {
   try {
@@ -34,17 +34,21 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   membershipChangeRef.current = onMembershipChange
   const [initialSession] = useState(() => readRoomSession(tabStorage()))
   const sessionRef = useRef<RoomSession | null>(initialSession)
+  const [requested, setRequested] = useState(initialSession !== null)
+  const [socketFactory, setSocketFactory] = useState<typeof io | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const connectionWait = useRef<{ promise: Promise<boolean>; finish: (ok: boolean) => void } | null>(null)
   const [state, setState] = useState<GameState | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
-  const [leagueState, setLeagueState] = useState<{ roomId: string; league: RoomLeagueSummary | null } | null>(null)
+  const [leagueState, setLeagueState] = useState<{ roomId: string; league: RoomLeagueSummary | null; resultId?: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adGate, setAdGate] = useState<AdGateState | null>(null)
   const [adGateRequested, setAdGateRequested] = useState(0)
   // This is a stable player ID, not a transport ID; keep the prop name for existing boards.
   const [socketId, setSocketId] = useState<string | null>(null)
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
-  const statusRef = useRef<ConnectionStatus>('connecting')
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialSession ? 'resuming' : 'idle')
+  const statusRef = useRef<ConnectionStatus>(connectionStatus)
   const [recoveryRoomId, setRecoveryRoomId] = useState(initialSession?.roomId ?? null)
   const [sessionStorageAvailable, setSessionStorageAvailable] = useState(true)
   const socketRef = useRef<Socket | null>(null)
@@ -74,6 +78,9 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   const updateStatus = (status: ConnectionStatus) => {
     statusRef.current = status
     setConnectionStatus(status)
+    if (status === 'connected' || status === 'paused' || status === 'replaced' || status === 'idle') {
+      connectionWait.current?.finish(status === 'connected')
+    }
   }
 
   const rememberSession = (session: RoomSession | null) => {
@@ -83,7 +90,24 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   }
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
+    if (!requested || socketFactory) return
+    let cancelled = false
+    void import('socket.io-client').then(({ io: createSocket }) => {
+      if (!cancelled) setSocketFactory(() => createSocket)
+    }).catch(() => {
+      if (!cancelled) {
+        updateStatus('reconnecting')
+        connectionWait.current?.finish(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [requested, socketFactory, loadAttempt])
+
+  useEffect(() => () => { connectionWait.current?.finish(false) }, [])
+
+  useEffect(() => {
+    if (!requested || !socketFactory) return
+    const socket = socketFactory(SOCKET_URL, {
       autoConnect: false,
       transports: ['websocket', 'polling'],
       // Read at each handshake, not just mount: joined can issue fresh credentials.
@@ -127,13 +151,14 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       if (payload?.roomId === sessionRef.current?.roomId) setAdGateRequested(value => value + 1)
     })
     socket.on('membership_state', () => { membershipChangeRef.current?.() })
-    socket.on('league_state', (payload: { roomId: string; league: RoomLeagueSummary | null }) => {
+    socket.on('league_state', (payload: { roomId: string; league: RoomLeagueSummary | null; resultId?: string | null }) => {
       if (payload?.roomId !== sessionRef.current?.roomId || statusRef.current !== 'connected') return
       const league = payload.league
       if (league !== null && (!league || typeof league.id !== 'string' || typeof league.name !== 'string' ||
           !['pocha', 'continental'].includes(league.gameType) ||
           (league.closedAt !== null && (typeof league.closedAt !== 'number' || !Number.isFinite(league.closedAt))))) return
-      setLeagueState(payload)
+      const resultId = typeof payload.resultId === 'string' && /^[\da-f-]{36}$/i.test(payload.resultId) ? payload.resultId : null
+      setLeagueState({ roomId: payload.roomId, league, resultId })
     })
 
     socket.on('state', (newState: GameState) => {
@@ -153,6 +178,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       setSocketId(null)
       setAdGate(null)
       setError(null)
+      setRequested(false)
+      updateStatus('idle')
     })
 
     socket.on('saved_exit', (savedState: GameState) => {
@@ -165,6 +192,8 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       setSocketId(null)
       setAdGate(null)
       setError(null)
+      setRequested(false)
+      updateStatus('idle')
     })
 
     socket.on('resume_failed', (payload: { message?: string }) => {
@@ -193,7 +222,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     })
 
     socket.on('disconnect', () => {
-      if (statusRef.current !== 'replaced') updateStatus('reconnecting')
+      if (statusRef.current !== 'replaced' && statusRef.current !== 'idle') updateStatus('reconnecting')
       // Keep the last board and credentials while the network or server recovers.
     })
 
@@ -220,7 +249,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
       socketRef.current = null
       // StrictMode cleanup and page reload must not erase recovery credentials.
     }
-  }, [])
+  }, [requested, socketFactory])
 
   useEffect(() => {
     const socket = socketRef.current
@@ -271,27 +300,64 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
 
   const reconnect = () => {
     const socket = socketRef.current
-    if (!socket) return
-    if (socket.connected && statusRef.current === 'connected') return
+    if (socket?.connected && statusRef.current === 'connected') return
     updateStatus('reconnecting')
     setError(null)
+    if (!socket) {
+      setRequested(true)
+      setLoadAttempt(value => value + 1)
+      return
+    }
     // A stalled resume needs a fresh handshake; otherwise connect is idempotent.
     if (socket.connected) socket.disconnect()
     socket.connect()
   }
 
+  const ensureConnected = (): Promise<boolean> => {
+    if (statusRef.current === 'connected' && socketRef.current?.connected) return Promise.resolve(true)
+    if (connectionWait.current) return connectionWait.current.promise
+    let finish!: (ok: boolean) => void
+    const promise = new Promise<boolean>(resolve => { finish = resolve })
+    const timeout = window.setTimeout(() => {
+      updateStatus('reconnecting')
+      connectionWait.current?.finish(false)
+    }, 8_000)
+    connectionWait.current = {
+      promise,
+      finish: ok => {
+        window.clearTimeout(timeout)
+        connectionWait.current = null
+        finish(ok)
+      },
+    }
+    if (statusRef.current === 'idle') {
+      updateStatus('connecting')
+      setError(null)
+      setRequested(true)
+    } else if (!socketRef.current) {
+      setLoadAttempt(value => value + 1)
+    } else if (!socketRef.current.active) {
+      socketRef.current.connect()
+    }
+    return promise
+  }
+
   const create = (name: string, gameType: 'continental' | 'pocha' = 'continental', deckCount?: 2 | 3, pochaDeckSize?: PochaDeckSize, turnstileToken?: string) => {
-    send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize, turnstileToken })
+    return send('create', { name, gameType, deckCount: deckCount ?? 2, pochaDeckSize, turnstileToken })
   }
 
   const resumeSavedGame = (game: SavedGame) => {
-    if (sessionRef.current || statusRef.current !== 'connected') return
+    if (sessionRef.current) return
     const { roomId, playerId, token } = game
     rememberSession({ roomId, playerId, token })
     socketRef.current?.disconnect()
     updateStatus('resuming')
     setError(null)
-    socketRef.current?.connect()
+    if (socketRef.current) socketRef.current.connect()
+    else {
+      setRequested(true)
+      setLoadAttempt(value => value + 1)
+    }
   }
 
   const saveAndExit = (): Promise<ActionResult> => {
@@ -304,7 +370,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
   }
 
   const join = (id: string, name: string, turnstileToken?: string) => {
-    send('join', { roomId: id.trim(), name, turnstileToken })
+    return send('join', { roomId: id.trim(), name, turnstileToken })
   }
 
   const setSeat = (seatIndex: number) => {
@@ -374,6 +440,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
 
   return {
     roomLeague: leagueState?.roomId === roomId ? leagueState.league : null,
+    leagueResultId: leagueState?.roomId === roomId ? leagueState.resultId ?? null : null,
     configureLeague: (leagueId: string | null) => sendWithAck('set_league', { leagueId }),
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
@@ -408,5 +475,6 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     recoveryRoomId,
     sessionStorageAvailable,
     reconnect,
+    ensureConnected,
   }
 }

@@ -45,8 +45,16 @@ test('five-account league examples replay real scoring and ratings across wins, 
 test('published ES and EN league examples match the real ratings and qualification threshold', async () => {
   const conti = createLeagueSimulations().find(example => example.gameType === 'continental')!
   const standings = conti.stages[3].standings
+  const before = conti.stages[2].standings
+  const rating = (rows: typeof standings, name: string) => rows.find(row => row.name === name)!.rating
   for (const lang of ['es', 'en']) {
     const html = await readFile(new URL(`../../client/public/learn/${lang}/standings/index.html`, import.meta.url), 'utf8')
+    const movement = /<p\b[^>]*data-example="rating-movement"[^>]*>([^\n]*)<\/p>/.exec(html)?.[1]
+    assert(movement, 'Missing before-and-after example')
+    const values = [...movement.matchAll(/<data value="([\d.]+)">([\d.,]+)<\/data>/g)]
+    assert.deepEqual(values.map(value => Number(value[1])), [rating(before, 'Bruno'), rating(standings, 'Bruno'), rating(standings, 'Eva')])
+    assert(values.every(value => Number(value[1]) === Number(value[2].replace(',', '.'))))
+    assert.equal(rating(before, 'Eva'), rating(standings, 'Eva'))
     const table = /<table\b[^>]*data-example="league-standings"[^>]*>([\s\S]*?)<\/table>/.exec(html)?.[1]
     assert(table, 'Missing league example table')
     const body = /<tbody>([\s\S]*?)<\/tbody>/.exec(table)?.[1]

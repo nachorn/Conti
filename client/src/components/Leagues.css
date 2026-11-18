@@ -25,9 +25,18 @@
 .league-invite summary { min-height: 44px; align-content: center; cursor: pointer; color: #efd18b; font-size: .85rem; }
 .league-invite[open] summary { margin-bottom: .7rem; }
 .league-invite label { display: block; color: #bfcdc3; font-size: .8rem; margin-bottom: .6rem; }
-.league-invite input { width: 100%; min-height: 46px; font-size: 1.1rem; letter-spacing: .15em; text-align: center; font-variant-numeric: tabular-nums; color: #efd18b; }
+.league-invite input { width: 100%; min-height: 46px; font-size: 1rem; color: #efd18b; }
 .league-invite .leagues-entry-actions { margin-bottom: 0; }
 .league-invite p, .membership-dialog .league-invite p { font-size: .76rem; color: #bfcdc3; }
+.league-invite .league-share-link { display: flex; align-items: center; justify-content: center; min-height: 44px; flex: 1 1 150px; text-align: center; text-decoration: none; }
+.league-owner-action { margin-top: .7rem; border-top: 1px solid #ffffff21; padding-top: .55rem; }
+.league-invitation h3 { margin: 0; }
+.league-invitation > strong { overflow-wrap: anywhere; }
+.league-seasons { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: .8rem 0 1rem; }
+.league-seasons label { color: #bfcdc3; font-size: .84rem; }
+.league-seasons select { min-width: 0; max-width: 100%; min-height: 44px; padding: .55rem; font-size: 1rem; }
+.league-seasons .league-form { width: 100%; margin: .25rem 0 0; }
+.league-title h3:focus-visible, .leagues-heading h3:focus-visible, .league-invitation h3:focus-visible { outline: 2px solid #efd18b; outline-offset: 4px; }
 .league-ranking-heading { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: 1.3rem; }
 .league-ranking-heading h4 { margin: 0; font-size: 1rem; }
 .league-ranking-heading > span { color: #efd18b; font-size: .7rem; letter-spacing: .04em; }
@@ -68,6 +77,13 @@
 .league-room-setup .membership-error { color: #ffd9d9; }
 .leagues a, .league-room-setup a { color: #efd18b; text-decoration: underline; text-underline-offset: .2em; }
 .leagues a:focus-visible, .league-room-setup a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.league-result { display: grid; justify-items: start; gap: .35rem; margin: .8rem 0; padding: .8rem 1rem; border: 1px solid #efd18b55; border-radius: 12px; background: #ffffff08; text-align: left; color: #faf4e5; overflow-wrap: anywhere; }
+.league-result > p { margin: 0; }
+.league-result .league-result-rating { color: #efd18b; font-size: 1.15rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.league-result-rating > span:last-child { font-size: .9rem; }
+.league-result a, .league-result button { display: inline-flex; align-items: center; min-height: 44px; color: #efd18b; text-decoration: underline; text-underline-offset: .2em; }
+.league-result button { background: transparent; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.league-result small { color: #bfcdc3; }
 .membership-tabs.membership-tabs-account { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 380px) {
   .league-list button { flex-wrap: wrap; gap: .55rem; }

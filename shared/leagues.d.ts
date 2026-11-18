@@ -13,7 +13,36 @@ export interface LeagueSummary extends RoomLeagueSummary {
   memberCount: number
   gameCount: number
   isOwner: boolean
+  activeSeasonId?: string
 }
+
+export interface LeagueSeason {
+  id: string
+  /** Null names identify the archived results from before seasons began. */
+  name: string | null
+  startedAt: number
+  endedAt: number | null
+  gameCount: number
+}
+
+export interface LeagueInvitation extends RoomLeagueSummary {
+  isMember: boolean
+}
+
+export interface LeagueRatingChange {
+  before: number
+  after: number
+  change: number
+}
+
+export type LeagueResultReceipt = {
+  matchId: string
+  league: Pick<RoomLeagueSummary, 'id' | 'name' | 'gameType'>
+  season?: Pick<LeagueSeason, 'id' | 'name'>
+} & (
+  | { status: 'counted'; rating: LeagueRatingChange }
+  | { status: 'not_counted'; reason: 'participants_changed' | 'result_unavailable' }
+)
 
 export interface LeagueStanding {
   memberId: string
@@ -43,4 +72,6 @@ export interface LeagueDetail extends LeagueSummary {
   ratingVersion: 1
   standings: LeagueStanding[]
   recentGames: LeagueGame[]
+  seasonId?: string
+  seasons?: LeagueSeason[]
 }

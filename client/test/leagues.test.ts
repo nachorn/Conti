@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isLeagueDetail, isLeagueList, isLeagueSummary } from '../src/lib/leagues.ts'
+import { isLeagueDetail, isLeagueInvitation, isLeagueList, isLeagueResultReceipt, isLeagueSummary } from '../src/lib/leagues.ts'
+import { leagueAccountHash, parseLeagueAccountTarget } from '../src/lib/leagueLinks.ts'
 
 const summary = () => ({ id: 'league-1', name: 'Las cartas del domingo', gameType: 'pocha', createdAt: 1_000,
   closedAt: null, minGames: 5, memberCount: 2, gameCount: 2, isOwner: true })
@@ -44,4 +45,41 @@ test('malformed standings, membership references or history never render as a va
     { ...sample, recentGames: [{ ...sample.recentGames[0], players: sample.recentGames[0].players.map(row => ({ ...row, memberId: 'outsider' })) }] },
   ]
   for (const value of invalid) assert.equal(isLeagueDetail(value), false)
+})
+
+test('league and invitation links carry only valid game and league selections', () => {
+  const invitation = { kind: 'invite', gameType: 'pocha', code: '012345ABCD' } as const
+  const archived = { kind: 'league', gameType: 'continental', id: 'league-1', seasonId: 'original' } as const
+  assert.deepEqual(parseLeagueAccountTarget(leagueAccountHash(invitation)), invitation)
+  assert.deepEqual(parseLeagueAccountTarget(leagueAccountHash(archived)), archived)
+  for (const invalid of ['#game=football&invite=012345ABCD', '#game=pocha&invite=012345ABCD&league=league-1',
+    '#game=pocha&invite=garbage', '#game=pocha&league=../admin', '#game=pocha&league=league-1&season=../current',
+    '#game=pocha&league=league-1&game=continental']) assert.equal(parseLeagueAccountTarget(invalid), null)
+})
+
+test('an archived season can omit a member who joined later while the current season must include the viewer', () => {
+  const seasons = [
+    { id: 'original', name: null, startedAt: 1_000, endedAt: 3_000, gameCount: 2 },
+    { id: 'current-season', name: 'Primavera', startedAt: 3_000, endedAt: null, gameCount: 0 },
+  ]
+  const archived = { ...detail(), isOwner: false, seasonId: 'original', activeSeasonId: 'current-season', seasons,
+    standings: detail().standings.map(row => ({ ...row, isMe: false })) }
+  assert.equal(isLeagueDetail(archived), true)
+  const current = { ...archived, seasonId: 'current-season', gameCount: 0, recentGames: [],
+    standings: archived.standings.map(row => ({ ...row, played: 0, wins: 0, draws: 0, winRate: 0, rating: 0 })) }
+  assert.equal(isLeagueDetail(current), false)
+  current.standings[0].isMe = true
+  assert.equal(isLeagueDetail(current), true)
+  assert.equal(isLeagueDetail({ ...archived, seasons: [seasons[0], seasons[0]] }), false)
+  assert.equal(isLeagueDetail({ ...archived, gameCount: 3 }), false)
+})
+
+test('league invitations and receipts are validated before displaying private information', () => {
+  assert.equal(isLeagueInvitation({ id: 'league-1', name: 'Domingo', gameType: 'pocha', isMember: false, closedAt: null }), true)
+  assert.equal(isLeagueInvitation({ id: 'league-1', name: 'Domingo', gameType: 'football', isMember: false, closedAt: null }), false)
+  const base = { matchId: 'match-1', league: { id: 'league-1', name: 'Domingo', gameType: 'pocha' } }
+  assert.equal(isLeagueResultReceipt({ ...base, status: 'counted', rating: { before: 14.2, after: 16.8, change: 2.6 } }), true)
+  assert.equal(isLeagueResultReceipt({ ...base, status: 'counted', rating: { before: 16.8, after: 14.2, change: 2.6 } }), false)
+  assert.equal(isLeagueResultReceipt({ ...base, status: 'not_counted', reason: 'participants_changed' }), true)
+  assert.equal(isLeagueResultReceipt({ ...base, status: 'not_counted', reason: 'anything_else' }), false)
 })

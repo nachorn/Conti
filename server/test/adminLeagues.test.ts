@@ -34,12 +34,24 @@ async function harness(t: TestContext) {
   const accounts = ['admin-a', 'admin-b', 'ordinary'].map((email, i) => ({ id: i === 2 ? 'ordinary-account' : `admin-account-${i}`, email: `${email}@example.test`, name: email, createdAt: NOW - 1000 }))
   const membershipStore = new MemoryStore({ version: 1, accounts, sessions: TOKENS.map((token, i) => ({ accountId: accounts[i].id,
     tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: NOW + 60_000 })), challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [], bmcSubscriptions: [], plusAudit: [] })
+  const inbox = new Map<string, string>()
   const membership = await new MembershipService({ store: membershipStore, authSecret: 'synthetic-league-membership-secret-2026',
-    dashboardKey: MASTER, adminEmails: accounts.slice(0, 2).map(account => account.email) }).load()
+    dashboardKey: MASTER, adminEmails: accounts.slice(0, 2).map(account => account.email),
+    sendCode: async (email, code) => { inbox.set(email, code) } }).load()
   const server = await createGameServer(gameStore, { membership, dashboardKey: MASTER, footballAdmin: { read: async () => ({ available: false, stale: false, report: null }) } })
   const port = await server.listen(0, '127.0.0.1')
   t.after(async () => { await server.close(); await membership.close() })
-  const call = (path: string, token: string | null = TOKENS[0], method = 'GET') => fetch(`http://127.0.0.1:${port}${path}`, { method, redirect: 'error', headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  const cookie = new Map<string, string>()
+  const base = `http://127.0.0.1:${port}`
+  const call = (path: string, token: string | null = TOKENS[0], method = 'GET') => fetch(`${base}${path}`, { method, redirect: 'error', headers: token ? { Authorization: `Bearer ${token}`, Cookie: cookie.get(token) ?? '' } : {} })
+  for (const [i, account] of accounts.slice(0, 2).entries()) {
+    const headers = { Authorization: `Bearer ${TOKENS[i]}`, 'Content-Type': 'application/json', 'X-Admin-Request': '1' }
+    const send = await fetch(base + '/api/admin/session/challenge', { method: 'POST', headers, body: '{"lang":"en"}' })
+    assert.equal(send.status, 200)
+    const verify = await fetch(base + '/api/admin/session', { method: 'POST', headers, body: JSON.stringify({ code: inbox.get(account.email) }) })
+    assert.equal(verify.status, 200)
+    cookie.set(TOKENS[i], verify.headers.get('set-cookie')!.split(';')[0])
+  }
   return { call, gameData, gameStore, membershipStore, server }
 }
 
