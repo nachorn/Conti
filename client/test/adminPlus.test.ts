@@ -12,6 +12,17 @@ test('owner Plus list distinguishes valid empty history from malformed or duplic
   assert.equal(readAdminPlus({ subscriptions: [], audit: [{ ...snapshot.audit[0], reason: 'unknown' }] }), null)
   assert.equal(readAdminPlus({ subscriptions: null, audit: [] }), null)
 })
+
+test('Plus accepts bounded manual history with actor and entitlement states', () => {
+  const entry = { id: 'manual-1', at: 1_800_000_000_000, action: 'gift_granted', email: 'member@example.test',
+    actorEmail: 'owner@example.test', subscriptionId: null, reason: null, before: null, after: { active: true, expiresAt: null } }
+  const response = { subscriptions: [], audit: [], manualAudit: [entry] }
+  assert.deepEqual(readAdminPlus(response), response)
+  for (const manualAudit of [[entry, entry], [{ ...entry, actorEmail: 'invalid' }], [{ ...entry, after: { active: true, expiresAt: -1 } }],
+    [{ ...entry, action: 'gift_revoked' }], [{ ...entry, reason: 'refund' }], Array.from({ length: 101 }, (_, i) => ({ ...entry, id: `audit-${i}` }))]) {
+    assert.equal(readAdminPlus({ ...response, manualAudit }), null)
+  }
+})
 test('irreversible Plus revocation requires the selected subscription ID and a known reason', () => {
   assert.equal(plusRevokeCommand(subscription, '', 'refund'), null)
   assert.equal(plusRevokeCommand(subscription, '654321', 'refund'), null)

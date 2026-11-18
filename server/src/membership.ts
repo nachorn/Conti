@@ -7,9 +7,10 @@ import { AdminAuth, type AdminAccountVerifier } from './adminAuth.js'
 import { AdminStepUp } from './adminStepUp.js'
 import { hashPassword, verifyPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy } from './passwordAuth.js'
 import { DEFAULT_GAME_ORIGINS, GameSignInBroker, GameSignInError, gameOriginsFromEnvironment, validateGameOrigins } from './gameSignIn.js'
-import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, isBmcSubscriptionId, parseBmcSubscriptions, parsePlusAudit, validateBmcEvent, verifyBmcEvent, type BmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
+import { applyBmcEvent, bmcEntitlement, bmcFromEnvironment, bmcPublicConfig, bmcReadiness, bmcUrl, BmcError, isBmcSubscriptionId, normalizeBmcEmail, parseBmcSubscriptions, parsePlusAudit, validateBmcEvent, verifyBmcEvent, type BmcEvent, type BmcOptions, type BmcSubscription, type PlusAudit } from './membershipBmc.js'
 import type { MembershipAccount, MembershipConfig, MembershipGrant, MembershipSession } from '../../shared/membership.js'
 import type { AdminAccount } from '../../shared/platformAdmin.js'
+import type { ManualPlusAudit, ManualPlusReason, PlusAccessState } from '../../shared/plusAdminAudit.js'
 
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
@@ -19,7 +20,8 @@ type ChallengePurpose = 'login' | 'register' | 'reset'
 type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
 type Limit = { key: string; count: number; until: number }
 type Order = { id: string; accountId: string; priceId: string; amount: number; currency: string; createdAt: number; sessionId: string | null; paymentIntentId: string | null; url: string | null; state: 'pending' | 'paid' | 'revoked' }
-type Data = { version: 1 | 2; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[]; bmcSubscriptions: BmcSubscription[]; plusAudit: PlusAudit[] }
+type StoredManualPlusAudit = Omit<ManualPlusAudit, 'actorEmail'> & { actorAccountId: string | null }
+type Data = { version: 1 | 2; accounts: Account[]; sessions: Session[]; challenges: Challenge[]; limits: Limit[]; grants: MembershipGrant[]; orders: Order[]; revokedPayments: string[]; events: string[]; bmcSubscriptions: BmcSubscription[]; plusAudit: PlusAudit[]; manualPlusAudit: StoredManualPlusAudit[] }
 type StripePrice = { id: string; amount: number; currency: string }
 export interface MembershipOptions {
   store: SnapshotStore
@@ -41,6 +43,7 @@ export interface MembershipOptions {
   bmc?: BmcOptions
 }
 const DAY = 86_400_000
+const MAX_MANUAL_PLUS_AUDIT = 500
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const equal = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -72,7 +75,38 @@ export function normalizeAccountName(value: unknown): string | null {
   const name = value.trim()
   return name.length > 0 && name.length <= 24 && !/[\u0000-\u001f\u007f]/.test(name) ? name : null
 }
-const empty = (): Data => ({ version: 1, accounts: [], sessions: [], challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [], bmcSubscriptions: [], plusAudit: [] })
+const empty = (): Data => ({ version: 1, accounts: [], sessions: [], challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [], bmcSubscriptions: [], plusAudit: [], manualPlusAudit: [] })
+
+function manualReason(value: unknown): value is Exclude<ManualPlusReason, 'provider_delivery_recovery'> {
+  return value === 'refund' || value === 'dispute' || value === 'provider_correction'
+}
+function plusAccessState(value: unknown): value is PlusAccessState {
+  return object(value) && typeof value.active === 'boolean' && (value.expiresAt === null || time(value.expiresAt))
+}
+function manualPlusAuditEntry(value: unknown): value is StoredManualPlusAudit {
+  if (!object(value) || !id(value.id) || !time(value.at) || value.at > 8_640_000_000_000_000 ||
+      !(value.actorAccountId === null || id(value.actorAccountId)) || typeof value.email !== 'string' ||
+      (value.subscriptionId === null ? normalizeMembershipEmail(value.email) : normalizeBmcEmail(value.email)) !== value.email ||
+      !(value.before === null || plusAccessState(value.before)) || !plusAccessState(value.after)) return false
+  switch (value.action) {
+    case 'gift_granted': return value.subscriptionId === null && value.reason === null && value.after.active
+    case 'gift_revoked': return value.subscriptionId === null && value.reason === null && value.before !== null && !value.after.active
+    case 'subscription_revoked': return isBmcSubscriptionId(value.subscriptionId) && manualReason(value.reason) && value.before !== null && !value.after.active
+    case 'giveaway_imported': return isBmcSubscriptionId(value.subscriptionId) && value.subscriptionId.startsWith('giveaway:') && value.reason === 'provider_delivery_recovery'
+    default: return false
+  }
+}
+function recordManualPlusChange(data: Data, actorAccountId: string | null | undefined, change: Omit<StoredManualPlusAudit, 'id' | 'actorAccountId'>) {
+  if (actorAccountId === undefined) return
+  data.manualPlusAudit = data.manualPlusAudit.concat({ id: randomUUID(), actorAccountId, ...change }).slice(-MAX_MANUAL_PLUS_AUDIT)
+}
+function giftAccess(grant: MembershipGrant | undefined, at: number): PlusAccessState | null {
+  return grant ? { active: grant.active && (grant.expiresAt === null || grant.expiresAt > at), expiresAt: grant.expiresAt } : null
+}
+function subscriptionAccess(subscription: BmcSubscription, at: number): PlusAccessState {
+  return { active: subscription.eligible && subscription.revokedAt === null && subscription.periodStart <= at && subscription.expiresAt > at, expiresAt: subscription.expiresAt }
+}
+
 function decode(value: unknown): Data {
   if (value === null) return empty()
   const fail = () => { throw new Error('Invalid membership storage; refusing to overwrite accounts or purchases') }
@@ -100,6 +134,10 @@ function decode(value: unknown): Data {
   if (value.version === 2 && (!Array.isArray(value.bmcSubscriptions) || !Array.isArray(value.plusAudit))) return fail()
   v.bmcSubscriptions = parseBmcSubscriptions(value.bmcSubscriptions, accountIds)
   v.plusAudit = parsePlusAudit(value.plusAudit)
+  const audit = value.manualPlusAudit
+  if (audit !== undefined && (!Array.isArray(audit) || audit.length > MAX_MANUAL_PLUS_AUDIT || !audit.every(manualPlusAuditEntry) ||
+      new Set(audit.map(entry => entry.id)).size !== audit.length)) return fail()
+  v.manualPlusAudit = audit ?? []
   return v
 }
 function validCheckoutUrl(value: unknown): value is string {
@@ -291,22 +329,42 @@ export class MembershipService {
       const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
       const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
       if (!source || !account) throw new MembershipError('unauthorized', 401)
+      const effectiveScope = source.scope === 'game' ? 'game' : scope
       if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
         const previousHash = hash(previousToken)
         const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
-          session.scope === scope && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
+          session.scope === effectiveScope && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
         if (previous) {
           previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
-          return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, scope) }
+          return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, effectiveScope) }
         }
       }
       const token = randomBytes(32).toString('base64url')
       const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
       const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
       data.sessions = data.sessions.filter(session => session.accountId !== account.id)
-        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(scope ? { scope } : {}) })
-      return { token, expiresAt, account: this.publicAccount(account, data, scope) }
+        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}) })
+      return { token, expiresAt, account: this.publicAccount(account, data, effectiveScope) }
     })
+  }
+  async revokeOtherSessions(token: string): Promise<MembershipSession> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new MembershipError('unauthorized', 401)
+    const tokenHash = hash(token)
+    const current = this.accountSession(tokenHash)
+    if (!current) throw new MembershipError('unauthorized', 401)
+    if (current.session.scope === 'game') throw new MembershipError('primary_session_required', 403)
+    return this.mutate(data => {
+      const session = data.sessions.find(value => value.tokenHash === tokenHash && value.expiresAt > this.now())
+      const account = session && data.accounts.find(value => value.id === session.accountId)
+      if (!session || !account) throw new MembershipError('unauthorized', 401)
+      if (session.scope === 'game') throw new MembershipError('primary_session_required', 403)
+      if (!this.limit(data, `revoke-sessions:${account.id}`, 5, 15 * 60_000)) throw new MembershipError('rate_limited', 429)
+      // Rotating the current credential also invalidates unfinished game handoffs and admin proofs.
+      const replacement = randomBytes(32).toString('base64url')
+      data.sessions = data.sessions.filter(value => value.accountId !== account.id)
+      data.sessions.push({ ...session, tokenHash: hash(replacement) })
+      return { token: replacement, expiresAt: session.expiresAt, account: this.publicAccount(account, data, session.scope) }
+    }, true, true)
   }
   private requireAccount(req: Request): MembershipAccount {
     const account = this.authenticate(this.token(req))
@@ -319,6 +377,10 @@ export class MembershipService {
     const access = auth.access(req)
     if (!access.method) throw new MembershipError(access.error, access.status)
     if (['cookie', 'account'].includes(access.method) && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !auth.allowWrite(req)) throw new MembershipError('invalid_request', 403)
+    return access.method
+  }
+  private manualPlusActor(req: Request, auth: AdminAuth): string | null {
+    return this.requireAdmin(req, auth) === 'account' ? this.requireAccount(req).id : null
   }
   private limit(data: Data, label: string, count: number, window: number): boolean {
     const key = createHmac('sha256', this.options.authSecret).update(label).digest('hex')
@@ -509,19 +571,33 @@ export class MembershipService {
     this.notify()
     return session
   }
-  async grant(emailValue: unknown, expiresAt: unknown) {
+  async grant(emailValue: unknown, expiresAt: unknown, actorAccountId?: string | null) {
     const email = normalizeMembershipEmail(emailValue)
     if (!email) throw new MembershipError('invalid_email')
-    if (expiresAt !== null && (!time(expiresAt) || expiresAt <= this.now())) throw new MembershipError('invalid_expiry')
+    if (expiresAt !== null && !time(expiresAt)) throw new MembershipError('invalid_expiry')
     await this.mutate(data => {
+      const at = this.now()
+      if (expiresAt !== null && expiresAt <= at) throw new MembershipError('invalid_expiry')
+      const previous = data.grants.find(g => g.email === email)
+      if (previous?.active && previous.expiresAt === expiresAt) return
       data.grants = data.grants.filter(g => g.email !== email)
-      data.grants.push({ email, active: true, expiresAt: expiresAt as number | null, grantedAt: this.now() })
+      data.grants.push({ email, active: true, expiresAt, grantedAt: at })
+      recordManualPlusChange(data, actorAccountId, { at, action: 'gift_granted', email, subscriptionId: null, reason: null,
+        before: giftAccess(previous, at), after: { active: true, expiresAt } })
     })
   }
-  async revokeGift(emailValue: unknown) {
+  async revokeGift(emailValue: unknown, actorAccountId?: string | null) {
     const email = normalizeMembershipEmail(emailValue)
     if (!email) throw new MembershipError('invalid_email')
-    await this.mutate(data => { const grant = data.grants.find(g => g.email === email); if (grant) grant.active = false }, true, true)
+    await this.mutate(data => {
+      const grant = data.grants.find(g => g.email === email)
+      if (!grant?.active) return
+      const at = this.now()
+      const before = giftAccess(grant, at)
+      grant.active = false
+      recordManualPlusChange(data, actorAccountId, { at, action: 'gift_revoked', email, subscriptionId: null, reason: null,
+        before, after: { active: false, expiresAt: grant.expiresAt } })
+    }, true, true)
   }
   private async stripe(path: string, form?: URLSearchParams, idempotencyKey?: string): Promise<Record<string, any>> {
     if (!this.options.stripeSecret) throw new MembershipError('checkout_not_configured', 503)
@@ -602,19 +678,23 @@ export class MembershipService {
     }, true, true)
     return { received: true }
   }
-  async revokePlus(subscriptionId: unknown, reason: unknown) {
-    if (!isBmcSubscriptionId(subscriptionId) || !['refund', 'dispute', 'provider_correction'].includes(String(reason))) throw new MembershipError('invalid_request')
+  async revokePlus(subscriptionId: unknown, reason: unknown, actorAccountId?: string | null) {
+    if (!isBmcSubscriptionId(subscriptionId) || !manualReason(reason)) throw new MembershipError('invalid_request')
     await this.mutate(data => {
       const subscription = data.bmcSubscriptions.find(s => s.id === subscriptionId)
       if (!subscription) throw new MembershipError('subscription_not_found', 404)
       if (subscription.revokedAt !== null) return
-      subscription.revokedAt = this.now(); subscription.eligible = false
-      subscription.expiresAt = Math.min(subscription.expiresAt, this.now())
-      data.plusAudit = [...data.plusAudit, { id: hash(`owner-revoke:${subscriptionId}:${this.now()}:${randomUUID()}`), at: this.now(), kind: 'owner_revoke' as const, subscriptionId, reason: String(reason) }].slice(-10_000)
+      const at = this.now()
+      const before = subscriptionAccess(subscription, at)
+      subscription.revokedAt = at; subscription.eligible = false
+      subscription.expiresAt = Math.min(subscription.expiresAt, at)
+      data.plusAudit = [...data.plusAudit, { id: hash(`owner-revoke:${subscriptionId}:${at}:${randomUUID()}`), at, kind: 'owner_revoke' as const, subscriptionId, reason }].slice(-10_000)
+      recordManualPlusChange(data, actorAccountId, { at, action: 'subscription_revoked', email: subscription.email, subscriptionId, reason,
+        before, after: subscriptionAccess(subscription, at) })
     }, true, true)
   }
   /** An owner attests to a real provider giveaway delivery, never to a payment. */
-  async importBmcGiveaway(eventValue: unknown, reason: unknown) {
+  async importBmcGiveaway(eventValue: unknown, reason: unknown, actorAccountId?: string | null) {
     if (reason !== 'provider_delivery_recovery') throw new MembershipError('invalid_giveaway')
     if (!bmcReadiness(this.options.bmc, this.isHealthy(), !!this.options.sendCode).ready) throw new MembershipError('plus_not_configured', 503)
     let event: BmcEvent
@@ -635,6 +715,9 @@ export class MembershipService {
       if (!result) return { ok: true as const, subscriptionId, imported: false }
       data.bmcSubscriptions = data.bmcSubscriptions.filter(record => record.id !== subscriptionId).concat(result.record)
       data.plusAudit = [...data.plusAudit, { ...result.audit, kind: 'owner_import' as const, reason: 'provider_delivery_recovery' }].slice(-10_000)
+      const at = this.now()
+      recordManualPlusChange(data, actorAccountId, { at, action: 'giveaway_imported', email: result.record.email, subscriptionId, reason,
+        before: previous ? subscriptionAccess(previous, at) : null, after: subscriptionAccess(result.record, at) })
       return { ok: true as const, subscriptionId, imported: true }
     }, true, true)
   }
@@ -743,28 +826,44 @@ export class MembershipService {
       if (!this.authenticate(this.token(req))) { res.json({ ok: true }); return }
       const tokenHash = hash(this.token(req)); await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) }); res.json({ ok: true })
     }))
+    app.post('/api/membership/sessions/revoke-others', json, run(async (req, res) => {
+      res.json(await this.revokeOtherSessions(this.token(req)))
+    }))
     app.post('/api/membership/checkout', json, run(async (req, res) => res.json({ url: await this.checkout(this.token(req), req.body?.currency) })))
     app.post('/api/membership/plus/checkout', json, run(async (req, res) => res.json({ url: await this.plusCheckout(this.token(req), req.body?.currency, req.body?.interval) })))
     app.get('/api/admin/plus/readiness', run((req, res) => { this.requireAdmin(req, admin); res.json(this.plusReadiness()) }))
     app.get('/api/admin/plus/subscriptions', run((req, res) => {
       this.requireAdmin(req, admin)
+      const accountEmails = new Map(this.data.accounts.map(account => [account.id, account.email]))
       res.json({ subscriptions: this.data.bmcSubscriptions.map(s => ({ id: s.id, email: s.email, accountId: s.accountId,
         expiresAt: s.expiresAt, interval: s.interval, eligible: s.eligible, cancelAtPeriodEnd: s.cancelAtPeriodEnd, revokedAt: s.revokedAt })),
-        audit: this.data.plusAudit.slice(-100) })
+        audit: this.data.plusAudit.slice(-100),
+        manualAudit: this.data.manualPlusAudit.slice(-100).map((entry): ManualPlusAudit => ({
+          id: entry.id, at: entry.at, action: entry.action, email: entry.email,
+          actorEmail: entry.actorAccountId === null ? null : accountEmails.get(entry.actorAccountId) ?? null,
+          subscriptionId: entry.subscriptionId, reason: entry.reason,
+          before: entry.before ? { active: entry.before.active, expiresAt: entry.before.expiresAt } : null,
+          after: { active: entry.after.active, expiresAt: entry.after.expiresAt },
+        })),
+      })
     }))
     app.post('/api/admin/plus/revoke', json, run(async (req, res) => {
-      this.requireAdmin(req, admin)
+      const actor = this.manualPlusActor(req, admin)
       if (!admin.allowWrite(req)) throw new MembershipError('invalid_request', 403)
-      await this.revokePlus(req.body?.subscriptionId, req.body?.reason); res.json({ ok: true })
+      await this.revokePlus(req.body?.subscriptionId, req.body?.reason, actor); res.json({ ok: true })
     }))
     app.post('/api/admin/plus/giveaways/import', json, run(async (req, res) => {
-      this.requireAdmin(req, admin)
+      const actor = this.manualPlusActor(req, admin)
       if (!admin.allowWrite(req)) throw new MembershipError('invalid_request', 403)
-      res.json(await this.importBmcGiveaway(req.body?.event, req.body?.reason))
+      res.json(await this.importBmcGiveaway(req.body?.event, req.body?.reason, actor))
     }))
     app.get('/api/admin/memberships', run((req, res) => { this.requireAdmin(req, admin); res.json({ grants: this.data.grants.map(g => ({ ...g })).sort((a, b) => b.grantedAt - a.grantedAt) }) }))
-    app.post('/api/admin/memberships/grant', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.grant(req.body?.email, req.body?.expiresAt ?? null); res.json({ ok: true }) }))
-    app.post('/api/admin/memberships/revoke', json, run(async (req, res) => { this.requireAdmin(req, admin); await this.revokeGift(req.body?.email); res.json({ ok: true }) }))
+    app.post('/api/admin/memberships/grant', json, run(async (req, res) => {
+      await this.grant(req.body?.email, req.body?.expiresAt ?? null, this.manualPlusActor(req, admin)); res.json({ ok: true })
+    }))
+    app.post('/api/admin/memberships/revoke', json, run(async (req, res) => {
+      await this.revokeGift(req.body?.email, this.manualPlusActor(req, admin)); res.json({ ok: true })
+    }))
     // JSON/parser failures must not echo private input or a stack trace.
     app.use(['/api/membership', '/api/admin/memberships', '/api/admin/plus'], (error: unknown, _req: Request, res: Response, next: NextFunction) => {
       if (res.headersSent) { next(error); return }

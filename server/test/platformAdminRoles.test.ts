@@ -9,6 +9,7 @@ import { createGameServer } from '../src/app.js'
 import type { SnapshotStore } from '../src/storage.js'
 import { ADMIN_PROOF_COOKIE } from '../src/adminAuth.js'
 import { ADMIN_PROOF_SESSION_MS } from '../src/adminStepUp.js'
+import type { ManualPlusAudit } from '../../shared/plusAdminAudit.js'
 
 const KEY = 'synthetic-admin-master-for-role-tests-2026'
 const ORIGIN = 'https://nrnplay.com'
@@ -144,6 +145,40 @@ test('role-authorized Plus changes require CSRF headers and a trusted origin', a
   assert.equal((await post({ 'X-Admin-Request': '1', Origin: ORIGIN })).status, 200)
   assert.equal(h.membership.authenticate(TOKENS[2])!.adFree, true)
   assert.equal(h.membership.authenticate(TOKENS[2])!.isAdmin, undefined, 'Plus does not grant administration')
+})
+
+test('verified admin gift changes retain the actor and before/after state in the same durable snapshot', async t => {
+  const h = await harness(t)
+  await h.unlock()
+  await h.unlock(1)
+  const expiry = h.clock.now + 60_000
+  const gift = { email: EMAILS[2], expiresAt: expiry }
+  const grant = () => h.write('/api/admin/memberships/grant', gift)
+  assert.equal((await grant()).status, 200)
+  assert.equal((await grant()).status, 200)
+  h.clock.now += 1_000
+  const revoke = () => h.write('/api/admin/memberships/revoke', { email: EMAILS[2] }, TOKENS[1])
+  assert.equal((await revoke()).status, 200)
+  assert.equal((await revoke()).status, 200)
+  assert.equal(h.membership.authenticate(TOKENS[2])?.adFree, false)
+
+  const response = await h.read('/api/admin/plus/subscriptions', TOKENS[1])
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const { manualAudit } = await response.json() as { manualAudit: ManualPlusAudit[] }
+  assert.equal(manualAudit.length, 2)
+  assert.deepEqual(manualAudit.map(({ id, ...entry }) => entry), [
+    { at: h.clock.now - 1_000, action: 'gift_granted', email: EMAILS[2], actorEmail: EMAILS[0], subscriptionId: null, reason: null,
+      before: null, after: { active: true, expiresAt: expiry } },
+    { at: h.clock.now, action: 'gift_revoked', email: EMAILS[2], actorEmail: EMAILS[1], subscriptionId: null, reason: null,
+      before: { active: true, expiresAt: expiry }, after: { active: false, expiresAt: expiry } },
+  ])
+  assert.deepEqual(h.membershipStore.value.manualPlusAudit.map((entry: { actorAccountId: string }) => entry.actorAccountId), ['role-account-0', 'role-account-1'])
+  assert.equal(h.membershipStore.value.grants[0].active, false)
+  const saved = structuredClone(h.membershipStore.value)
+  const restarted = await new MembershipService({ store: new MemoryStore(saved), authSecret: 'synthetic-reload-role-secret-2026' }).load()
+  assert.equal(restarted.authenticate(TOKENS[2])?.adFree, false)
+  await restarted.close()
 })
 
 test('revocation and expiry are enforced per request; storage failures return 503 before role rejection', async t => {

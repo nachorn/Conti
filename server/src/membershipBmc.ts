@@ -41,7 +41,7 @@ const DAY = 86_400_000
 const obj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const stamp = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
 const numericId = (v: unknown): string | null => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? String(v) : null
-const email = (v: unknown): string | null => typeof v === 'string' && v.trim().length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? v.trim().toLowerCase() : null
+export const normalizeBmcEmail = (v: unknown): string | null => typeof v === 'string' && v.trim().length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? v.trim().toLowerCase() : null
 const hash = (v: string) => createHash('sha256').update(v).digest('hex')
 export const isBmcSubscriptionId = (v: unknown): v is string => typeof v === 'string' && /^(?:\d{1,16}|giveaway:[1-9]\d{0,15})$/.test(v)
 const fiveYearsAfter = (at: number): number => {
@@ -116,7 +116,7 @@ export function parseBmcSubscriptions(value: unknown, accountIds: Set<string>): 
   if (!Array.isArray(value) || value.length > 100_000) throw new Error('Invalid Plus storage')
   const seen = new Set<string>()
   return value.map(raw => {
-    if (!obj(raw) || !isBmcSubscriptionId(raw.id) || seen.has(raw.id) || email(raw.email) !== raw.email ||
+    if (!obj(raw) || !isBmcSubscriptionId(raw.id) || seen.has(raw.id) || normalizeBmcEmail(raw.email) !== raw.email ||
         !(raw.accountId === null || accountIds.has(raw.accountId)) || !stamp(raw.expiresAt) || !stamp(raw.periodStart) ||
         !['month', 'year', 'giveaway'].includes(raw.interval) || raw.id.startsWith('giveaway:') !== (raw.interval === 'giveaway') ||
         typeof raw.eligible !== 'boolean' || typeof raw.cancelAtPeriodEnd !== 'boolean' ||
@@ -158,7 +158,7 @@ export function applyBmcEvent(records: BmcSubscription[], event: BmcEvent, optio
   const fingerprint = hash(JSON.stringify([event.type, event.created, subId, p.duration_type, p.status, p.canceled, p.paused, p.cancel_at_period_end,
     p.membership_level_id, p.amount, p.currency, p.current_period_start, p.current_period_end, p.canceled_at]))
   if (old && (old.revokedAt !== null || old.latestAt > at || (old.latestAt === at && old.latestPriority > priority) || old.latestFingerprint === fingerprint)) return null
-  const supporterEmail = email(p.supporter_email)
+  const supporterEmail = normalizeBmcEmail(p.supporter_email)
   if (!supporterEmail && !old) throw new BmcError('invalid_membership')
   const interval = giveaway ? 'giveaway' : p.duration_type === 'month' ? 'month' : 'year'
   const start = stamp(p.current_period_start) ? p.current_period_start * 1000 : -1

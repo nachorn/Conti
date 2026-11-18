@@ -1,3 +1,5 @@
+import type { ManualPlusAudit, PlusAccessState } from '@shared/plusAdminAudit'
+
 export type RevokeReason = 'refund' | 'dispute' | 'provider_correction'
 export type PlusAuditReason = RevokeReason | 'provider_delivery_recovery'
 export interface AdminPlusSubscription {
@@ -8,11 +10,27 @@ export interface AdminPlusAudit {
   id: string; at: number; kind: 'webhook' | 'webhook_test' | 'owner_revoke' | 'owner_import'
   subscriptionId: string | null; reason: PlusAuditReason | null
 }
-export interface AdminPlusSnapshot { subscriptions: AdminPlusSubscription[]; audit: AdminPlusAudit[] }
+export interface AdminPlusSnapshot { subscriptions: AdminPlusSubscription[]; audit: AdminPlusAudit[]; manualAudit?: ManualPlusAudit[] }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const timestamp = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 8_640_000_000_000_000
 const id = (value: unknown): value is string => typeof value === 'string' && /^(?:\d{1,16}|giveaway:[1-9]\d{0,15})$/.test(value)
 export const isRevokeReason = (value: unknown): value is RevokeReason => value === 'refund' || value === 'dispute' || value === 'provider_correction'
+const email = (value: unknown): value is string => typeof value === 'string' && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+const access = (value: unknown): value is PlusAccessState => object(value) && typeof value.active === 'boolean' &&
+  (value.expiresAt === null || typeof value.expiresAt === 'number' && Number.isSafeInteger(value.expiresAt) && value.expiresAt >= 0)
+
+function manualAuditEntry(value: unknown): value is ManualPlusAudit {
+  if (!object(value) || typeof value.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(value.id) || !timestamp(value.at) ||
+      !email(value.email) || !(value.actorEmail === null || email(value.actorEmail)) ||
+      !(value.before === null || access(value.before)) || !access(value.after)) return false
+  switch (value.action) {
+    case 'gift_granted': return value.subscriptionId === null && value.reason === null && value.after.active
+    case 'gift_revoked': return value.subscriptionId === null && value.reason === null && value.before !== null && !value.after.active
+    case 'subscription_revoked': return id(value.subscriptionId) && isRevokeReason(value.reason) && value.before !== null && !value.after.active
+    case 'giveaway_imported': return id(value.subscriptionId) && value.subscriptionId.startsWith('giveaway:') && value.reason === 'provider_delivery_recovery'
+    default: return false
+  }
+}
 
 /** A malformed owner response must never look like an empty successful list. */
 export function readAdminPlus(value: unknown): AdminPlusSnapshot | null {
@@ -35,7 +53,11 @@ export function readAdminPlus(value: unknown): AdminPlusSnapshot | null {
       !(item.reason === null || isRevokeReason(item.reason) || item.reason === 'provider_delivery_recovery')) return null
     audit.push(item as unknown as AdminPlusAudit)
   }
-  return { subscriptions, audit }
+  const manualAudit = value.manualAudit
+  if (manualAudit === undefined) return { subscriptions, audit }
+  if (!Array.isArray(manualAudit) || manualAudit.length > 100 || !manualAudit.every(manualAuditEntry) ||
+      new Set(manualAudit.map(entry => entry.id)).size !== manualAudit.length) return null
+  return { subscriptions, audit, manualAudit }
 }
 
 /** Confirmation binds the irreversible revocation to one displayed subscription. */

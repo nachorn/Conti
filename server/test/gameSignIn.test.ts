@@ -74,6 +74,29 @@ test('an origin-bound PKCE code gives the game a separate session for the same e
   assert.equal(h.store.value.accounts.length, 1)
 })
 
+test('a session linked from a game keeps its scope on the account portal', async t => {
+  const h = await harness(t), game = await h.service.linkedSession(h.source.token), pkce = proof()
+  const authorized = await h.call('game-authorize', { origin: ROOT, challenge: pkce.challenge }, game.token)
+  assert.equal(authorized.status, 200)
+  const { code } = await authorized.json()
+  const exchange = await h.call('game-exchange', { code, verifier: pkce.verifier, previousToken: h.source.token }, undefined, ROOT)
+  assert.equal(exchange.status, 200)
+  const portal = await exchange.json()
+  assert.equal(portal.account.id, game.account.id)
+  assert.notEqual(portal.token, h.source.token)
+  assert.equal((await h.call('sessions/revoke-others', {}, portal.token)).status, 403)
+  assert.equal((await h.call('me', undefined, h.source.token)).status, 200)
+})
+
+test('closing other sessions invalidates an unfinished game handoff signed in the current browser', async t => {
+  const h = await harness(t), pkce = proof(), issued = await h.authorize(pkce.challenge)
+  const response = await h.call('sessions/revoke-others', {}, h.source.token)
+  assert.equal(response.status, 200)
+  const exchange = await h.call('game-exchange', { code: issued.code, verifier: pkce.verifier }, undefined, FOOTBALL)
+  assert.equal(exchange.status, 401)
+  assert.equal(h.store.value.sessions.length, 1)
+})
+
 test('a code cannot be replayed, including by concurrent exchange requests', async t => {
   const h = await harness(t), pkce = proof(), issued = await h.authorize(pkce.challenge)
   const body = { code: issued.code, verifier: pkce.verifier }

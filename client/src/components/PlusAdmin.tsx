@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Lang } from '../i18n'
+import type { ManualPlusAction, PlusAccessState } from '@shared/plusAdminAudit'
 import { adminFetch } from '../lib/adminApi'
 import { confirmedGiveawayImport, giveawayImportCommand, plusRevokeCommand, readAdminPlus, type AdminPlusSnapshot, type AdminPlusSubscription } from '../lib/adminPlus'
 import './PlusAdmin.css'
@@ -90,6 +91,16 @@ export function PlusAdmin({ lang, onSessionExpired }: { lang: Lang; onSessionExp
   const needle = search.trim().toLowerCase()
   const matches = snapshot?.subscriptions.filter(item => !needle || item.email.toLowerCase().includes(needle) || item.id.includes(needle)) ?? []
   const date = (value: number) => new Date(value).toLocaleString(es ? 'es-ES' : 'en-US')
+  const manualAction: Record<ManualPlusAction, string> = {
+    gift_granted: es ? 'Cortesía concedida' : 'Gift granted',
+    gift_revoked: es ? 'Cortesía retirada' : 'Gift revoked',
+    subscription_revoked: es ? 'Suscripción retirada' : 'Subscription revoked',
+    giveaway_imported: es ? 'Invitación recuperada' : 'Invitation recovered',
+  }
+  const accessLabel = (value: PlusAccessState | null) => !value ? (es ? 'Sin registro' : 'No record')
+    : !value.active ? (es ? 'Inactiva' : 'Inactive')
+    : value.expiresAt === null ? (es ? 'Permanente' : 'Permanent')
+      : `${es ? 'Hasta' : 'Until'} ${date(value.expiresAt)}`
   const reasonLabel = (value: string | null) => value === 'refund' ? (es ? 'Reembolso' : 'Refund') : value === 'dispute' ? (es ? 'Disputa de pago' : 'Payment dispute') : value === 'provider_correction' ? (es ? 'Corrección del proveedor' : 'Provider correction') : value === 'provider_delivery_recovery' ? (es ? 'Recuperación de invitación ya enviada' : 'Recovery of an existing invitation') : ''
   const statusLabel = (item: AdminPlusSubscription) => item.revokedAt !== null ? (es ? 'Retirada' : 'Revoked')
     : !item.eligible ? (es ? 'No habilitada' : 'Ineligible') : item.expiresAt <= Date.now() ? (es ? 'Caducada' : 'Expired')
@@ -109,6 +120,14 @@ export function PlusAdmin({ lang, onSessionExpired }: { lang: Lang; onSessionExp
       {importStatus && <p className="dashboard-error" role={importStatus === 'success' || importStatus === 'already' ? 'status' : 'alert'}>{importStatus === 'success' ? (es ? 'Invitación recuperada.' : 'Invitation recovered.') : importStatus === 'already' ? (es ? 'Esta invitación ya estaba sincronizada.' : 'This invitation was already synced.') : importStatus === 'revoked' ? (es ? 'Esta invitación fue retirada y no puede recuperarse con este ID.' : 'This invitation was revoked and cannot be recovered with this ID.') : importStatus === 'invalid' ? (es ? 'No se ha recuperado la invitación. Pega un Request JSON válido de una invitación activa del nivel NRN Plus.' : 'The invitation was not recovered. Paste a valid Request JSON for an active NRN Plus invitation.') : (es ? 'No se pudo confirmar la recuperación. Actualiza la lista antes de reintentarlo.' : 'Recovery could not be confirmed. Refresh the list before retrying.')}{importedId && ` · ${importedId}`}</p>}
     </details>
     {snapshot && <>
+      {!!snapshot.manualAudit?.length && <details className="plus-admin-audit">
+        <summary>{es ? 'Cambios de administradores' : 'Admin changes'}</summary>
+        <ul>{[...snapshot.manualAudit].reverse().map(item => <li key={item.id}>
+          <time dateTime={new Date(item.at).toISOString()}>{date(item.at)}</time> · {manualAction[item.action]} · <strong>{item.email}</strong>
+          {item.subscriptionId && ` · #${item.subscriptionId}`}{item.reason && ` · ${reasonLabel(item.reason)}`}
+          <br />{item.actorEmail ?? (es ? 'Cuenta de administrador sin identificar' : 'Unidentified admin account')} · {accessLabel(item.before)} → {accessLabel(item.after)}
+        </li>)}</ul>
+      </details>}
       <label className="plus-admin-search"><span>{es ? 'Buscar email o ID de suscripción' : 'Find email or subscription ID'}</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
       <p className="plus-admin-note">{matches.length} {es ? 'suscripciones' : 'subscriptions'}{matches.length > 100 ? (es ? ' · Se muestran las primeras 100. Filtra para encontrar una concreta.' : ' · Showing the first 100. Search to find a specific one.') : ''}</p>
       <ul className="plus-admin-list">{matches.slice(0, 100).map(item => <li key={item.id}><div><strong>{item.email}</strong><span>#{item.id} · {item.interval === 'giveaway' ? (es ? 'Cortesía de Buy Me a Coffee' : 'Buy Me a Coffee courtesy') : item.interval === 'year' ? (es ? 'Anual' : 'Annual') : (es ? 'Mensual' : 'Monthly')} · {statusLabel(item)}</span><span>{es ? 'Acceso hasta' : 'Access until'}: {date(item.expiresAt)}{!item.accountId && ` · ${es ? 'Pendiente de vincular cuenta' : 'Account linking pending'}`}</span></div>{item.revokedAt === null && <button type="button" className="dashboard-button" disabled={busy || loading} onClick={() => selectTarget(item)} aria-label={`${es ? 'Revisar retirada' : 'Review revocation'}: ${item.id}`}>{es ? 'Revisar retirada' : 'Review revocation'}</button>}</li>)}</ul>

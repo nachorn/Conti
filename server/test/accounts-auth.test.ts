@@ -88,6 +88,47 @@ test('existing email signup is a generic acknowledgement and cannot replace its 
   assert.equal((await h.service.passwordLogin('ana@example.com', PASSWORD, 'ip')).account.id, first.account.id)
 })
 
+test('the profile closes its own other sessions atomically and rotates the current credential without extending it', async t => {
+  const h = await harness(t), current = await h.signup(), otherAccount = await h.signup('bea@example.com')
+  const otherBrowser = await h.service.passwordLogin('ana@example.com', PASSWORD, 'different-browser')
+  const game = await h.service.linkedSession(current.token)
+  const path = 'sessions/revoke-others'
+  const denied = await h.call(path, {}, game.token)
+  assert.equal(denied.status, 403)
+  assert.equal((await denied.json()).error, 'primary_session_required')
+  assert.equal((await h.call(path, {})).status, 401)
+  assert.ok(h.service.authenticate(otherBrowser.token))
+  h.clock.now += 60_000
+  const results = await Promise.all([h.call(path, {}, current.token), h.call(path, {}, current.token)])
+  assert.deepEqual(results.map(result => result.status).sort(), [200, 401])
+  const accepted = results.find(result => result.ok)!
+  assert.equal(accepted.headers.get('cache-control'), 'no-store')
+  const replacement = await accepted.json()
+  assert.equal(replacement.account.id, current.account.id)
+  assert.equal(replacement.expiresAt, current.expiresAt)
+  assert.notEqual(replacement.token, current.token)
+  assert.equal(h.store.value.sessions.length, 2)
+  assert.equal(JSON.stringify(h.store.value).includes(replacement.token), false)
+  const restored = await new MembershipService(h.options).load()
+  assert.equal(restored.authenticate(game.token), null)
+  assert.equal(restored.authenticate(otherBrowser.token), null)
+  assert.equal(restored.authenticate(current.token), null)
+  assert.equal(restored.authenticate(replacement.token)?.id, current.account.id)
+  assert.equal(restored.authenticate(otherAccount.token)?.id, otherAccount.account.id)
+})
+
+test('a failed storage write never acknowledges closing the other sessions', async t => {
+  const h = await harness(t), current = await h.signup(), game = await h.service.linkedSession(current.token)
+  const previous = structuredClone(h.store.value)
+  h.store.failAt = h.store.saves + 1
+  const response = await h.call('sessions/revoke-others', {}, current.token)
+  assert.equal(response.status, 503)
+  assert.deepEqual(h.store.value, previous)
+  const restored = await new MembershipService(h.options).load()
+  assert.equal(restored.authenticate(game.token)?.id, current.account.id)
+  assert.equal(restored.authenticate(current.token)?.id, current.account.id)
+})
+
 test('a planted registration code cannot be consumed as sign-in or complete a different browser registration', async t => {
   const h = await harness(t)
   const victimToken = await h.service.register('Victim', 'victim@example.com', PASSWORD, 'es', 'victim-ip')

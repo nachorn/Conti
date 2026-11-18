@@ -8,7 +8,7 @@ import { subscribeMembershipRefresh } from './lib/membershipRefresh'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 const disabledConfig: MembershipConfig = { enabled: false, loginEnabled: false, checkoutEnabled: false, price: null, ads: { provider: 'disabled', publisherId: null } }
-export type MembershipError = 'unavailable' | 'expired' | 'invalidEmail' | 'invalidCode' | 'invalidCredentials' | 'invalidName' | 'invalidPassword' | 'rateLimited' | 'network' | null
+export type MembershipError = 'unavailable' | 'expired' | 'invalidEmail' | 'invalidCode' | 'invalidCredentials' | 'invalidName' | 'invalidPassword' | 'primarySessionRequired' | 'rateLimited' | 'network' | null
 
 function localStorageOrNull() { try { return window.localStorage } catch { return null } }
 class RequestError extends Error {
@@ -36,6 +36,7 @@ function errorKind(error: unknown, context: 'general' | 'code' | 'credentials' =
   if (error.code === 'invalid_email') return 'invalidEmail'
   if (error.code === 'invalid_name') return 'invalidName'
   if (error.code === 'invalid_password') return 'invalidPassword'
+  if (error.code === 'primary_session_required') return 'primarySessionRequired'
   if (error.code === 'invalid_credentials' || (context === 'credentials' && error.status === 401)) return 'invalidCredentials'
   if (error.status === 429) return 'rateLimited'
   if (error.code === 'invalid_code' || (context === 'code' && [400, 401, 403].includes(error.status))) return 'invalidCode'
@@ -67,6 +68,7 @@ export function useMembership() {
   const refreshSequence = useRef(0)
   const authSequence = useRef(0)
   const pendingAuth = useRef<number | null>(null)
+  const rotatingSession = useRef<string | null>(null)
   const registration = useRef<{ email: string; token: string } | null>(null)
   const plusCheckoutPending = useRef(false)
   const [initialCurrency] = useState(() => readCurrencyPreference(localStorageOrNull()))
@@ -155,6 +157,7 @@ export function useMembership() {
 
   const refreshAccount = useCallback(async (): Promise<boolean> => {
     const current = sessionRef.current
+    if (current && rotatingSession.current === current.token) return true
     const sequence = ++refreshSequence.current
     if (!current) { setAccount(null); return true }
     if (current.expiresAt <= Date.now()) { remember(null); setAccount(null); setError('expired'); return true }
@@ -284,13 +287,17 @@ export function useMembership() {
   }, [refresh, connectOnce])
 
   const login = (email: string, lang: Lang) => requestCode('login', { email: email.trim(), lang })
-  async function authenticate(path: string, body: unknown, context: 'code' | 'credentials') {
+  async function authenticate(path: string, body: unknown, context: 'general' | 'code' | 'credentials', sourceToken?: string) {
     if (pendingAuth.current !== null) return false
     const sequence = ++authSequence.current
     pendingAuth.current = sequence
+    if (sourceToken) {
+      rotatingSession.current = sourceToken
+      ++refreshSequence.current
+    }
     setBusy(true); setError(null)
     try {
-      const value = await request<MembershipSession>(path, null, body)
+      const value = await request<MembershipSession>(path, sourceToken, body)
       if (sequence !== authSequence.current) return false
       if (!isMembershipSession(value)) throw new RequestError(503)
       ++refreshSequence.current
@@ -299,8 +306,21 @@ export function useMembership() {
       setAccount(value.account)
       markConnectionReady()
       return true
-    } catch (failure) { if (sequence === authSequence.current) reportFailure(failure, context); return false }
-    finally { if (pendingAuth.current === sequence) pendingAuth.current = null; if (sequence === authSequence.current) setBusy(false) }
+    } catch (failure) {
+      if (sequence === authSequence.current) {
+        if (sourceToken && failure instanceof RequestError && failure.status === 401 && sessionRef.current?.token === sourceToken) {
+          remember(null)
+          setAccount(null)
+        }
+        reportFailure(failure, context)
+      }
+      return false
+    }
+    finally {
+      if (sourceToken && rotatingSession.current === sourceToken) rotatingSession.current = null
+      if (pendingAuth.current === sequence) pendingAuth.current = null
+      if (sequence === authSequence.current) setBusy(false)
+    }
   }
   const verify = (email: string, code: string) => authenticate('verify', { email: email.trim(), code: code.trim() }, 'code')
   const verifyRegistration = (email: string, code: string) => {
@@ -310,6 +330,10 @@ export function useMembership() {
   }
   const loginPassword = (email: string, password: string) => authenticate('password-login', { email: email.trim(), password }, 'credentials')
   const confirmPasswordReset = (email: string, code: string, password: string) => authenticate('password-reset/confirm', { email: email.trim(), code: code.trim(), password }, 'code')
+  const revokeOtherSessions = () => {
+    const token = sessionRef.current?.token
+    return token ? authenticate('sessions/revoke-others', {}, 'general', token) : Promise.resolve(false)
+  }
   async function requestCode(path: string, body: unknown, received?: (value: unknown) => void) {
     if (pendingAuth.current !== null) return false
     const sequence = ++authSequence.current
@@ -390,6 +414,6 @@ export function useMembership() {
     } finally { plusCheckoutPending.current = false; setBusy(false) }
   }
 
-  return { token: session?.token ?? null, account, config, loaded, authReady: loaded && serverStatus === 'ready', serverStatus, connectionWarning, retryConnection, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
+  return { token: session?.token ?? null, account, config, loaded, authReady: loaded && serverStatus === 'ready', serverStatus, connectionWarning, retryConnection, busy, error, storageAvailable, currency, currencyPending, selectCurrency, login, verify, verifyRegistration, loginPassword, register, requestPasswordReset, confirmPasswordReset, revokeOtherSessions, logout, checkout, plusCheckout, refresh, adoptSession, clearLocalSession, clearError: () => setError(null) }
 }
 export type MembershipController = ReturnType<typeof useMembership>

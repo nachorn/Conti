@@ -48,8 +48,8 @@ const copy = {
   },
 }
 const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
-  es: { unavailable: 'El servicio no está disponible ahora. Inténtalo más tarde.', expired: 'Tu sesión ha caducado. Vuelve a entrar con tu email.', invalidEmail: 'Comprueba que el email esté escrito correctamente.', invalidCode: 'El código no es válido o ha caducado. Compruébalo o solicita otro.', invalidCredentials: 'El email o la contraseña no son correctos.', invalidName: 'Escribe un nombre de hasta 24 caracteres.', invalidPassword: 'Elige una contraseña de entre 15 y 128 caracteres. Puedes usar una frase.', rateLimited: 'Espera unos minutos antes de volver a intentarlo.', network: 'No hemos podido conectar. Comprueba tu conexión e inténtalo de nuevo.' },
-  en: { unavailable: 'The service is unavailable right now. Please try again later.', expired: 'Your session has expired. Sign in with your email again.', invalidEmail: 'Please check that your email address is correct.', invalidCode: 'The code is invalid or has expired. Check it or request another.', invalidCredentials: 'The email or password is incorrect.', invalidName: 'Enter a name of up to 24 characters.', invalidPassword: 'Choose a password of 15–128 characters. You can use a phrase.', rateLimited: 'Please wait a few minutes before trying again.', network: 'We could not connect. Check your connection and try again.' },
+  es: { unavailable: 'El servicio no está disponible ahora. Inténtalo más tarde.', expired: 'Tu sesión ha caducado. Vuelve a entrar con tu email.', invalidEmail: 'Comprueba que el email esté escrito correctamente.', invalidCode: 'El código no es válido o ha caducado. Compruébalo o solicita otro.', invalidCredentials: 'El email o la contraseña no son correctos.', invalidName: 'Escribe un nombre de hasta 24 caracteres.', invalidPassword: 'Elige una contraseña de entre 15 y 128 caracteres. Puedes usar una frase.', primarySessionRequired: 'Vuelve a iniciar sesión en nrnplay.com para cerrar las demás sesiones.', rateLimited: 'Espera unos minutos antes de volver a intentarlo.', network: 'No hemos podido conectar. Comprueba tu conexión e inténtalo de nuevo.' },
+  en: { unavailable: 'The service is unavailable right now. Please try again later.', expired: 'Your session has expired. Sign in with your email again.', invalidEmail: 'Please check that your email address is correct.', invalidCode: 'The code is invalid or has expired. Check it or request another.', invalidCredentials: 'The email or password is incorrect.', invalidName: 'Enter a name of up to 24 characters.', invalidPassword: 'Choose a password of 15–128 characters. You can use a phrase.', primarySessionRequired: 'Sign in again on nrnplay.com to close your other sessions.', rateLimited: 'Please wait a few minutes before trying again.', network: 'We could not connect. Check your connection and try again.' },
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
@@ -74,6 +74,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const [securityOpen, setSecurityOpen] = useState(false)
   const [plusSignInOpen, setPlusSignInOpen] = useState(false)
   const [passwordUpdated, setPasswordUpdated] = useState(false)
+  const [sessionControl, setSessionControl] = useState<'idle' | 'confirm' | 'closed'>('idle')
   const [refreshing, setRefreshing] = useState(false)
   const [resendAt, setResendAt] = useState(0)
   const [canResend, setCanResend] = useState(false)
@@ -88,6 +89,8 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const activeSection = section === 'plus' ? 'plus' : gameType ? section : 'profile'
   const plusView = activeSection === 'plus' && !securityOpen
   const gameName = gameType === 'pocha' ? 'La Pocha' : 'Conti'
+
+  useEffect(() => { setSessionControl('idle') }, [open, account?.id])
 
   useEffect(() => {
     if (open && membership.token) void membership.refresh()
@@ -213,6 +216,20 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
           <p>{es ? 'Confirma el cambio con un código enviado a tu email. La nueva contraseña se usará en todos los juegos.' : 'Confirm the change with a code sent to your email. The new password will apply to every game.'}</p>
           {config.loginEnabled ? <button type="button" className="membership-secondary" onClick={() => { changeMode('reset'); setEmail(account.email); setSecurityOpen(true) }}>{account.hasPassword ? (es ? 'Cambiar contraseña' : 'Change password') : (es ? 'Crear contraseña' : 'Set a password')}</button> : <p>{es ? 'El cambio de contraseña no está disponible ahora.' : 'Password changes are currently unavailable.'}</p>}
         </section>
+        {!gameType && location.pathname === '/account' && <section className="membership-security" aria-labelledby="membership-sessions-title">
+          <h3 id="membership-sessions-title">{es ? 'Sesiones' : 'Sessions'}</h3>
+          {sessionControl === 'confirm' ? <>
+            <p>{es ? 'Seguirás conectado aquí. En los demás navegadores y juegos tendrás que volver a entrar.' : 'You’ll stay signed in here. You’ll need to sign in again on your other browsers and games.'}</p>
+            <div className="membership-actions">
+              <button type="button" className="membership-secondary" disabled={busy} onClick={async () => {
+                if (await membership.revokeOtherSessions()) setSessionControl('closed')
+              }}>{es ? 'Confirmar cierre' : 'Confirm sign-out'}</button>
+              <button type="button" className="membership-text" disabled={busy} onClick={() => { setSessionControl('idle'); membership.clearError() }}>{es ? 'Cancelar' : 'Cancel'}</button>
+            </div>
+          </> : <button type="button" className="membership-secondary" disabled={busy} onClick={() => { membership.clearError(); setSessionControl('confirm') }}>{es ? 'Cerrar las demás sesiones' : 'Sign out other sessions'}</button>}
+          {sessionControl === 'closed' && <p className="membership-success" role="status">{es ? 'Las demás sesiones se han cerrado.' : 'Your other sessions are signed out.'}</p>}
+          {sessionControl === 'confirm' && (error === 'network' || error === 'unavailable') && <p className="membership-error" role="alert">{es ? 'No se pudo confirmar el cierre. Comprueba la conexión e inténtalo de nuevo.' : 'The sign-out could not be confirmed. Check your connection and try again.'}</p>}
+        </section>}
         <button type="button" className="membership-secondary" onClick={() => setSection('plus')}>{es ? 'Ver NRN Plus y estilos de mesa' : 'View NRN Plus and table styles'}</button>
         <div className="membership-actions">
           <button className="membership-secondary" disabled={busy || refreshing} onClick={async () => { setRefreshing(true); await membership.refresh(); setRefreshing(false) }}>{refreshing ? t.checking : t.refresh}</button>

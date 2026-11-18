@@ -363,11 +363,16 @@ test('owner recovery imports only an attested giveaway into the same provider re
   assert.equal(h.service.authenticate(session.token)?.expiresAt, event.data.current_period_end * 1000)
   assert.equal(h.store.value.grants.length, 0)
   assert.deepEqual(h.store.value.plusAudit.map((entry: { kind: string; reason: string }) => [entry.kind, entry.reason]), [['owner_import', 'provider_delivery_recovery']])
+  assert.deepEqual(h.store.value.manualPlusAudit.map(({ id, ...entry }: { id: string }) => entry), [
+    { actorAccountId: null, at: h.clock.now, action: 'giveaway_imported', email: session.account.email, subscriptionId: 'giveaway:501',
+      reason: 'provider_delivery_recovery', before: null, after: { active: true, expiresAt: event.data.current_period_end * 1000 } },
+  ])
   assert.ok(!JSON.stringify(h.store.value).includes('private-note-not-retained'))
   const duplicate = await h.call(path, payload, ADMIN, true)
   assert.deepEqual(await duplicate.json(), { ok: true, subscriptionId: 'giveaway:501', imported: false })
   await h.deliver(event)
   assert.equal(h.store.value.plusAudit.length, 1)
+  assert.equal(h.store.value.manualPlusAudit.length, 1, 'provider retries and updates never create extra manual history')
   h.clock.now += 1_000
   await h.deliver(h.event('membership.cancelled', { ...event.data, canceled: 'true', status: 'canceled', canceled_at: Math.floor(h.clock.now / 1000) }))
   assert.equal(h.service.authenticate(session.token)?.adFree, false, 'real provider cancellation affects the imported record')
@@ -461,12 +466,17 @@ test('receipts before signup remain unclaimed until the matching email is verifi
 test('owner refund revocation is authenticated, audited and irreversible for that subscription even after future valid updates', async t => {
   const h = await harness(t), session = await h.login()
   await h.deliver(h.event())
+  const expiresAt = h.service.authenticate(session.token)!.expiresAt
   const payload = { subscriptionId: '501', reason: 'refund' }
   assert.equal((await h.call('/api/admin/plus/subscriptions')).status, 401)
   assert.equal((await h.call('/api/admin/plus/revoke', payload, session.token, true)).status, 401)
   assert.equal((await h.call('/api/admin/plus/revoke', payload, ADMIN)).status, 403)
   assert.equal((await h.call('/api/admin/plus/revoke', payload, ADMIN, true)).status, 200)
   assert.equal(h.service.authenticate(session.token)?.adFree, false)
+  const [change] = h.store.value.manualPlusAudit
+  assert.equal(change.action, 'subscription_revoked')
+  assert.deepEqual(change.before, { active: true, expiresAt })
+  assert.deepEqual(change.after, { active: false, expiresAt: h.clock.now })
   const tombstone = h.store.value.bmcSubscriptions[0].revokedAt
   h.clock.now += 1_000
   await h.deliver(h.event('membership.updated'))
