@@ -50,6 +50,10 @@ export interface MembershipOptions {
 }
 const DAY = 86_400_000
 const MAX_MANUAL_PLUS_AUDIT = 500
+// A ten-minute challenge can straddle two hourly send windows.
+const MAX_ACTIVE_CHALLENGES = 200
+const MAX_PENDING_PASSWORD_RESETS = 9
+const challengePurpose = (challenge: Challenge): ChallengePurpose => challenge.purpose ?? 'login'
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const equal = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -182,7 +186,8 @@ export class MembershipService {
   private queue: Promise<unknown> = Promise.resolve()
   private pending = 0
   private failed = false
-  private listeners = new Set<() => void>()
+  private listeners = new Set<(email?: string) => void>()
+  private pendingPasswordResets = new Set<string>()
   private resetDeliveries = new Set<Promise<void>>()
   private reservedDeliveries = 0
   private deliveryFailures = 0
@@ -236,8 +241,8 @@ export class MembershipService {
       warning: this.committedBytes >= MAX_SNAPSHOT_BYTES * 0.75,
       growthAllowed: this.committedBytes < MAX_SNAPSHOT_BYTES - 256 * 1024 }
   }
-  onChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
-  private notify() { for (const listener of this.listeners) { try { listener() } catch { /* A UI listener cannot undo a committed payment. */ } } }
+  onChange(listener: (email?: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  private notify(email?: string) { for (const listener of this.listeners) { try { listener(email) } catch { /* A UI listener cannot undo a committed payment. */ } } }
   private requireHealthy() {
     if (this.isHealthy()) return
     const firstFailure = !this.failed
@@ -370,8 +375,8 @@ export class MembershipService {
     if (!this.authenticate(sourceToken)) return Promise.reject(new MembershipError('unauthorized', 401))
     return this.linkedSessionByHash(hash(sourceToken), undefined, 'game')
   }
-  private linkedSessionByHash(sourceTokenHash: string, previousToken: string | undefined, scope: Session['scope'], audience?: CookieAudience): Promise<MembershipSession> {
-    return this.mutate(data => {
+  private async linkedSessionByHash(sourceTokenHash: string, previousToken: string | undefined, scope: Session['scope'], audience?: CookieAudience): Promise<MembershipSession> {
+    const session = await this.mutate(data => {
       // Recheck inside the mutation queue so logout/reset before exchange revokes the proof.
       const source = data.sessions.find(session => session.tokenHash === sourceTokenHash && session.expiresAt > this.now())
       const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
@@ -392,7 +397,9 @@ export class MembershipService {
       data.sessions = data.sessions.filter(session => session.accountId !== account.id)
         .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}), ...(audience ? { transport: audience } : {}) })
       return { token, expiresAt, account: this.publicAccount(account, data, effectiveScope) }
-    })
+    }, false)
+    this.notify(session.account.email)
+    return session
   }
   async revokeOtherSessions(token: string, lang: Language = 'en', audience?: CookieAudience): Promise<MembershipSession> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new MembershipError('unauthorized', 401)
@@ -412,7 +419,8 @@ export class MembershipService {
       data.sessions = data.sessions.filter(value => value.accountId !== account.id)
       data.sessions.push({ ...session, tokenHash: hash(replacement) })
       return { token: replacement, expiresAt: session.expiresAt, account: this.publicAccount(account, data, session.scope) }
-    }, true, true)
+    }, false, true)
+    this.notify(newSession.account.email)
     this.securityNotices.schedule(newSession.account, 'other_sessions_closed', lang)
     return newSession
   }
@@ -471,12 +479,13 @@ export class MembershipService {
     try {
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
       const send = await this.mutate(data => {
+        if (data.challenges.length >= MAX_ACTIVE_CHALLENGES) throw new MembershipError('rate_limited', 429)
         const exists = data.accounts.some(a => a.email === email)
         // A signup request can never replace an existing verified account.
         // Unknown reset emails get the same acknowledgement without a new account.
         if ((purpose === 'register' && exists) || (purpose === 'reset' && !exists)) return false
         const salt = randomBytes(16).toString('hex')
-        data.challenges = data.challenges.filter(c => c.email !== email)
+        data.challenges = data.challenges.filter(c => c.email !== email || challengePurpose(c) !== purpose)
         data.challenges.push({ email, salt, codeHash: this.codeHash(email, salt, code, purpose), expiresAt: this.now() + 10 * 60_000,
           attempts: 0, purpose, ...(registration ?? {}) })
         return true
@@ -570,7 +579,8 @@ export class MembershipService {
       previous.transport = audience
       if (audience !== 'portal') previous.scope = 'game'
       return { token, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, previous.scope) }
-    }, true, true)
+    }, false, true)
+    this.notify(replacement.account.email)
     this.respondWithSession(req, res, replacement)
   }
   private async reserveVerify(remoteAddress: string): Promise<void> {
@@ -578,15 +588,15 @@ export class MembershipService {
     const allowed = await this.mutate(data => this.limit(data, `verify-ip:${remoteAddress}`, 40, 15 * 60_000), false)
     if (!allowed) throw new MembershipError('rate_limited', 429)
   }
-  private consumeChallenge(data: Data, email: string, code: string, purpose: ChallengePurpose, registrationToken?: unknown): Challenge | null {
-    const challenge = data.challenges.find(c => c.email === email)
-    if (!challenge || challenge.expiresAt <= this.now() || challenge.attempts >= 5 ||
-        (challenge.purpose ?? 'login') !== purpose) return null
-    challenge.attempts++
-    if (purpose === 'register' && (typeof registrationToken !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(registrationToken) ||
-        !equal(challenge.registrationTokenHash!, hash(registrationToken)))) return null
-    if (!equal(challenge.codeHash, this.codeHash(email, challenge.salt, code, challenge.purpose))) return null
-    data.challenges = data.challenges.filter(c => c !== challenge)
+  private verifyChallenge(data: Data, email: string, code: string, purpose: ChallengePurpose, registrationToken?: unknown): Challenge | null {
+    const challenge = data.challenges.find(c => c.email === email && challengePurpose(c) === purpose)
+    if (!challenge || challenge.expiresAt <= this.now() || challenge.attempts >= 5) return null
+    const hasRegistrationProof = purpose !== 'register' || (typeof registrationToken === 'string' && /^[a-zA-Z0-9_-]{43}$/.test(registrationToken) &&
+      equal(challenge.registrationTokenHash!, hash(registrationToken)))
+    if (!hasRegistrationProof || !equal(challenge.codeHash, this.codeHash(email, challenge.salt, code, challenge.purpose))) {
+      challenge.attempts++
+      return null
+    }
     return challenge
   }
   async verifyCode(emailValue: unknown, code: unknown, remoteAddress: string, purpose: 'login' | 'register' = 'login', registrationToken?: unknown, audience?: CookieAudience): Promise<MembershipSession> {
@@ -595,8 +605,9 @@ export class MembershipService {
     if (purpose !== 'login' && purpose !== 'register') throw new MembershipError('invalid_code')
     await this.reserveVerify(remoteAddress)
     const result = await this.mutate(data => {
-      const challenge = this.consumeChallenge(data, email, code, purpose, registrationToken)
+      const challenge = this.verifyChallenge(data, email, code, purpose, registrationToken)
       if (!challenge) return null
+      data.challenges = data.challenges.filter(c => c !== challenge)
       let account = data.accounts.find(a => a.email === email)
       if (!account) {
         account = { id: randomUUID(), email, createdAt: this.now(),
@@ -606,7 +617,7 @@ export class MembershipService {
       return this.issueSession(data, account, audience)
     }, false)
     if (!result) throw new MembershipError('invalid_code')
-    this.notify()
+    this.notify(result.account.email)
     return result
   }
   async passwordLogin(emailValue: unknown, password: unknown, remoteAddress: string, audience?: CookieAudience): Promise<MembershipSession> {
@@ -630,7 +641,7 @@ export class MembershipService {
       return this.issueSession(data, current, audience)
     }, false)
     if (!session) throw new MembershipError('invalid_credentials', 401)
-    this.notify()
+    this.notify(session.account.email)
     return session
   }
   async confirmPasswordReset(emailValue: unknown, code: unknown, password: unknown, remoteAddress: string, lang: Language = 'en', audience?: CookieAudience): Promise<MembershipSession> {
@@ -638,26 +649,38 @@ export class MembershipService {
     if (!email || typeof code !== 'string' || !/^\d{6}$/.test(code)) throw new MembershipError('invalid_code')
     if (!passwordIsAcceptable(password)) throw new MembershipError('invalid_password')
     await this.reserveVerify(remoteAddress)
-    // Verify and claim the one-use challenge before expensive work, but do not
-    // change a password or session until the resulting hash is durable.
-    const claim = await this.mutate(data => {
-      const challenge = this.consumeChallenge(data, email, code, 'reset')
-      const account = data.accounts.find(a => a.email === email)
-      return challenge && account ? { accountId: account.id, previousHash: account.passwordHash, challengeHash: challenge.codeHash } : null
-    }, false)
-    if (!claim) throw new MembershipError('invalid_code')
-    const passwordHash = await this.passwordWork(() => hashPassword(password))
-    const session = await this.mutate(data => {
-      const account = data.accounts.find(a => a.id === claim.accountId)
-      if (!account || account.passwordHash !== claim.previousHash) return null
-      account.passwordHash = passwordHash
-      data.sessions = data.sessions.filter(s => s.accountId !== account.id)
-      return this.issueSession(data, account, audience)
-    }, false)
-    if (!session) throw new MembershipError('invalid_code')
-    this.notify()
-    this.securityNotices.schedule(session.account, 'password_changed', lang)
-    return session
+    let claimed = false
+    try {
+      const claim = await this.mutate(data => {
+        const challenge = this.verifyChallenge(data, email, code, 'reset')
+        const account = data.accounts.find(a => a.email === email)
+        if (!challenge || !account) return null
+        if (this.pendingPasswordResets.has(email) || this.pendingPasswordResets.size >= MAX_PENDING_PASSWORD_RESETS) throw new MembershipError('rate_limited', 429)
+        // Hold only an in-memory reservation while the KDF runs. A worker
+        // failure leaves the verified challenge available for a later retry.
+        this.pendingPasswordResets.add(email)
+        claimed = true
+        return { accountId: account.id, previousHash: account.passwordHash, challengeHash: challenge.codeHash }
+      }, false)
+      if (!claim) throw new MembershipError('invalid_code')
+      const passwordHash = await this.passwordWork(() => hashPassword(password))
+      const session = await this.mutate(data => {
+        const account = data.accounts.find(a => a.id === claim.accountId)
+        const challenge = data.challenges.find(c => c.email === email && c.purpose === 'reset' && equal(c.codeHash, claim.challengeHash) && c.expiresAt > this.now())
+        if (!challenge || !account || account.passwordHash !== claim.previousHash) return null
+        // Revoke outstanding email proofs along with sessions after a password
+        // change. The exact reset challenge was checked above, so an older
+        // request cannot complete using a replacement reset code.
+        data.challenges = data.challenges.filter(c => c.email !== email)
+        account.passwordHash = passwordHash
+        data.sessions = data.sessions.filter(s => s.accountId !== account.id)
+        return this.issueSession(data, account, audience)
+      }, false)
+      if (!session) throw new MembershipError('invalid_code')
+      this.notify(session.account.email)
+      this.securityNotices.schedule(session.account, 'password_changed', lang)
+      return session
+    } finally { if (claimed) this.pendingPasswordResets.delete(email) }
   }
   async grant(emailValue: unknown, expiresAt: unknown, actorAccountId?: string | null) {
     const email = normalizeMembershipEmail(emailValue)
@@ -672,7 +695,8 @@ export class MembershipService {
       data.grants.push({ email, active: true, expiresAt, grantedAt: at })
       recordManualPlusChange(data, actorAccountId, { at, action: 'gift_granted', email, subscriptionId: null, reason: null,
         before: giftAccess(previous, at), after: { active: true, expiresAt } })
-    })
+    }, false)
+    this.notify(email)
   }
   async revokeGift(emailValue: unknown, actorAccountId?: string | null) {
     const email = normalizeMembershipEmail(emailValue)
@@ -685,7 +709,8 @@ export class MembershipService {
       grant.active = false
       recordManualPlusChange(data, actorAccountId, { at, action: 'gift_revoked', email, subscriptionId: null, reason: null,
         before, after: { active: false, expiresAt: grant.expiresAt } })
-    }, true, true)
+    }, false, true)
+    this.notify(email)
   }
   private async stripe(path: string, form?: URLSearchParams, idempotencyKey?: string): Promise<Record<string, any>> {
     if (!this.options.stripeSecret) throw new MembershipError('checkout_not_configured', 503)
@@ -927,9 +952,11 @@ export class MembershipService {
       res.json(cookieAudience(req) ? this.portalSessionView(this.token(req), session.expiresAt, account) : { account, expiresAt: session.expiresAt })
     }))
     app.post('/api/membership/logout', run(async (req, res) => {
-      if (this.authenticateRequest(req)) {
+      const account = this.authenticateRequest(req)
+      if (account) {
         const tokenHash = hash(this.token(req))
-        await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) })
+        await this.mutate(data => { data.sessions = data.sessions.filter(s => s.tokenHash !== tokenHash) }, false)
+        this.notify(account.email)
       }
       if (cookieAudience(req)) clearPortalCookie(res)
       res.json({ ok: true })

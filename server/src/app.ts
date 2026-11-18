@@ -104,7 +104,10 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     ok: !repository.failed, storageReady: isHealthy(),
   }))
   // Passive readiness diagnostic only: do not use as Render's health-check path.
-  app.get('/ready', (_req, res) => res.status(isHealthy() ? 200 : 503).json({ ok: isHealthy() }))
+  app.get('/ready', (_req, res) => {
+    const ok = isHealthy() && (!options.membership || options.membership.isHealthy())
+    res.set('Cache-Control', 'no-store').status(ok ? 200 : 503).json({ ok })
+  })
   const httpServer = createServer(app)
   const connectionAttempts = new RateLimiter(120, 60_000)
   const globalConnections = new RateLimiter(600, 60_000)
@@ -221,11 +224,36 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     })
   })
   const pendingBySocket = new Map<string, number>()
-  const removeMembershipListener = options.membership?.onChange(() => {
+  const membershipSockets = new Map<string, Set<string>>()
+  const changedMemberships = new Set<string>()
+  let allMembershipsChanged = false
+  let membershipRefreshQueued = false
+  const clearMembershipChanges = () => {
+    changedMemberships.clear()
+    allMembershipsChanged = false
+    membershipRefreshQueued = false
+  }
+  const removeMembershipListener = options.membership?.onChange(email => {
+    if (email !== undefined && !membershipSockets.has(email)) return
+    if (email === undefined) allMembershipsChanged = true
+    else changedMemberships.add(email)
+    if (membershipRefreshQueued) return
+    membershipRefreshQueued = true
     enqueue(async () => {
-      for (const roomId of repository.records.keys()) broadcastGate(roomId)
-      for (const socket of io.sockets.sockets.values()) socket.emit('membership_state', { account: membershipAccount(socket) })
-    })
+      const groups = allMembershipsChanged ? membershipSockets.values()
+        : Array.from(changedMemberships, email => membershipSockets.get(email) ?? [])
+      // Capture IDs before revalidating credentials, which can delete entries.
+      const affected = Array.from(groups).flatMap(sockets => [...sockets])
+      clearMembershipChanges()
+      const rooms = new Set<string>()
+      for (const id of affected) {
+        const socket = io.sockets.sockets.get(id)
+        if (!socket?.connected) continue
+        publishSocketMembership(socket)
+        if (socket.data.roomId && activeSockets.get(socket.data.playerId) === id) rooms.add(socket.data.roomId)
+      }
+      for (const roomId of rooms) broadcastGate(roomId)
+    }, undefined, clearMembershipChanges)
   })
 
   function membershipAccount(socket: Socket) {
@@ -238,6 +266,28 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     return { id: account.id, email: account.email, adFree: account.adFree, source: account.source, expiresAt: account.expiresAt,
       ...(account.name === undefined ? {} : { name: account.name }),
       ...(account.hasPassword === undefined ? {} : { hasPassword: account.hasPassword }) }
+  }
+  function removeSocketMembership(socket: Socket) {
+    const email = socket.data.membershipEmail as string | undefined
+    if (email === undefined) return
+    const sockets = membershipSockets.get(email)
+    sockets?.delete(socket.id)
+    if (!sockets?.size) membershipSockets.delete(email)
+    delete socket.data.membershipEmail
+  }
+  function publishSocketMembership(socket: Socket) {
+    const account = membershipAccount(socket)
+    if (socket.data.membershipEmail !== account?.email) {
+      removeSocketMembership(socket)
+      if (account) {
+        const sockets = membershipSockets.get(account.email) ?? new Set<string>()
+        sockets.add(socket.id)
+        membershipSockets.set(account.email, sockets)
+        socket.data.membershipEmail = account.email
+      }
+    }
+    socket.emit('membership_state', { account })
+    return account
   }
   function setSocketMembership(socket: Socket, token: unknown, ticket: unknown) {
     socket.data.cookieMembershipProof = ticket !== undefined
@@ -263,13 +313,17 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
   }
 
+  function* roomSockets(roomId: string) {
+    for (const id of io.sockets.adapter.rooms.get(roomId) ?? []) {
+      const socket = io.sockets.sockets.get(id)
+      if (socket?.connected && socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === id) yield socket
+    }
+  }
   function broadcastGate(roomId: string) {
     const room = repository.get(roomId)?.room
     if (!room) { adGate.forget(roomId); return }
     const state = adGate.snapshot(gateRoom(room), roomExempt(room))
-    for (const socket of io.sockets.sockets.values()) {
-      if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) socket.emit('ad_gate', state)
-    }
+    for (const socket of roomSockets(roomId)) socket.emit('ad_gate', state)
   }
 
   function enqueue(task: () => Promise<void>, socket?: Socket, onError?: () => void) {
@@ -326,14 +380,11 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       botTimers.delete(roomId)
       return
     }
-    for (const socket of io.sockets.sockets.values()) {
-      if (socket.data.roomId === roomId && activeSockets.get(socket.data.playerId) === socket.id) {
-        socket.emit('state', playerState(record, socket.data.playerId))
-        const settledMatch = record.room.phase === 'game_end' ? record.match : null
-        const leagueId = record.leagueId
-        socket.emit('league_state', { roomId, league: leagueId ? repository.getLeagueSummary(leagueId) : null,
-          resultId: settledMatch?.leagueId ? settledMatch.id : null })
-      }
+    const settledMatch = record.room.phase === 'game_end' ? record.match : null
+    const league = record.leagueId ? repository.getLeagueSummary(record.leagueId) : null
+    for (const socket of roomSockets(roomId)) {
+      socket.emit('state', playerState(record, socket.data.playerId))
+      socket.emit('league_state', { roomId, league, resultId: settledMatch?.leagueId ? settledMatch.id : null })
     }
     broadcastGate(roomId)
     schedule(roomId)
@@ -437,7 +488,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     const entryAttempts = new RateLimiter(10, 60_000)
     let verifyingEntry = false
     setSocketMembership(socket, socket.handshake.auth?.membershipToken, socket.handshake.auth?.membershipTicket)
-    socket.emit('membership_state', { account: membershipAccount(socket) })
+    publishSocketMembership(socket)
     // Register events immediately; the queue ensures handshake recovery finishes first.
     if (socket.handshake.auth?.resume !== undefined) enqueue(async () => {
       const credential = parseCredential(socket.handshake.auth.resume)
@@ -492,8 +543,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
     }
     on('membership_auth', async (payload, ack) => {
       setSocketMembership(socket, payload?.token, payload?.ticket)
-      const account = membershipAccount(socket)
-      socket.emit('membership_state', { account })
+      const account = publishSocketMembership(socket)
       if (socket.data.roomId) broadcastGate(socket.data.roomId)
       ack?.({ ok: (payload?.ticket === undefined ? payload?.token == null : payload?.ticket == null) || account !== null, account })
     })
@@ -661,11 +711,7 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
         next.chat = result.messages
         try { await repository.commit(roomId, next) }
         catch (error) { ack?.({ ok: false, error: 'save_failed' }); throw error }
-        for (const member of io.sockets.sockets.values()) {
-          if (member.data.roomId === roomId && activeSockets.get(member.data.playerId) === member.id) {
-            member.emit('room_chat', { roomId, messages: next.chat })
-          }
-        }
+        for (const member of roomSockets(roomId)) member.emit('room_chat', { roomId, messages: next.chat })
       }
       ack?.({ ok: true })
     })
@@ -730,20 +776,23 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       broadcast(roomId)
       schedule(roomId)
     })
-    socket.on('disconnect', () => enqueue(async () => {
-      const { roomId, playerId } = socket.data
-      if (!roomId || activeSockets.get(playerId) !== socket.id) return
-      adGate.interrupt(roomId, playerId)
-      const record = repository.get(roomId)
-      if (!record) return
-      const next = cloneRecord(record)
-      next.room.setConnected(playerId, false)
-      syncTestBots(next)
-      if (!next.room.players.some(p => p.connected)) pauseRoom(next)
-      await repository.commit(roomId, next)
-      activeSockets.delete(playerId)
-      broadcast(roomId)
-    }))
+    socket.on('disconnect', () => {
+      removeSocketMembership(socket)
+      enqueue(async () => {
+        const { roomId, playerId } = socket.data
+        if (!roomId || activeSockets.get(playerId) !== socket.id) return
+        adGate.interrupt(roomId, playerId)
+        const record = repository.get(roomId)
+        if (!record) return
+        const next = cloneRecord(record)
+        next.room.setConnected(playerId, false)
+        syncTestBots(next)
+        if (!next.room.players.some(p => p.connected)) pauseRoom(next)
+        await repository.commit(roomId, next)
+        activeSockets.delete(playerId)
+        broadcast(roomId)
+      })
+    })
   })
 
   return {

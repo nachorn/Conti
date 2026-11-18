@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import test, { type TestContext } from 'node:test'
 import { io, type Socket } from 'socket.io-client'
 import { createGameServer } from '../src/app.js'
+import { MembershipService } from '../src/membership.js'
 import { cloneRecord, type ResumeCredential } from '../src/recovery.js'
 import type { RoomSnapshot } from '../src/room.js'
 import type { SnapshotStore } from '../src/storage.js'
@@ -531,6 +532,28 @@ test('an idle unavailable store keeps liveness healthy until first work fails cl
   const failedReady = await fetch(`${h.url}/ready`)
   assert.equal(failedReady.status, 503)
   assert.deepEqual(await failedReady.json(), { ok: false })
+})
+
+test('passive readiness sees membership storage but liveness leaves idle services alone', async t => {
+  const accountStore = new MemoryStore(), games = new MemoryStore()
+  const membership = await new MembershipService({ store: accountStore, authSecret: 'local-fixture-membership-readiness-secret' }).load()
+  const server = await createGameServer(games, { membership })
+  const port = await server.listen(0, '127.0.0.1')
+  t.after(() => server.close())
+  const base = `http://127.0.0.1:${port}`
+  assert.equal((await fetch(base + '/ready')).status, 200)
+  accountStore.healthy = false
+  const readiness = await fetch(base + '/ready')
+  assert.equal(readiness.status, 503)
+  assert.deepEqual(await readiness.json(), { ok: false })
+  assert.equal(readiness.headers.get('cache-control'), 'no-store')
+  const health = await fetch(base + '/health')
+  assert.equal(health.status, 200)
+  assert.deepEqual(await health.json(), { ok: true, storageReady: true })
+  assert.equal(membership.hasFailedOperation(), false)
+  assert.equal(games.loadAttempts, 1)
+  assert.equal(accountStore.loadAttempts, 1)
+  assert.equal(games.saveAttempts + accountStore.saveAttempts, 0)
 })
 
 test('failed saves do not publish or commit a move and the server stays fail-closed', async t => {

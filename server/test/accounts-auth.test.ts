@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import express from 'express'
 import test, { type TestContext } from 'node:test'
 import { MembershipService } from '../src/membership.js'
-import { hashPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy, verifyPassword } from '../src/passwordAuth.js'
+import { configurePasswordDelegate, hashPassword, isStoredPasswordHash, passwordIsAcceptable, PasswordWorkBusy, verifyPassword } from '../src/passwordAuth.js'
 import type { SnapshotStore } from '../src/storage.js'
 
 const SECRET = 'account-password-tests-local-secret-not-production'
@@ -192,6 +192,91 @@ test('legacy email-code accounts and old in-flight codes remain usable, and can 
   await assert.rejects(withoutMailer.register('New', 'new@example.com', PASSWORD, 'es', 'ip'), /email_not_configured/)
 })
 
+test('normal email-login, registration and reset challenges survive a separate flow and a reload', async t => {
+  const h = await harness(t)
+  const email = 'ana@example.com'
+  const registrationToken = await h.service.register('Ana', email, PASSWORD, 'es', 'signup-ip')
+  const registrationCode = h.inbox.get(email)!
+  await h.service.requestCode(email, 'es', 'signin-ip')
+  const loginCode = h.inbox.get(email)!
+  const restored = await new MembershipService(h.options).load()
+  const first = await restored.verifyCode(email, registrationCode, 'verify-ip', 'register', registrationToken)
+  await restored.requestPasswordReset(email, 'es', 'reset-ip')
+  const resetCode = h.inbox.get(email)!
+  const second = await restored.verifyCode(email, loginCode, 'signin-ip')
+  assert.equal(second.account.id, first.account.id)
+  assert.equal(second.account.hasPassword, true)
+  const third = await restored.confirmPasswordReset(email, resetCode, NEW_PASSWORD, 'reset-ip')
+  assert.equal(third.account.id, first.account.id)
+  assert.equal(restored.authenticate(second.token), null)
+})
+
+test('temporary password worker pressure leaves the same reset code available', async t => {
+  const h = await harness(t), first = await h.signup()
+  const email = first.account.email
+  await h.service.requestPasswordReset(email, 'es', 'reset-ip')
+  const code = h.inbox.get(email)!
+  await h.service.requestCode(email, 'es', 'signin-ip')
+  const previousLoginCode = h.inbox.get(email)!
+  const passwordReset = { email, code, password: NEW_PASSWORD }
+  const stopDelegate = configurePasswordDelegate({ shouldDelegate: () => true, allowLocalFallback: () => false, derive: async () => { throw new Error('local fixture worker unavailable') } })
+  try {
+    const response = await h.call('password-reset/confirm', passwordReset)
+    assert.equal(response.status, 429)
+    assert.equal(h.service.authenticate(first.token)?.id, first.account.id)
+    assert.equal(h.store.value.challenges.find((challenge: any) => challenge.purpose === 'reset').attempts, 0)
+  } finally { stopDelegate() }
+  const notifications: (string | undefined)[] = []
+  const unsubscribe = h.service.onChange(email => notifications.push(email))
+  t.after(unsubscribe)
+  assert.equal((await h.call('password-reset/confirm', passwordReset)).status, 200)
+  assert.deepEqual(notifications, [email])
+  assert.equal((await h.call('password-reset/confirm', passwordReset)).status, 400)
+  await assert.rejects(h.service.verifyCode(email, previousLoginCode, 'signin-ip'), /invalid_code/)
+  assert.equal(h.service.authenticate(first.token), null)
+})
+
+for (const invalidation of ['replacement', 'expiry']) test(`one password reset can derive at a time and rejects ${invalidation} before commit`, async t => {
+  const h = await harness(t), first = await h.signup()
+  const email = first.account.email
+  await h.service.requestPasswordReset(email, 'es', 'reset-ip')
+  const code = h.inbox.get(email)!
+  let began!: () => void, release!: () => void
+  const deriving = new Promise<void>(resolve => { began = resolve })
+  const paused = new Promise<void>(resolve => { release = resolve })
+  const stopDelegate = configurePasswordDelegate({ shouldDelegate: () => true, allowLocalFallback: () => false, derive: async () => {
+    began()
+    await paused
+    return Buffer.alloc(32)
+  } })
+  const firstReset = h.service.confirmPasswordReset(email, code, NEW_PASSWORD, 'reset-ip')
+  const rejected = assert.rejects(firstReset, /invalid_code/)
+  try {
+    await Promise.race([deriving, firstReset])
+    await assert.rejects(h.service.confirmPasswordReset(email, code, NEW_PASSWORD, 'other-ip'), /rate_limited/)
+    if (invalidation === 'replacement') await h.service.requestPasswordReset(email, 'es', 'reset-ip')
+    else h.clock.now += 10 * 60_000
+  } finally { release(); stopDelegate() }
+  await rejected
+  assert.equal(h.service.authenticate(first.token)?.id, first.account.id)
+  if (invalidation === 'expiry') await h.service.requestPasswordReset(email, 'es', 'reset-ip')
+  const second = await h.service.confirmPasswordReset(email, h.inbox.get(email)!, NEW_PASSWORD, 'reset-ip')
+  assert.equal(second.account.id, first.account.id)
+})
+
+test('a reset commit that never reaches storage leaves its code and old sessions intact on restart', async t => {
+  const h = await harness(t), first = await h.signup()
+  const email = first.account.email
+  await h.service.requestPasswordReset(email, 'es', 'reset-ip')
+  const code = h.inbox.get(email)!
+  h.store.failAt = h.store.saves + 3
+  await assert.rejects(h.service.confirmPasswordReset(email, code, NEW_PASSWORD, 'reset-ip'), /server_unavailable/)
+  const restored = await new MembershipService(h.options).load()
+  assert.equal(restored.authenticate(first.token)?.id, first.account.id)
+  assert.equal((await restored.confirmPasswordReset(email, code, NEW_PASSWORD, 'reset-ip')).account.id, first.account.id)
+  assert.equal(restored.authenticate(first.token), null)
+})
+
 test('bad, unknown and no-password credentials are generic; durable login limits survive restart', async t => {
   const h = await harness(t)
   await h.signup()
@@ -285,7 +370,7 @@ test('validation rejects weak or oversized passwords and unsafe names without ex
 test('an ambiguous reset save fails closed, and restoring durable state revokes the old credential', async t => {
   const h = await harness(t), first = await h.signup()
   await h.service.requestPasswordReset('ana@example.com', 'es', 'ip')
-  h.store.failAt = h.store.saves + 3 // verification budget, one-use proof claim, then password/session save
+  h.store.failAt = h.store.saves + 3 // Verification budget, proof preflight, atomic reset commit.
   h.store.saveThenFail = true
   await assert.rejects(h.service.confirmPasswordReset('ana@example.com', h.inbox.get('ana@example.com')!, NEW_PASSWORD, 'ip'), /server_unavailable/)
   assert.equal(h.service.hasFailedOperation(), true)

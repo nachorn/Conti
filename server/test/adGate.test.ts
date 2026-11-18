@@ -118,14 +118,14 @@ class MemoryStore implements SnapshotStore {
 class FakeMembership {
   accounts = new Map<string, MembershipAccount>()
   healthy = true
-  listeners = new Set<() => void>()
+  listeners = new Set<(email?: string) => void>()
   authenticate(token: string) { return this.accounts.get(token) ?? null }
   adminAccountVerifier() { return undefined }
   registerRoutes() {}
   gameSignInCors() { return (_request: unknown, _response: unknown, next: () => void) => next() }
   isHealthy() { return this.healthy }
-  onChange(listener: () => void) { this.listeners.add(listener); return () => this.listeners.delete(listener) }
-  changed() { for (const listener of this.listeners) listener() }
+  onChange(listener: (email?: string) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener) }
+  changed(email?: string) { for (const listener of this.listeners) listener(email) }
   grant(token: string, source: 'gift' | 'purchase') {
     this.accounts.set(token, { id: `account-${token}`, email: `${token}@example.test`, adFree: true, source, expiresAt: null })
   }
@@ -289,6 +289,26 @@ test('no-fill does not become a view, interruption retries, and game snapshots c
   assert.equal((await host.ack('start')).ok, true)
   assert.equal(JSON.stringify(h.store.value).includes(attempt.attemptId!), false)
   assert.equal(JSON.stringify(h.store.value).includes('membership'), false)
+})
+
+test('a membership change reaches its own connections and table without refreshing a different table', async t => {
+  const h = await harness(t)
+  h.membership.grant('first', 'gift')
+  h.membership.grant('second', 'gift')
+  const first = await h.players('continental', 'first')
+  const second = await h.players('pocha', 'second')
+  await first.host.wait<AdGateState>('ad_gate', gate => gate.exempt)
+  await second.guest.wait<AdGateState>('ad_gate', gate => gate.exempt)
+  const extra = await h.peer({ membershipToken: 'first' })
+  await extra.wait<{ account: MembershipAccount | null }>('membership_state', update => update.account?.id === 'account-first')
+  const firstStart = first.host.received.length, secondStart = second.guest.received.length, extraStart = extra.received.length
+  h.membership.accounts.delete('first')
+  h.membership.changed('first@example.test')
+  await first.host.wait<AdGateState>('ad_gate', gate => !gate.exempt, firstStart)
+  await extra.wait<{ account: MembershipAccount | null }>('membership_state', update => update.account === null, extraStart)
+  assert.equal((await second.host.ack('chat_send', { clientId: 'fixture-message', text: 'Hola' })).ok, true)
+  await second.guest.wait('room_chat', () => true, secondStart)
+  assert.equal(second.guest.received.slice(secondStart).some(entry => entry.event === 'ad_gate' || entry.event === 'membership_state'), false)
 })
 
 test('Pocha rematch keeps the same completed break through setup; round transitions never charge ads', async t => {
