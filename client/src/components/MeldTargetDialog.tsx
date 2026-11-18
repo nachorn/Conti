@@ -824,7 +824,7 @@ function TargetPreview({
                   aria-label={text.jokerNumber(jokerNumber)}
                   onClick={() => onChooseJoker(jokerId)}
                 >
-                  <Card card={card} size="small" />
+                  <Card card={card} lang={lang} size="small" />
                   <span>{text.jokerNumber(jokerNumber)}</span>
                 </button>
               )
@@ -886,7 +886,7 @@ function CardStrip({
           role="img"
           aria-label={cardLabel(card, lang)}
         >
-          <Card card={card} size="small" />
+          <Card card={card} lang={lang} size="small" />
         </div>
       ))}
     </div>

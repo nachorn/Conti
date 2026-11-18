@@ -10,9 +10,13 @@ import { PersonalStats } from './PersonalStats'
 import { Leagues } from './Leagues'
 import { accountView } from '../lib/accountReadiness'
 import { adminDestination } from '../lib/adminRoute'
-import { parseLeagueAccountTarget } from '../lib/leagueLinks'
+import { forgetLeagueInvite, parseLeagueAccountTarget, readLeagueInvite, rememberLeagueInvite } from '../lib/leagueLinks'
 import './Membership.css'
 import './UserDashboard.css'
+
+function inviteStorage() {
+  try { return window.sessionStorage } catch { return null }
+}
 
 export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
   membership: MembershipController
@@ -23,11 +27,13 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
   const es = lang === 'es'
   const location = useLocation()
   const navigate = useNavigate()
-  const [target, setTarget] = useState(() => parseLeagueAccountTarget(location.hash))
+  const [target, setTarget] = useState(() => parseLeagueAccountTarget(location.hash) ?? readLeagueInvite(inviteStorage()))
   const [gameType, setGameType] = useState<LeagueGameType>(target?.gameType ?? 'continental')
   const [view, setView] = useState<'stats' | 'leagues'>(target ? 'leagues' : 'stats')
   const [linkNavigation, setLinkNavigation] = useState(0)
   const receivedHash = useRef<string | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [])
   useEffect(() => {
     if (receivedHash.current === location.hash) return
     const first = receivedHash.current === null
@@ -40,9 +46,17 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
       setView('leagues')
       setLinkNavigation(current => current + 1)
     }
-    if (incoming.kind === 'invite') navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+    if (incoming.kind === 'invite' && rememberLeagueInvite(inviteStorage(), incoming)) {
+      navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+    }
   }, [location.hash, location.pathname, location.search, navigate])
-  const clearTarget = useCallback(() => setTarget(null), [])
+  const clearTarget = useCallback(() => {
+    forgetLeagueInvite(inviteStorage())
+    setTarget(null)
+    if (parseLeagueAccountTarget(location.hash)?.kind === 'invite') {
+      navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+    }
+  }, [location.hash, location.pathname, location.search, navigate])
   const selectGame = (game: LeagueGameType) => {
     if (game !== gameType) clearTarget()
     setGameType(game)
@@ -55,7 +69,7 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
 
   return <main className="user-dashboard" id="main-content">
     <div className="user-dashboard-heading">
-      <h1>{es ? 'Mi panel' : 'My dashboard'}</h1>
+      <h1 ref={heading} tabIndex={-1}>{es ? 'Mi panel' : 'My dashboard'}</h1>
       <Link to="/" className="user-dashboard-home">← {es ? 'Todos los juegos' : 'All games'}</Link>
     </div>
 
@@ -88,17 +102,6 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
         </section>
       </div>
 
-      <section className="user-dashboard-games" aria-labelledby="user-dashboard-games-title">
-        <h2 id="user-dashboard-games-title">{es ? 'Juegos' : 'Games'}</h2>
-        <div className="user-dashboard-game-grid">{gameCatalog.map(game => {
-          const content = <><span className={`user-dashboard-game-symbol is-${game.id}`} aria-hidden="true">{game.id === 'football' ? 'FC' : game.id === 'conti' ? 'C' : 'P'}</span><h3>{game.name}</h3><p>{game.description[lang]}</p><span className="user-dashboard-game-open">{es ? 'Abrir' : 'Open'} <span aria-hidden="true">↗</span></span></>
-          const href = gameLaunchHref(game.href, true)
-          const label = `${es ? 'Abrir' : 'Open'} ${game.name}`
-          return game.external ? <a className="user-dashboard-game" href={href} key={game.id} aria-label={label}>{content}</a> : <Link className="user-dashboard-game" to={href} key={game.id} aria-label={label}>{content}</Link>
-        })}</div>
-        <p className="user-dashboard-note">{es ? 'La carrera de FootballChampion se guarda en el navegador. Sus estadísticas se consultan dentro del juego.' : 'Your FootballChampion career is saved in the browser. View its statistics inside the game.'}</p>
-      </section>
-
       <section className="user-dashboard-results" aria-labelledby="user-dashboard-results-title">
         <div className="user-dashboard-section-heading"><h2 id="user-dashboard-results-title">{es ? 'Resultados y ligas' : 'Results and leagues'}</h2>
           <div className="user-dashboard-switch" role="group" aria-label={es ? 'Juego' : 'Game'}>
@@ -115,6 +118,17 @@ export function UserDashboard({ membership, lang, onOpenAccount, onOpenPlus }: {
             : <Leagues key={`${gameType}-${linkNavigation}`} token={token} gameType={gameType} lang={lang} active={membership.authReady} onSignIn={signInAgain}
               target={target} onTargetHandled={clearTarget} />}
         </div>
+      </section>
+
+      <section className="user-dashboard-games" aria-labelledby="user-dashboard-games-title">
+        <h2 id="user-dashboard-games-title">{es ? 'Juegos' : 'Games'}</h2>
+        <div className="user-dashboard-game-grid">{gameCatalog.map(game => {
+          const content = <><span className={`user-dashboard-game-symbol is-${game.id}`} aria-hidden="true">{game.id === 'football' ? 'FC' : game.id === 'conti' ? 'C' : 'P'}</span><h3>{game.name}</h3><p>{game.description[lang]}</p><span className="user-dashboard-game-open">{es ? 'Abrir' : 'Open'} <span aria-hidden="true">↗</span></span></>
+          const href = gameLaunchHref(game.href, true)
+          const label = `${es ? 'Abrir' : 'Open'} ${game.name}`
+          return game.external ? <a className="user-dashboard-game" href={href} key={game.id} aria-label={label}>{content}</a> : <Link className="user-dashboard-game" to={href} key={game.id} aria-label={label}>{content}</Link>
+        })}</div>
+        <p className="user-dashboard-note">{es ? 'Las estadísticas de FootballChampion están dentro del juego.' : 'View FootballChampion statistics inside the game.'}</p>
       </section>
     </>}
   </main>

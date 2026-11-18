@@ -2,7 +2,7 @@ import type { CatalogGameId } from '../lib/gameCatalog'
 
 /** Small, resolution-independent cover illustrations, with no network assets. */
 export function GameArtwork({ game }: { game: CatalogGameId }) {
-  if (game === 'football') return <svg className="nrn-artwork" viewBox="0 0 400 250" fill="none" aria-hidden="true">
+  if (game === 'football') return <svg className="nrn-artwork" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" fill="none" aria-hidden="true">
     <path d="M-20 220 120 35l300 80-140 185Z" fill="#244a3e" />
     <path d="m15 220 113-155 252 66-113 155Z" stroke="#a6c48e" strokeWidth="1.5" />
     <path d="m69 235 113-155m-55 170 113-155m-54 170 113-155" stroke="#2d5845" strokeWidth="38" />
@@ -18,7 +18,7 @@ export function GameArtwork({ game }: { game: CatalogGameId }) {
     <circle cx="85" cy="64" r="4" fill="#d5f578" opacity=".65" />
   </svg>
 
-  if (game === 'conti') return <svg className="nrn-artwork" viewBox="0 0 400 250" fill="none" aria-hidden="true">
+  if (game === 'conti') return <svg className="nrn-artwork" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" fill="none" aria-hidden="true">
     <circle cx="204" cy="130" r="93" stroke="#b18598" strokeOpacity=".25" />
     <circle cx="204" cy="130" r="115" stroke="#b18598" strokeOpacity=".15" />
     <ellipse cx="205" cy="223" rx="100" ry="11" fill="#5b344f" opacity=".12" />
@@ -40,12 +40,12 @@ export function GameArtwork({ game }: { game: CatalogGameId }) {
     <circle cx="85" cy="172" r="3.5" fill="#88617d" opacity=".6" />
   </svg>
 
-  if (game !== 'pocha') return <svg className="nrn-artwork" viewBox="0 0 400 250" fill="none" aria-hidden="true">
+  if (game !== 'pocha') return <svg className="nrn-artwork" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" fill="none" aria-hidden="true">
     <circle cx="200" cy="125" r="80" fill="#d5f578" />
     <path d="m182 88 55 37-55 37Z" fill="#182c2b" />
   </svg>
 
-  return <svg className="nrn-artwork" viewBox="0 0 400 250" fill="none" aria-hidden="true">
+  return <svg className="nrn-artwork" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" fill="none" aria-hidden="true">
     <circle cx="202" cy="130" r="101" stroke="#a77d36" strokeOpacity=".18" strokeDasharray="3 6" />
     <ellipse cx="204" cy="224" rx="100" ry="11" fill="#634c26" opacity=".12" />
     <g transform="translate(100 47) rotate(-15 56 83)">

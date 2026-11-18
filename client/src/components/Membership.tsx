@@ -262,7 +262,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         </> : <>
           {activeMode === 'register' && <><label htmlFor="membership-name">{es ? 'Tu nombre' : 'Your name'}</label><input id="membership-name" name="nickname" autoComplete="nickname" maxLength={24} required value={name} onChange={event => setName(event.target.value)} /></>}
           <label htmlFor="membership-email">{t.email}</label>
-          <input ref={emailInput} autoFocus={initialSection !== 'plus'} id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} readOnly={securityOpen} value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required />
+          <input ref={emailInput} autoFocus={initialSection !== 'plus'} id="membership-email" type="email" name="username" autoComplete="username" maxLength={254} readOnly={securityOpen} value={email} onChange={event => setEmail(event.target.value)} required />
           {(activeMode === 'password' || activeMode === 'register') && <>
             <label htmlFor="membership-password">{es ? 'Contraseña' : 'Password'}</label>
             <input id="membership-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={activeMode === 'register' ? 'new-password' : 'current-password'} minLength={activeMode === 'register' ? 15 : undefined} maxLength={128} required value={password} onChange={event => setPassword(event.target.value)} aria-describedby={activeMode === 'register' ? 'membership-password-help' : undefined} />

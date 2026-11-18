@@ -934,7 +934,7 @@ function GameBoardContent({
                 disabled={!canDraw}
                 aria-label={`${t(lang, 'drawFromStock')}: ${state.stockCount}`}
               >
-                <Card card={{ id: '', suit: 'joker', rank: 0 }} faceDown size="normal" />
+                <Card card={{ id: '', suit: 'joker', rank: 0 }} lang={lang} faceDown size="normal" />
                 <span className="stock-count">{state.stockCount}</span>
               </button>
               <button
@@ -947,7 +947,7 @@ function GameBoardContent({
               >
                 {state.topDiscard ? (
                   <div key={state.topDiscard.id} className="discard-card-wrap">
-                    <Card card={state.topDiscard} size="normal" />
+                    <Card card={state.topDiscard} lang={lang} size="normal" />
                   </div>
                 ) : (
                   <div className="discard-placeholder" />
@@ -987,7 +987,7 @@ function GameBoardContent({
         <div className="card-activity" aria-label={t(lang, 'cardRecap')}>
           <div className="card-activity-discard" role="status" aria-atomic="true">
             {state.topDiscard ? <>
-              <Card card={state.topDiscard!} />
+              <Card card={state.topDiscard!} lang={lang} />
               <div className="card-activity-copy">
                 <span className="card-activity-label">{lang === 'es' ? 'Descarte disponible' : 'Available discard'}</span>
                 {lastDiscard?.card.id === state.topDiscard?.id && <strong>{lastDiscard.playerName}</strong>}
@@ -998,7 +998,7 @@ function GameBoardContent({
           <div className="card-activity-draws" role="status" aria-atomic="true">
             {lastDraw.length ? lastDraw.map(({ card, source }) => (
               <div key={card.id} className={`card-receipt card-receipt-${source}`}>
-                <Card card={card} />
+                <Card card={card} lang={lang} />
                 <div className="card-activity-copy">
                   <span className="card-activity-label">{t(lang, source === 'penalty' ? 'penaltyCard' : source === 'discard' ? 'fromDiscard' : 'fromStock')}</span>
                   <span>{cardLabel(card, lang)}</span>
@@ -1107,6 +1107,7 @@ function GameBoardContent({
               {justDrawnIds.has(c.id) && <span className="hand-new-badge">{t(lang, lastDraw.find((item) => item.card.id === c.id)?.source === 'penalty' ? 'penaltyCard' : 'newCard')}</span>}
               <Card
                 card={c}
+                lang={lang}
                 selected={arrangeMode ? arrangeCardId === c.id : selectedCards.has(c.id)}
                 onClick={() => { if (arrangeMode) arrangeCard(c.id); else toggleCard(c.id) }}
                 draggable={state.phase === 'playing' && !arrangeMode}

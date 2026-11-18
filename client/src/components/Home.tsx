@@ -48,11 +48,9 @@ export function Home({ lang, accountName, signedIn = !!accountName, onOpenAccoun
     {error && <p className="nrn-home-error" role="alert">{error}</p>}
     {savedGames && <div className="nrn-home-saved">{savedGames}</div>}
     <section className="nrn-play-guide" aria-labelledby="nrn-play-guide-title">
-      <h2 id="nrn-play-guide-title">{es ? 'Elige tu próxima partida' : 'Choose your next game'}</h2>
-      <p>{es ? 'Conti y La Pocha se juegan en grupo: crea una sala, comparte su enlace y espera a tus amigos antes de repartir. El servidor comprueba las jugadas y guarda la mesa para que podáis retomarla desde el mismo navegador.' : 'Conti and La Pocha are group games: create a room, share its link and wait for your friends before dealing. The server checks moves and saves the table so you can return from the same browser.'}</p>
-      <p>{es ? 'En Conti completas contratos de tríos y escalas durante siete rondas; gana quien termina con menos puntos. En La Pocha intentas acertar cuántas bazas ganarás. Las guías explican nuestras reglas y muestran ejemplos de puntuación.' : 'In Conti, complete set and run contracts over seven rounds; the lowest total wins. In La Pocha, predict how many tricks you will win. The guides explain our rules and show worked scoring examples.'}</p>
+      <h2 id="nrn-play-guide-title">{es ? 'Guías y ayuda' : 'Guides and help'}</h2>
       <nav aria-label={es ? 'Guías de los juegos' : 'Game guides'}><a href={`/learn/${lang}/continental/`}>{es ? 'Reglas de Continental' : 'Continental rules'}</a><a href={`/learn/${lang}/pocha/`}>{es ? 'Reglas de La Pocha' : 'La Pocha rules'}</a><a href={`/learn/${lang}/standings/`}>{es ? 'Resultados y clasificación' : 'Results and standings'}</a><a href={`/learn/${lang}/help/`}>{es ? 'Invitar, guardar y volver' : 'Inviting, saving and returning'}</a></nav>
-      <p>{es ? 'FootballChampion es una carrera individual: entrenas, eliges tus decisiones y avanzas con tu futbolista. Su carrera se guarda en tu navegador; exporta una copia antes de cambiar de dispositivo o dominio. Tu cuenta NRN Play es opcional y no traslada automáticamente esa carrera.' : 'FootballChampion is a single-player career: train, make decisions and follow your footballer’s progress. Its career stays in your browser; export a backup before changing devices or domains. Your NRN Play account is optional and does not automatically transfer that career.'}</p>
+      <p>{es ? 'Para mover tu carrera de FootballChampion a otro navegador, exporta una copia desde el juego.' : 'To move your FootballChampion career to another browser, export a backup from the game.'}</p>
     </section>
     <InstallApp lang={lang} />
     <footer className="nrn-footer">

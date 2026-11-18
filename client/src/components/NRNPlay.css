@@ -104,16 +104,20 @@
   .nrn-profile-button > svg { display: none; }
   .nrn-language { gap: 0; }
   .nrn-language button { padding-inline: 6px; min-height: 44px; }
-  .nrn-hero { padding: 30px 0 24px; }
-  .nrn-hero h1 { font-size: 34px; }
-  .nrn-game-grid { grid-template-columns: 1fr; gap: 20px; }
-  .nrn-game-cover { height: 225px; }
-  .nrn-game-copy { padding: 24px; }
-  .nrn-game-copy h2 { font-size: 28px; }
-  .nrn-game-copy > p { min-height: 0; font-size: 13px; }
-  .nrn-game-category { font-size: 9px; }
+  .nrn-hero { padding: 24px 0 20px; }
+  .nrn-hero h1 { font-size: 32px; }
+  .nrn-game-grid { grid-template-columns: 1fr; gap: 12px; }
+  .nrn-game-card { display: grid; grid-template-columns: clamp(72px, 23vw, 120px) minmax(0, 1fr); }
+  .nrn-game-cover { height: auto; }
+  .nrn-game-cover .nrn-artwork { position: absolute; inset: 0; }
+  .nrn-game-cover-label, .nrn-game-category { display: none; }
+  .nrn-game-copy { padding: 12px 14px; }
+  .nrn-game-copy h2 { margin: 0 0 4px; font-size: clamp(17px, 5vw, 23px); overflow-wrap: anywhere; }
+  .nrn-game-copy > p { min-height: 0; font-size: 12px; line-height: 1.4; }
+  .nrn-game-bottom { margin-top: 8px; padding-top: 0; border: 0; }
   .nrn-game-bottom > span:first-child { font-size: 11px; }
-  .nrn-game-play { font-size: 13px; }
+  .nrn-game-play { font-size: 12px; gap: 4px; }
+  .nrn-game-play > span { width: 22px; height: 22px; font-size: 13px; }
   .nrn-profile-panel { margin-top: 30px; display: grid; grid-template-columns: 40px minmax(0, 1fr); padding: 20px; gap: 15px; }
   .nrn-profile-symbol { width: 40px; height: 40px; }
   .nrn-profile-panel h2 { font-size: 14px; }

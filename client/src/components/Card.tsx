@@ -1,4 +1,6 @@
 import type { Card as CardType } from '../types'
+import type { Lang } from '../i18n'
+import { cardLabel } from '../lib/cardActivity'
 import { CardBack } from './cards/CardBack'
 import './Card.css'
 
@@ -17,6 +19,7 @@ const SUIT_SYMBOLS: Record<CardType['suit'], string> = {
 
 interface CardProps {
   card: CardType
+  lang: Lang
   faceDown?: boolean
   selected?: boolean
   onClick?: () => void
@@ -25,12 +28,11 @@ interface CardProps {
   onDragStart?: (e: React.DragEvent) => void
 }
 
-export function Card({ card, faceDown, selected, onClick, size = 'normal', draggable, onDragStart }: CardProps) {
+export function Card({ card, lang, faceDown, selected, onClick, size = 'normal', draggable, onDragStart }: CardProps) {
   const rank = RANK_SYMBOLS[card.rank] ?? '?'
   const isJoker = card.suit === 'joker'
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds'
   const suitChar = SUIT_SYMBOLS[card.suit]
-  const label = isJoker ? 'Joker' : `${rank} of ${card.suit}`
 
   if (faceDown) {
     const dims =
@@ -45,7 +47,7 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
         type="button"
         className={`card card-button card-${size} card-back`}
         data-selected={selected}
-        aria-label="Face-down card"
+        aria-label={lang === 'es' ? 'Carta boca abajo' : 'Face-down card'}
         aria-pressed={Boolean(selected)}
         onClick={onClick}
       >
@@ -74,7 +76,7 @@ export function Card({ card, faceDown, selected, onClick, size = 'normal', dragg
       type="button"
       className={className}
       data-selected={selected}
-      aria-label={label}
+      aria-label={cardLabel(card, lang)}
       aria-pressed={Boolean(selected)}
       onClick={onClick}
       draggable={draggable}

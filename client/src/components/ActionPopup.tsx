@@ -69,14 +69,14 @@ export function ActionPopup({ state, lang, connected, boardRef }: { state: GameS
     <p className="action-popup-summary" role="status" aria-live="polite" aria-atomic="true">{actionSummary(compact ? action : { ...action, melds: undefined }, lang)}</p>
     {!compact && <div className="action-popup-detail">
       {action.cards.length > 0 && <div className="action-popup-cards" aria-label={es ? 'Cartas jugadas' : 'Played cards'}>
-        {action.cards.map(card => <span key={card.id} aria-label={cardLabel(card, lang)}><Card card={card} size="small" /></span>)}
+        {action.cards.map(card => <span key={card.id} aria-label={cardLabel(card, lang)}><Card card={card} lang={lang} size="small" /></span>)}
         {action.penaltyCount > 0 && <span className="action-popup-private">+1<br />{es ? 'penalización' : 'penalty'}</span>}
       </div>}
       {action.kind === 'stock' && <p className="action-popup-private">{es ? '1 carta privada del mazo' : '1 private card from stock'}</p>}
       {action.melds?.map(meld => <div key={meld.id} className="action-popup-meld">
         <strong>{action.kind === 'meld' ? (es ? 'Nueva bajada' : 'New meld') : (es ? 'Bajada de destino' : 'Destination meld')}{action.targetName ? ` · ${action.targetName}` : ''} · {meld.type === 'trio' ? (es ? 'Trío' : 'Trio') : (es ? 'Escalera' : 'Straight')}</strong>
         <div className="action-popup-cards" aria-label={meldSummary(meld, lang)}>
-          {orderMeldCardsForDisplay(meld).map(card => <span key={card.id} className={changedIds.has(card.id) ? 'action-popup-added' : ''} aria-label={`${cardLabel(card, lang)}${changedIds.has(card.id) ? (es ? ', añadida' : ', added') : ''}`}><Card card={card} size="small" /></span>)}
+          {orderMeldCardsForDisplay(meld).map(card => <span key={card.id} className={changedIds.has(card.id) ? 'action-popup-added' : ''} aria-label={`${cardLabel(card, lang)}${changedIds.has(card.id) ? (es ? ', añadida' : ', added') : ''}`}><Card card={card} lang={lang} size="small" /></span>)}
         </div>
       </div>)}
     </div>}

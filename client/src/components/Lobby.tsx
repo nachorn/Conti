@@ -47,6 +47,7 @@ export function Lobby({
   const [createDecks, setCreateDecks] = useState<2 | 3>(2)
   const [joinRoomId, setJoinRoomId] = useState(initialJoinRoomId ?? '')
   const [joinName, setJoinName] = useState(playerName)
+  const [lobbyAction, setLobbyAction] = useState<'create' | 'join'>(initialJoinRoomId ? 'join' : 'create')
   const [reportCopied, setReportCopied] = useState(false)
   const createNameEdited = useRef(false)
   const joinNameEdited = useRef(false)
@@ -64,6 +65,7 @@ export function Lobby({
 
   useEffect(() => {
     if (initialJoinRoomId == null) return
+    setLobbyAction('join')
     setJoinRoomId(initialJoinRoomId)
     const timer = window.setTimeout(() => {
       joinSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -104,9 +106,13 @@ export function Lobby({
 
         {error && <p className="lobby-error" role="alert" aria-live="assertive">{error}</p>}
 
-        <div className="lobby-cards">
-          <form className="lobby-card lobby-card-create" onSubmit={handleCreateSubmit} aria-labelledby="create-game-title" aria-describedby="create-game-description">
-            <span className="lobby-card-number" aria-hidden="true">01</span>
+        <div className="lobby-actions" role="group" aria-label={es ? 'Acceso a una sala' : 'Room options'}>
+          <button type="button" aria-pressed={lobbyAction === 'create'} aria-controls="create-room-form" onClick={() => setLobbyAction('create')}>{es ? 'Crear sala' : 'Create a room'}</button>
+          <button type="button" aria-pressed={lobbyAction === 'join'} aria-controls="join-room-form" onClick={() => setLobbyAction('join')}>{es ? 'Unirse' : 'Join a room'}</button>
+        </div>
+
+        <div className="lobby-cards" data-action={lobbyAction}>
+          <form id="create-room-form" className="lobby-card lobby-card-create" onSubmit={handleCreateSubmit} aria-labelledby="create-game-title" aria-describedby="create-game-description">
             <h2 id="create-game-title">{es ? 'Crear sala' : 'Create a room'}</h2>
             <p id="create-game-description">{es ? 'Comparte el enlace o el código con los demás jugadores.' : 'Share the link or code with other players.'}</p>
             <label className="lobby-field" htmlFor="create-player-name">
@@ -125,8 +131,7 @@ export function Lobby({
             <button className="lobby-primary" type="submit" disabled={!isConnected || !createName.trim()}>{t(lang, 'createRoom')} <span aria-hidden="true">→</span></button>
           </form>
 
-          <form className="lobby-card lobby-card-join" ref={joinSectionRef} onSubmit={handleJoinSubmit} aria-labelledby="join-game-title" aria-describedby="join-game-description">
-            <span className="lobby-card-number" aria-hidden="true">02</span>
+          <form id="join-room-form" className="lobby-card lobby-card-join" ref={joinSectionRef} onSubmit={handleJoinSubmit} aria-labelledby="join-game-title" aria-describedby="join-game-description">
             <h2 id="join-game-title">{es ? 'Unirse a una sala' : 'Join a room'}</h2>
             <p id="join-game-description">{es ? 'Introduce el código de 4 cifras.' : 'Enter the 4-digit room code.'}</p>
             <div className="lobby-join-fields">

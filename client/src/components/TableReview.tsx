@@ -23,7 +23,7 @@ export function PublicTable({ state, lang, updatedId }: { state: GameState; lang
           {state.melds.filter(m => m.ownerId === ownerId).map(meld => <details key={meld.id} className={`public-meld ${updatedId === meld.id ? 'meld-row-updated' : ''}`}>
             <summary>{meldSummary(meld, lang)}</summary>
             <div className="public-meld-cards" role="list" aria-label={meldSummary(meld, lang)}>
-              {orderMeldCardsForDisplay(meld).map(card => <span key={card.id} role="listitem" aria-label={cardLabel(card, lang)}><Card card={card} size="small" /></span>)}
+              {orderMeldCardsForDisplay(meld).map(card => <span key={card.id} role="listitem" aria-label={cardLabel(card, lang)}><Card card={card} lang={lang} size="small" /></span>)}
             </div>
           </details>)}
         </section>)}

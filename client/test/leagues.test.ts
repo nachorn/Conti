@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { isLeagueDetail, isLeagueInvitation, isLeagueList, isLeagueResultReceipt, isLeagueSummary } from '../src/lib/leagues.ts'
-import { leagueAccountHash, parseLeagueAccountTarget } from '../src/lib/leagueLinks.ts'
+import { forgetLeagueInvite, leagueAccountHash, parseLeagueAccountTarget, readLeagueInvite, rememberLeagueInvite } from '../src/lib/leagueLinks.ts'
 
 const summary = () => ({ id: 'league-1', name: 'Las cartas del domingo', gameType: 'pocha', createdAt: 1_000,
   closedAt: null, minGames: 5, memberCount: 2, gameCount: 2, isOwner: true })
@@ -55,6 +55,21 @@ test('league and invitation links carry only valid game and league selections', 
   for (const invalid of ['#game=football&invite=012345ABCD', '#game=pocha&invite=012345ABCD&league=league-1',
     '#game=pocha&invite=garbage', '#game=pocha&league=../admin', '#game=pocha&league=league-1&season=../current',
     '#game=pocha&league=league-1&game=continental']) assert.equal(parseLeagueAccountTarget(invalid), null)
+})
+
+test('an unresolved invitation survives a reload in its tab, expires, and clears when handled', () => {
+  const entries = new Map<string, string>()
+  const storage = { getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => { entries.set(key, value) }, removeItem: (key: string) => { entries.delete(key) } }
+  const invite = { kind: 'invite', gameType: 'pocha', code: '012345ABCD' } as const
+  const now = 4_000_000
+  assert.equal(rememberLeagueInvite(storage, invite, now), true)
+  assert.deepEqual(readLeagueInvite(storage, now + 1), invite)
+  assert.equal(readLeagueInvite(storage, now + 30 * 60 * 1000), null)
+  assert.equal(readLeagueInvite(storage, now - 1), null)
+  forgetLeagueInvite(storage)
+  assert.equal(readLeagueInvite(storage, now + 1), null)
+  assert.equal(rememberLeagueInvite({ ...storage, setItem: () => { throw new Error('storage is restricted') } }, invite, now), false)
 })
 
 test('an archived season can omit a member who joined later while the current season must include the viewer', () => {

@@ -60,7 +60,12 @@
 }
 @media (max-width: 540px) {
   .user-dashboard-heading { align-items: flex-start; flex-direction: column; gap: 6px; margin-bottom: 20px; }
-  .user-dashboard-account, .user-dashboard-plus, .user-dashboard-gate { padding: 20px; }
+  .user-dashboard-account-grid { gap: 12px; }
+  .user-dashboard-account, .user-dashboard-plus, .user-dashboard-gate { padding: 16px; }
+  .user-dashboard-plus { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 10px; }
+  .user-dashboard-plus .user-dashboard-button { grid-column: 2; grid-row: 1 / span 2; max-width: 142px; text-align: center; }
+  .user-dashboard-actions { margin-top: 16px; }
+  .user-dashboard-results { margin-top: 26px; }
   .user-dashboard-game-grid { grid-template-columns: minmax(0, 1fr); }
   .user-dashboard-game { display: grid; grid-template-columns: 38px minmax(0, 1fr); column-gap: 14px; }
   .user-dashboard-game-symbol { grid-row: 1 / 4; }
