@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import fs, { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -118,6 +119,36 @@ test('a failed atomic replacement rejects and prevents further unconfirmed write
     await assert.rejects(store.save({ turn: 2 }), /Unable to save games durably/)
     assert.ok((await stat(path)).isDirectory())
   } finally {
+    await store.close()
+  }
+})
+
+test('Windows retries a blocked replacement and preserves the last commit when retries run out', { skip: process.platform !== 'win32' }, async t => {
+  const path = await temporarySnapshot(t)
+  const store = await FileSnapshotStore.open(path)
+  const actualRename = fs.rename
+  try {
+    await store.save({ turn: 1 })
+    let failuresRemaining = 2
+    let failPermanently = false
+    const replacement = t.mock.method(fs, 'rename', async (source, target) => {
+      if (failPermanently || failuresRemaining-- > 0) throw Object.assign(new Error('Windows sharing conflict'), { code: 'EPERM' })
+      await actualRename(source, target)
+    })
+    syncBuiltinESMExports()
+
+    await store.save({ turn: 2 })
+    assert.equal(replacement.mock.callCount(), 3)
+    assert.equal(store.isHealthy(), true)
+
+    failPermanently = true
+    await assert.rejects(store.save({ turn: 3 }), /Unable to save games durably/)
+    assert.equal(replacement.mock.callCount(), 9)
+    assert.equal(store.isHealthy(), false)
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { turn: 2 })
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
     await store.close()
   }
 })

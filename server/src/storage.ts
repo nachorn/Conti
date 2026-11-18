@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { Client } from 'pg'
 import lockfile from 'proper-lockfile'
 
@@ -30,6 +31,7 @@ export function snapshotCapacity(snapshot: unknown) {
 }
 const LOCK_STALE_MS = 10_000
 const LOCK_UPDATE_MS = 2_000
+const WINDOWS_RENAME_RETRY_MS = [25, 50, 100, 200, 400]
 
 function safeDatabaseErrorCode(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -190,8 +192,7 @@ export class FileSnapshotStore extends SerialSnapshotStore {
       await temporaryFile.sync()
       await temporaryFile.close()
       temporaryFile = undefined
-      this.assertAvailable()
-      await rename(temporaryPath, this.filePath)
+      await this.replaceSnapshot(temporaryPath)
       if (process.platform !== 'win32') {
         // Persist the directory entry as well as the file on supported hosts.
         const directory = await open(dirname(this.filePath), 'r')
@@ -208,6 +209,22 @@ export class FileSnapshotStore extends SerialSnapshotStore {
     } finally {
       await temporaryFile?.close().catch(() => undefined)
       await unlink(temporaryPath).catch(() => undefined)
+    }
+  }
+
+  private async replaceSnapshot(temporaryPath: string): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      this.assertAvailable()
+      try {
+        await rename(temporaryPath, this.filePath)
+        return
+      } catch (error) {
+        const wait = WINDOWS_RENAME_RETRY_MS[attempt]
+        // Brief Windows sharing conflicts can block replacement of an existing file.
+        if (process.platform !== 'win32' || wait === undefined ||
+            !(hasCode(error, 'EPERM') || hasCode(error, 'EACCES') || hasCode(error, 'EBUSY'))) throw error
+        await delay(wait)
+      }
     }
   }
 
