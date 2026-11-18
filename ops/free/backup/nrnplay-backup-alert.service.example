@@ -1,0 +1,45 @@
+[Unit]
+Description=NRN Play stale backup owner notification
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nrn-alert
+Group=nrn-backup
+WorkingDirectory=/opt/nrnplay/current
+Environment=NODE_ENV=production
+Environment=NRN_BACKUP_STATUS_PATH=/var/lib/nrnplay-backup/status.json
+Environment=NRN_BACKUP_ALERT_STATE_PATH=/var/lib/nrnplay-alert/alerts.json
+EnvironmentFile=/etc/nrnplay/backup-alert.env
+ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/backup/pressure-guard.sh
+ExecStart=/opt/nrnplay/runtime/node-v22.23.5-linux-x64/bin/node --max-old-space-size=32 /opt/nrnplay/current/server/dist/cli/backup-alerts.js --apply
+StateDirectory=nrnplay-alert
+StateDirectoryMode=0700
+UMask=0077
+CPUWeight=5
+Nice=19
+MemoryHigh=48M
+MemoryMax=96M
+MemorySwapMax=32M
+OOMScoreAdjust=900
+TasksMax=32
+TimeoutStartSec=60
+TimeoutStopSec=5
+Restart=no
+KillMode=control-group
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+# ProcSubset=pid would hide /proc/meminfo from the pre-Node memory guard.
+InaccessiblePaths=/var/lib/nrnplay /etc/nrnplay /etc/caddy /var/backups/nrnplay
+ReadOnlyPaths=/opt/nrnplay /var/lib/nrnplay-backup
+ReadWritePaths=/var/lib/nrnplay-alert
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RestrictRealtime=yes

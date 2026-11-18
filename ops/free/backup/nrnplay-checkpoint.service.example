@@ -7,10 +7,13 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=nrn
-Group=nrn
+Group=nrn-backup
 WorkingDirectory=/opt/nrnplay/current
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/nrnplay/backup.env
+Environment=NRN_BACKUP_STATUS_PATH=/var/lib/nrnplay-backup/status.json
+StateDirectory=nrnplay-backup
+StateDirectoryMode=0750
 ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/verify-local-files.sh --backup
 ExecCondition=/bin/sh /opt/nrnplay/current/ops/free/backup/pressure-guard.sh
 ExecStart=/opt/nrnplay/runtime/node-v22.23.5-linux-x64/bin/node /opt/nrnplay/current/server/dist/cli/checkpoint-local-to-postgres.js --apply
@@ -33,6 +36,7 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 ReadOnlyPaths=/opt/nrnplay /var/lib/nrnplay /etc/nrnplay
+ReadWritePaths=/var/lib/nrnplay-backup
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
 AmbientCapabilities=

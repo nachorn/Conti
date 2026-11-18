@@ -5,6 +5,7 @@ import type { Client, ClientConfig } from 'pg'
 import { GameRepository } from '../recovery.js'
 import { MembershipService } from '../membership.js'
 import { FileSnapshotStore, MAX_SNAPSHOT_BYTES, type SnapshotStore } from '../storage.js'
+import { planDailyBackupHistory } from './backupHistory.js'
 
 export interface LocalSnapshotPaths { game: string; membership: string }
 export interface SnapshotPair { game: Record<string, any>; membership: Record<string, any> }
@@ -101,6 +102,27 @@ export async function readPostgresSnapshotPair(client: Queryable, authSecret: st
   }
 }
 
+/** Select one dated copy read-only. Restoration targets are separately chosen private files. */
+export async function readPostgresHistoryPair(client: Queryable, day: string, authSecret: string): Promise<SnapshotPair> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day + 'T00:00:00.000Z')) ||
+    new Date(day + 'T00:00:00.000Z').toISOString().slice(0, 10) !== day) fail('invalid_history_day')
+  try {
+    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY')
+    const result = await client.query<{ game: string | null; membership: string | null }>(`/* local:history-read */
+      SELECT CASE WHEN octet_length(game_snapshot::text) <= $2 THEN game_snapshot::text ELSE NULL END AS game,
+        CASE WHEN octet_length(membership_snapshot::text) <= $2 THEN membership_snapshot::text ELSE NULL END AS membership
+      FROM nrn_backup_history WHERE backup_day = $1::date`, [day, MAX_SNAPSHOT_BYTES])
+    if (result.rows.length !== 1 || result.rows[0].game === null || result.rows[0].membership === null) fail('dated_backup_unavailable')
+    const pair = { game: decode(Buffer.from(result.rows[0].game)), membership: decode(Buffer.from(result.rows[0].membership)) }
+    await validateSnapshotPair(pair, authSecret)
+    await client.query('COMMIT'); return pair
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    if (error instanceof LocalPersistenceError) throw error
+    return fail('dated_backup_read_failed')
+  }
+}
+
 async function absent(path: string): Promise<boolean> {
   try { await lstat(path); return false } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return true
@@ -184,7 +206,7 @@ export async function readStableLocalSnapshotPair(paths: LocalSnapshotPaths, aut
 }
 
 /** One short transaction, no persistent locks, pool, polling or SQL keepalives. */
-export async function writePostgresCheckpoint(client: Queryable, pair: SnapshotPair): Promise<'written' | 'skipped-writer-active'> {
+export async function writePostgresCheckpoint(client: Queryable, pair: SnapshotPair, options: { history?: boolean; capturedAtMs?: number } = {}): Promise<'written' | 'skipped-writer-active'> {
   try {
     await client.query('BEGIN')
     if (!await writerLocks(client)) { await client.query('ROLLBACK'); return 'skipped-writer-active' }
@@ -192,6 +214,38 @@ export async function writePostgresCheckpoint(client: Queryable, pair: SnapshotP
     for (const [namespace, table] of [['game', 'conti_game_state'], ['membership', 'conti_membership_state']] as const) {
       await client.query(`/* local:write-${namespace} */ INSERT INTO ${table}(id, snapshot, updated_at)
         VALUES (1, $1::jsonb, now()) ON CONFLICT(id) DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = EXCLUDED.updated_at`, [JSON.stringify(pair[namespace])])
+    }
+    if (options.history) {
+      const capturedAt = options.capturedAtMs ?? Date.now()
+      await client.query(`/* local:history-schema */ CREATE TABLE IF NOT EXISTS nrn_backup_history (
+        backup_day date PRIMARY KEY, captured_at timestamptz NOT NULL,
+        game_snapshot jsonb NOT NULL, membership_snapshot jsonb NOT NULL,
+        pair_bytes integer NOT NULL CHECK (pair_bytes > 0 AND pair_bytes <= 67108864)
+      )`)
+      const metadata = await client.query<{ day: string; bytes: number }>(`/* local:history-metadata */
+        SELECT to_char(backup_day, 'YYYY-MM-DD') AS day, pair_bytes AS bytes
+        FROM nrn_backup_history ORDER BY backup_day LIMIT 100`)
+      if (metadata.rows.length >= 100) fail('invalid_backup_history_metadata')
+      // This first plan only checks whether today's anchor already exists/clock reversed.
+      let plan = planDailyBackupHistory(metadata.rows, capturedAt, 1)
+      // The existing daily anchor is never rewritten or retransmitted each hour.
+      if (plan.insert) {
+        const measured = await client.query<{ bytes: number }>(`/* local:history-measure */
+          SELECT octet_length(g.snapshot::text) + octet_length(m.snapshot::text) AS bytes
+          FROM conti_game_state g CROSS JOIN conti_membership_state m WHERE g.id=1 AND m.id=1`)
+        const bytes = measured.rows[0]?.bytes
+        if (!Number.isSafeInteger(bytes) || bytes < 1) fail('invalid_backup_history_size')
+        plan = planDailyBackupHistory(metadata.rows, capturedAt, bytes)
+        if (plan.insert) {
+          await client.query(`/* local:history-insert */ INSERT INTO nrn_backup_history
+            (backup_day, captured_at, game_snapshot, membership_snapshot, pair_bytes)
+            SELECT $1::date, $2::timestamptz, g.snapshot, m.snapshot, $3
+            FROM conti_game_state g CROSS JOIN conti_membership_state m WHERE g.id=1 AND m.id=1
+            ON CONFLICT (backup_day) DO NOTHING`, [plan.day, new Date(capturedAt).toISOString(), bytes])
+          if (plan.deleteDays.length) await client.query(`/* local:history-prune */ DELETE FROM nrn_backup_history
+            WHERE backup_day = ANY($1::date[])`, [plan.deleteDays])
+        }
+      }
     }
     await client.query('COMMIT')
     return 'written'

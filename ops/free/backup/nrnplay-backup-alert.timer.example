@@ -1,0 +1,11 @@
+[Unit]
+Description=NRN Play hourly local stale-backup check
+
+[Timer]
+OnCalendar=*-*-* *:35:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=nrnplay-backup-alert.service
+
+[Install]
+WantedBy=timers.target

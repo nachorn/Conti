@@ -4,7 +4,8 @@ import { securityNoticeEmail, type SecurityNoticeSender } from './securityNotice
 type Language = 'en' | 'es'
 export type EmailSender = (email: string, code: string, lang: Language, purpose?: 'admin') => Promise<void>
 type EmailContent = { subject: string; text: string }
-type MembershipEmailSender = EmailSender & { securityNotice: SecurityNoticeSender }
+export interface BackupNotice { kind: 'stale' | 'recovered'; lastSuccessfulAt: number | null; observedAt: number }
+type MembershipEmailSender = EmailSender & { securityNotice: SecurityNoticeSender; backupNotice: (email: string, notice: BackupNotice) => Promise<void> }
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send'
@@ -150,5 +151,15 @@ export function createMembershipEmailSender(
     if (lang !== 'en' && lang !== 'es') throw unavailable()
     await send(email, securityNoticeEmail(activity, lang))
   }
-  return Object.assign(sendCode, { securityNotice })
+  const backupNotice = async (email: string, notice: BackupNotice) => {
+    if (!notice || !['stale', 'recovered'].includes(notice.kind) || !Number.isSafeInteger(notice.observedAt) ||
+      notice.observedAt < 0 || notice.observedAt > 8.64e15 || (notice.lastSuccessfulAt !== null &&
+      (!Number.isSafeInteger(notice.lastSuccessfulAt) || notice.lastSuccessfulAt < 0 || notice.lastSuccessfulAt > notice.observedAt)) ||
+      (notice.kind === 'recovered' && notice.lastSuccessfulAt === null)) throw unavailable()
+    const at = notice.lastSuccessfulAt === null ? 'No hay una fecha de copia confirmada.' : `Última copia confirmada: ${new Date(notice.lastSuccessfulAt).toISOString()} (UTC).`
+    await send(email, notice.kind === 'stale'
+      ? { subject: 'NRN Play: copia de seguridad atrasada', text: `No se ha confirmado una copia externa reciente.\n\n${at}\n\nRevisa el estado de las copias del servidor.` }
+      : { subject: 'NRN Play: copias de seguridad restablecidas', text: `Se ha confirmado de nuevo la copia externa.\n\n${at}` })
+  }
+  return Object.assign(sendCode, { securityNotice, backupNotice })
 }
