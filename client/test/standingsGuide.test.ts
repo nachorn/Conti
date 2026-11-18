@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../public/', import.meta.url))
 const publicHtml = (path: string) => join(root, path.replace(/^\//, '') + (path.endsWith('/') ? 'index.html' : ''))
 const knownAppPages = new Set(['/', '/account'])
 
-test('both standings guides are public, accessible static documents with working language, rule and section links', async () => {
+test('both standings guides are public static documents with one example and working language and section links', async () => {
   for (const lang of ['es', 'en']) {
     const pathname = `/learn/${lang}/standings/`, html = await readFile(publicHtml(pathname), 'utf8')
     assert(html.includes(`<html lang="${lang}">`))
@@ -16,8 +16,9 @@ test('both standings guides are public, accessible static documents with working
     assert.equal((html.match(/<h1>/g) || []).length, 1)
     assert(html.includes('href="#main-content"')); assert(html.includes('id="main-content"'))
     assert(!/<script\b|\bon\w+\s*=|<iframe\b|nrn-guide-ad-enabled/i.test(html), 'Reading the public rules starts no game, account flow or advertising script')
-    assert.equal((html.match(/<table data-example=/g) || []).length, 2)
-    assert.equal((html.match(/<caption>/g) || []).length, 2)
+    assert.equal((html.match(/<table\b/g) || []).length, 1)
+    assert.equal((html.match(/<caption>/g) || []).length, 1)
+    for (const anchor of ['rating', 'eligible']) assert(html.includes(`id="${anchor}"`))
     for (const match of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
       const url = new URL(match[1], `https://nrnplay.com${pathname}`)
       assert.equal(url.origin, 'https://nrnplay.com')

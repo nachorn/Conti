@@ -42,29 +42,24 @@ test('five-account league examples replay real scoring and ratings across wins, 
   await writeFile(output + '/league-simulations.md', report.join('\n'))
 })
 
-test('published ES and EN examples match the real scoring and league replay instead of invented ratings', async () => {
-  const examples = createLeagueSimulations(), conti = examples.find(example => example.gameType === 'continental')!, pocha = examples.find(example => example.gameType === 'pocha')!
-  const rows = (html: string, example: string) => {
-    const table = new RegExp(`<table\\b[^>]*data-example="${example}"[^>]*>([\\s\\S]*?)</table>`).exec(html)?.[1]
-    assert(table, `Missing controlled ${example} table`)
-    const body = /<tbody\b[^>]*>([\s\S]*?)<\/tbody>/.exec(table)![1]
-    return [...body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)].map(row => [...row[1].matchAll(/<(?:th|td)\b[^>]*>([\s\S]*?)<\/(?:th|td)>/g)]
-      .map(cell => cell[1].replace(/<[^>]+>/g, '').trim()))
-  }
-  const numeric = (cell: string): number | null => cell === '—' ? null : Number(cell.replace(',', '.'))
+test('published ES and EN league examples match the real ratings and qualification threshold', async () => {
+  const conti = createLeagueSimulations().find(example => example.gameType === 'continental')!
+  const standings = conti.stages[3].standings
   for (const lang of ['es', 'en']) {
     const html = await readFile(new URL(`../../client/public/learn/${lang}/standings/index.html`, import.meta.url), 'utf8')
-    const gameRows = rows(html, 'game-results'), tableRows = rows(html, 'league-standings')
-    assert.equal(gameRows.length, 5); assert.equal(tableRows.length, 5)
-    for (const row of gameRows) {
-      const a = conti.results[1].players.find(player => player.name === row[0])!, b = pocha.results[1].players.find(player => player.name === row[0])!
-      assert(a && b); assert.equal(row.length, 5)
-      assert.deepEqual(row.slice(1).map(numeric), [a.score, a.position, b.score, b.position])
-    }
-    for (const row of tableRows) {
-      const a = conti.stages[3].standings.find(player => player.name === row[0])!, b = pocha.stages[3].standings.find(player => player.name === row[0])!
-      assert(a && b); assert.equal(row.length, 6); assert.equal(a.played, b.played)
-      assert.deepEqual(row.slice(1).map(numeric), [a.played, a.rating, a.rank, b.rating, b.rank])
+    const table = /<table\b[^>]*data-example="league-standings"[^>]*>([\s\S]*?)<\/table>/.exec(html)?.[1]
+    assert(table, 'Missing league example table')
+    const body = /<tbody>([\s\S]*?)<\/tbody>/.exec(table)?.[1]
+    assert(body, 'Missing example rows')
+    const rows = [...body.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(row => [...row[1].matchAll(/<(?:th|td)\b[^>]*>([^<]+)<\/(?:th|td)>/g)].map(cell => cell[1]))
+    assert.deepEqual(rows.map(row => row[0]), ['Bruno', 'Eva'])
+    for (const [name, games, rating, place] of rows) {
+      const player = standings.find(row => row.name === name)!
+      const [played, required] = games.split('/').map(Number)
+      assert.equal(played, player.played)
+      assert.equal(required, 3)
+      assert.equal(Number(rating.replace(',', '.')), player.rating)
+      assert.equal(place === 'Provisional' ? null : Number.parseInt(place, 10), player.rank)
     }
   }
 })

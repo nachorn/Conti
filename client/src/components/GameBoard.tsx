@@ -758,8 +758,13 @@ function GameBoardContent({
   }
 
   if (state.phase === 'game_end' || (state.phase === 'round_end' && state.round >= 7)) {
-    const standings = [...state.players].sort((a, b) => a.score - b.score)
-    const winner = standings[0]
+    const winningScore = Math.min(...state.players.map(player => player.score))
+    const winners = state.players.filter(player => player.score === winningScore)
+    const names = winners.map(player => player.name)
+    const tied = names.length > 1
+    const conjunction = lang === 'es' ? ' y ' : ' and '
+    const winnerNames = tied ? names.slice(0, -1).join(', ') + conjunction + names[names.length - 1] : names[0]
+    const resultLabel = tied ? (lang === 'es' ? 'Empate en el primer puesto' : 'Tie for first place') : t(lang, 'winner')
     return (
       <div className="game-board game-round-end">
         <GameShell
@@ -782,10 +787,10 @@ function GameBoardContent({
         />
         <div ref={roundResultRef} className="game-round-end-box game-final-scoreboard" tabIndex={-1}>
           <h2>{t(lang, 'gameOver')}</h2>
-          {winner && (
+          {winners.length > 0 && (
             <p className="game-final-winner">
               <span aria-hidden="true">★</span>{' '}
-              {t(lang, 'winner')}: <strong>{winner.name}</strong> {t(lang, 'with')} {winner.score} {t(lang, 'points')}
+              {resultLabel}: <strong>{winnerNames}</strong> {t(lang, 'with')} {winningScore} {t(lang, 'points')}
             </p>
           )}
           <RoundRecap result={state.roundHistory?.find(r => r.round === state.round)} lang={lang} />
