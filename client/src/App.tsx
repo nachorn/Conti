@@ -155,6 +155,7 @@ function GameApp() {
     roomLeague, leagueResultId, configureLeague,
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, continueSavedGame, deviceStorageAvailable,
+    removeOfflinePlayer,
     adGate,
     adGateRequested,
     beginAd,
@@ -442,6 +443,7 @@ function GameApp() {
                 connected={isConnected} lang={lang} onSetLeague={configureLeague}
                 onOpenAccount={openAccount} />}
               onContinueSaved={continueSavedGame}
+              onRemoveOfflinePlayer={removeOfflinePlayer}
               pochaAction={pochaAction}
               configurePocha={configurePocha}
               state={state}
@@ -504,6 +506,7 @@ function GamePageContent({
   leagueResultExtra,
   lobbyExtra,
   onContinueSaved,
+  onRemoveOfflinePlayer,
   pochaAction,
   configurePocha,
   state,
@@ -536,6 +539,7 @@ function GamePageContent({
   leagueResultExtra?: ReactNode
   lobbyExtra?: ReactNode
   onContinueSaved: () => Promise<ActionResult>
+  onRemoveOfflinePlayer: (playerId: string) => Promise<ActionResult>
   pochaAction: (action: import('@shared/pochaTypes').PochaAction) => Promise<ActionResult>
   configurePocha: (update: PochaLobbyUpdate) => Promise<ActionResult>
   state: import('./types').GameState | null
@@ -612,13 +616,14 @@ function GamePageContent({
 
   if (state && roomId) {
     if (state.savedGame?.paused) return <PausedGame state={state} playerId={socketId} lang={lang}
-      connected={isConnected} onContinue={onContinueSaved} onExit={onLeave} error={error} />
+      connected={isConnected} onContinue={onContinueSaved} onRemoveOfflinePlayer={onRemoveOfflinePlayer} onExit={onLeave} error={error} />
     const gameType = state.gameType ?? 'continental'
     if (gameType === 'pocha') {
       return state.pocha ? <PochaBoard state={state.pocha} socketId={socketId} lang={lang} setLang={setLang}
         lobbyExtra={lobbyExtra}
         leagueResultExtra={leagueResultExtra}
         isConnected={isConnected} error={error} onLeave={onLeave} onAction={pochaAction} onConfigure={configurePocha}
+        onRemoveOfflinePlayer={onRemoveOfflinePlayer}
         onStart={() => start()} onNextRound={nextRound} onRematch={rematch} /> : null
     }
     return (
@@ -632,6 +637,7 @@ function GamePageContent({
         setLang={setLang}
         error={error}
         onStart={(opts) => start(opts)}
+        onRemoveOfflinePlayer={onRemoveOfflinePlayer}
         onDraw={draw}
         onPlayMelds={playMelds}
         onAddToMeld={addToMeld}

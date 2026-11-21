@@ -10,6 +10,7 @@ import { findMeldsForContract, replaceJokerInStraight } from '../lib/meld'
 import { cardDropSide, moveHandCard } from '../lib/handOrder'
 import { cardLabel, getCardActivity, type DrawReceipt } from '../lib/cardActivity'
 import { GameShell } from './GameShell'
+import { RemoveLobbyPlayer } from './RemoveLobbyPlayer'
 import { MeldTargetDialog } from './MeldTargetDialog'
 import { assessMeldTarget } from '../lib/meldTargeting'
 import { PublicTable, RoundRecap, ScoreHistory } from './TableReview'
@@ -94,6 +95,7 @@ interface GameBoardProps {
   setLang: (lang: Lang) => void
   error?: string | null
   onStart: (opts?: { deckCount?: 2 | 3; discardOptionDelaySeconds?: number; secondsPerTurn?: number }) => void
+  onRemoveOfflinePlayer?: (playerId: string) => Promise<ActionResult>
   onDraw: (fromDiscard: boolean) => void
   onPlayMelds: (melds: { type: 'trio' | 'straight'; cards: CardType[] }[]) => void
   onAddToMeld: (meldId: string, cards: CardType[]) => Promise<ActionResult>
@@ -126,6 +128,7 @@ function GameBoardContent({
   setLang,
   error: serverError,
   onStart,
+  onRemoveOfflinePlayer,
   onDraw,
   onPlayMelds,
   onAddToMeld,
@@ -647,12 +650,13 @@ function GameBoardContent({
                     }}
                   >
                     <span className="conti-seat-number" aria-hidden="true">{seatIndex + 1}</span>
-                    {player ? (
+                    {player ? <>
                       <span className="conti-seat-person">
                         <strong title={player.name}>{player.name}</strong>
-                        <span>{player.id === state.players[0]?.id ? (lang === 'es' ? 'Anfitrión' : 'Host') : (lang === 'es' ? 'En la mesa' : 'At the table')}{isMe ? ` · ${t(lang, 'you')}` : ''}</span>
+                        <span>{!player.connected ? (lang === 'es' ? 'Sin conexión' : 'Offline') : player.id === state.players[0]?.id ? (lang === 'es' ? 'Anfitrión' : 'Host') : (lang === 'es' ? 'En la mesa' : 'At the table')}{isMe ? ` · ${t(lang, 'you')}` : ''}</span>
                       </span>
-                    ) : (
+                      {isHost && !isMe && <RemoveLobbyPlayer player={player} lang={lang} available={isConnected} onRemove={onRemoveOfflinePlayer} />}
+                    </> : (
                       <span>{t(lang, 'sitHere')}</span>
                     )}
                   </div>

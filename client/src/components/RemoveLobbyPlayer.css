@@ -1,0 +1,13 @@
+button.lobby-remove-player {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  min-height: 36px;
+  padding: 4px 7px;
+  border: 1px solid #f6a49d72;
+  border-radius: 7px;
+  background: transparent;
+  color: #ffc4bb;
+  font-size: .75rem;
+}
+button.lobby-remove-player:hover:not(:disabled) { background: #f6a49d22; }
+button.lobby-remove-player:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

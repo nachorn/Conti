@@ -261,6 +261,81 @@ async function disconnect(h: Harness, client: Peer): Promise<void> {
   await h.server.idle()
 }
 
+for (const gameType of ['continental', 'pocha'] as const) {
+  test(`${gameType}: only the host can remove an offline lobby seat, and its old credential stays revoked`, async t => {
+    const h = await harness(t)
+    const host = await peer(h)
+    const hostJoined = await host.request<Joined>('create', { name: 'Host', gameType, pochaDeckSize: 48 }, 'joined')
+    const { roomId } = hostJoined
+    const witness = await peer(h)
+    const witnessJoined = await witness.request<Joined>('join', { name: 'Witness', roomId }, 'joined')
+    const guest = await peer(h)
+    const guestJoined = await guest.request<Joined>('join', { name: 'Guest', roomId }, 'joined')
+    const payload = { playerId: guestJoined.playerId }
+    const remove = (caller: Peer) => caller.acknowledge<{ ok: boolean }>('remove_offline_player', payload)
+    await disconnect(h, guest)
+
+    const writes = h.store.saveAttempts
+    assert.equal((await remove(witness)).ok, false)
+    assert.equal((await host.acknowledge<{ ok: boolean }>('remove_offline_player', { playerId: hostJoined.playerId })).ok, false)
+    assert.equal(h.store.saveAttempts, writes)
+
+    const returning = await peer(h, credential(guestJoined))
+    await returning.wait('joined')
+    assert.equal((await remove(host)).ok, false, 'a seat which reconnects first stays in the lobby')
+    await disconnect(h, returning)
+
+    const mark = witness.mark()
+    assert.deepEqual(await remove(host), { ok: true })
+    const roster = await witness.wait<GameState>('state', value => value.players.length === 2, mark)
+    assert.deepEqual(roster.players.map(player => player.id), [hostJoined.playerId, witnessJoined.playerId])
+
+    await h.close()
+    const resumed = await harness(t, new MemoryStore(h.store.value))
+    const resumedHost = await peer(resumed, credential(hostJoined))
+    const restored = await resumedHost.wait<Joined>('joined')
+    assert.equal(restored.state.phase, 'lobby')
+    if (gameType === 'pocha') assert.equal(restored.state.pocha?.deckSize, 48)
+    const formerGuest = await peer(resumed, credential(guestJoined))
+    await formerGuest.wait('resume_failed')
+
+    const resumedWitness = await peer(resumed, credential(witnessJoined))
+    await resumedWitness.wait('joined')
+    const replacement = await peer(resumed)
+    const replacementJoined = await replacement.request<Joined>('join', { name: 'Guest returns', roomId }, 'joined')
+    assert.notEqual(replacementJoined.playerId, guestJoined.playerId)
+    assert.deepEqual(await resumedHost.acknowledge('start', {}), { ok: true })
+    await disconnect(resumed, replacement)
+    const playing = resumed.server.repository.get(roomId)!.room.toSnapshot()
+    assert.equal((await resumedHost.acknowledge<{ ok: boolean }>('remove_offline_player', { playerId: replacementJoined.playerId })).ok, false)
+    assert.deepEqual(resumed.server.repository.get(roomId)!.room.toSnapshot(), playing)
+  })
+}
+
+test('a failed removal leaves the saved lobby and seat credential intact', async t => {
+  const h = await harness(t)
+  const { host, guest, guestJoined, roomId } = await twoPlayers(h)
+  await disconnect(h, guest)
+  const saved = structuredClone(h.store.value)
+  h.store.failSaves = true
+  assert.equal((await host.acknowledge<{ ok: boolean }>('remove_offline_player', { playerId: guestJoined.playerId })).ok, false)
+  assert.deepEqual(h.store.value, saved)
+  assert.ok(h.server.repository.get(roomId)!.sessions.some(session => session.playerId === guestJoined.playerId))
+})
+
+test('the host can remove a missing seat from a lobby that was saved before play', async t => {
+  const h = await harness(t)
+  const { host, guest, guestJoined, hostJoined, roomId } = await twoPlayers(h)
+  await disconnect(h, guest)
+  assert.deepEqual(await host.acknowledge('save_and_exit', {}), { ok: true })
+  const resumedHost = await peer(h, credential(hostJoined))
+  await resumedHost.wait('joined')
+  assert.deepEqual(await resumedHost.acknowledge('remove_offline_player', { playerId: guestJoined.playerId }), { ok: true })
+  assert.equal(h.server.repository.get(roomId)!.manualPaused, true)
+  assert.deepEqual(await resumedHost.acknowledge('continue_saved', {}), { ok: true })
+  assert.equal(h.server.repository.get(roomId)!.room.phase, 'lobby')
+})
+
 test('game actions acknowledge both accepted and rejected mutations', async t => {
   const h = await harness(t)
   const players = await twoPlayers(h)

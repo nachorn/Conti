@@ -732,6 +732,35 @@ export async function createGameServer(store: SnapshotStore, options: { origins?
       ack?.({ ok: true })
     })
 
+    on('remove_offline_player', async (payload, ack) => {
+      const { roomId, playerId } = socket.data
+      if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }
+      const record = repository.get(roomId)
+      if (!record || record.room.phase !== 'lobby' || record.room.players[0]?.id !== playerId) {
+        reject('Solo el anfitrión puede quitar jugadores del lobby. / Only the host can remove players from the lobby.', ack)
+        return
+      }
+      const targetId = payload?.playerId
+      const target = typeof targetId === 'string' && targetId !== playerId && record.room.players.find(player => player.id === targetId)
+      if (!target || !record.sessions.some(session => session.playerId === target.id && !session.bot)) {
+        reject('Ese jugador ya no está en el lobby. / That player is no longer in the lobby.', ack)
+        return
+      }
+      if (target.connected || isPlayerOnline(target.id)) {
+        reject('El jugador está conectado. / That player is connected.', ack)
+        return
+      }
+      const next = cloneRecord(record)
+      next.room.removePlayer(target.id)
+      next.sessions = next.sessions.filter(session => session.playerId !== target.id)
+      syncTestBots(next)
+      try { await repository.commit(roomId, next) }
+      catch (error) { ack?.({ ok: false, error: ACTION_SAVE_FAILED }); throw error }
+      activeSockets.delete(target.id)
+      broadcast(roomId)
+      ack?.({ ok: true })
+    })
+
     on('save_and_exit', async (_payload, ack) => {
       const { roomId, playerId } = socket.data
       if (!roomId || activeSockets.get(playerId) !== socket.id) { reject('Join or resume your room first', ack); return }

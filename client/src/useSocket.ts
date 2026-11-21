@@ -477,6 +477,7 @@ export function useSocket(membershipToken: string | null = null, onMembershipCha
     chatMessages, sendChat,
     savedGames, resumeSavedGame, removeSavedGame, saveAndExit, deviceStorageAvailable,
     continueSavedGame: () => sendWithAck('continue_saved', {}),
+    removeOfflinePlayer: (playerId: string) => sendWithAck('remove_offline_player', { playerId }),
     pochaAction: (action: PochaAction) => sendWithAck('pocha_action', action),
     configurePocha: (update: PochaLobbyUpdate) => sendWithAck('pocha_configure', update),
     state,

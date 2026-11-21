@@ -4,6 +4,7 @@ import type { ActionResult, GameState } from '../types'
 import type { SavedGame } from '../lib/savedGames'
 import './SavedGames.css'
 import { hostedCardGame, PLATFORM_ORIGIN } from '../lib/platform'
+import { RemoveLobbyPlayer } from './RemoveLobbyPlayer'
 
 export function SavedGames({ games, lang, connected, resume, forget }: {
   games: SavedGame[]; lang: Lang; connected: boolean
@@ -46,9 +47,10 @@ export function SavedGames({ games, lang, connected, resume, forget }: {
   </section>
 }
 
-export function PausedGame({ state, playerId, lang, connected, onContinue, onExit, error }: {
+export function PausedGame({ state, playerId, lang, connected, onContinue, onRemoveOfflinePlayer, onExit, error }: {
   state: GameState; playerId: string | null; lang: Lang; connected: boolean
   onContinue: () => Promise<ActionResult>; onExit: () => void; error: string | null
+  onRemoveOfflinePlayer?: (playerId: string) => Promise<ActionResult>
 }) {
   const es = lang === 'es'
   const [busy, setBusy] = useState(false)
@@ -58,7 +60,12 @@ export function PausedGame({ state, playerId, lang, connected, onContinue, onExi
     <span className="saved-eyebrow">{state.gameType === 'pocha' ? 'La Pocha' : 'Conti'} · {es ? 'Sala' : 'Room'} {state.roomId}</span>
     <h1>{es ? 'Partida guardada' : 'Game saved'}</h1>
     <p>{es ? 'Las cartas, los puntos y el turno os esperan. Cada jugador vuelve desde Mis partidas en su navegador.' : 'Your cards, scores and turn are waiting. Each player returns from My games in their browser.'}</p>
-    <ul>{state.players.map(p => <li key={p.id}><span>{p.name}{p.id === playerId ? (es ? ' (tú)' : ' (you)') : ''}</span><strong className={p.connected ? 'save-online' : ''}>{p.connected ? (es ? 'En la sala' : 'In the room') : (es ? 'Pendiente' : 'Away')}</strong></li>)}</ul>
+    <ul>{state.players.map(p => <li key={p.id}>
+      <span>{p.name}{p.id === playerId ? (es ? ' (tú)' : ' (you)') : ''}</span>
+      <strong className={p.connected ? 'save-online' : ''}>{p.connected ? (es ? 'En la sala' : 'In the room') : (es ? 'Pendiente' : 'Away')}</strong>
+      {host && state.phase === 'lobby' && p.id !== playerId &&
+        <RemoveLobbyPlayer player={p} lang={lang} available={connected && !busy} onRemove={onRemoveOfflinePlayer} />}
+    </li>)}</ul>
     <p role="status">{host
       ? ready ? (es ? 'Ya estáis todos. Podéis continuar.' : 'Everyone is here. You can continue.') : (es ? 'Podrás continuar cuando hayan vuelto todos.' : 'You can continue when everyone returns.')
       : (es ? `El anfitrión, ${state.players[0]?.name}, continuará cuando estéis todos.` : `The host, ${state.players[0]?.name}, will continue when everyone returns.`)}</p>

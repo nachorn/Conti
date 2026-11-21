@@ -5,6 +5,7 @@ import { isPochaAuctionRound, legalCards, pochaScoring, roundSchedule, winningCa
 import { t, type Lang } from '../i18n'
 import type { ActionResult } from '../types'
 import { GameShell } from './GameShell'
+import { RemoveLobbyPlayer } from './RemoveLobbyPlayer'
 import { SpanishCard, POCHA_SUIT_LABEL } from './pocha'
 import { SpanishSuitIcon } from './pocha/SpanishSuitIcon'
 import { SpanishCardBack } from './pocha/SpanishCardBack'
@@ -19,6 +20,7 @@ export interface PochaBoardProps {
   onLeave: () => void
   onAction?: (action: PochaAction) => Promise<ActionResult>
   onStart?: (settings: PochaSettings) => void
+  onRemoveOfflinePlayer?: (playerId: string) => Promise<ActionResult>
   onConfigure?: (update: PochaLobbyUpdate) => Promise<ActionResult>
   onNextRound?: () => void
   onRematch?: () => void
@@ -31,7 +33,7 @@ export interface PochaBoardProps {
 }
 
 export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, onStart, onConfigure, onNextRound, onRematch,
-  onBid, onPlayCard, isConnected = true, error, lobbyExtra, leagueResultExtra }: PochaBoardProps) {
+  onBid, onPlayCard, isConnected = true, error, lobbyExtra, leagueResultExtra, onRemoveOfflinePlayer }: PochaBoardProps) {
   const L = (es: string, en: string) => lang === 'es' ? es : en
   const [selected, setSelected] = useState<string | null>(null)
   const [bid, setBid] = useState<number | null>(null)
@@ -108,6 +110,7 @@ export function PochaBoard({ state, socketId, lang, setLang, onLeave, onAction, 
           <ol className="pocha-guests">{[...state.players].sort((a,b) => a.seatIndex-b.seatIndex).map(p => <li key={p.id}>
             <span>{p.name}{p.id === socketId ? L(' · tú', ' · you') : ''}</span>
             <small>{!p.connected ? L('Sin conexión', 'Offline') : p.id === state.hostId ? L('Admin', 'Host') : L('En la mesa', 'Joined')}</small>
+            {isHost && p.id !== socketId && <RemoveLobbyPlayer player={p} lang={lang} available={available} onRemove={onRemoveOfflinePlayer} />}
           </li>)}</ol>
           <p className="pocha-muted">{L('La primera mano se elige al azar en cada partida. Después, el turno rota hacia la derecha siguiendo esta lista.', 'The opening lead is chosen at random each game. After that, the lead rotates to the right following this list.')}</p>
         </section>
