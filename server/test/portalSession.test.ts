@@ -118,6 +118,46 @@ test('first-party sessions already present can renew while sign-out still revoke
   assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${OTHER_TOKEN}` })).status, 200)
 })
 
+test('a linked game cookie cannot renew past its last authenticated portal grant', async t => {
+  const h = await fixture(t), start = h.clock.now, [audience, origin] = gameAudiences[0]
+  assert.equal((await h.call('/api/membership/login', portalHeaders, { email: EMAIL })).status, 200)
+  const signedIn = await h.call('/api/membership/verify', portalHeaders, { email: EMAIL, code: h.codes.get('account') })
+  assert.equal(signedIn.status, 200)
+  const root = { ...portalHeaders, Cookie: signedIn.headers.get('set-cookie')!.split(';')[0] }
+  const game = { Origin: origin, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': audience }
+  const handoff = async (cookie?: string) => {
+    const verifier = randomBytes(32).toString('base64url')
+    const authorized = await h.call('/api/membership/game-authorize', root, { origin, challenge: createHash('sha256').update(verifier).digest('base64url') })
+    assert.equal(authorized.status, 200)
+    const exchange = await h.call('/api/membership/game-exchange', cookie ? { ...game, Cookie: cookie } : game, {
+      verifier, code: (await authorized.json() as { code: string }).code,
+    })
+    assert.equal(exchange.status, 200)
+    const session = await exchange.json() as { expiresAt: number; account: { isAdmin?: boolean } }
+    assert.equal(session.account.isAdmin, undefined)
+    return { expiresAt: session.expiresAt, cookie: exchange.headers.get('set-cookie')!.split(';')[0] }
+  }
+  const first = await handoff()
+  assert.equal(first.expiresAt, start + 30 * DAY)
+  const original = { ...game, Cookie: first.cookie }
+  h.clock.now = start + 25 * DAY
+  const resumedRoot = await h.call('/api/membership/me', root)
+  assert.equal((await resumedRoot.json() as { expiresAt: number }).expiresAt, start + 55 * DAY)
+  const beforeNewGrant = await h.call('/api/membership/me', original)
+  assert.equal(beforeNewGrant.headers.get('set-cookie'), null)
+  assert.equal((await beforeNewGrant.json() as { expiresAt: number }).expiresAt, first.expiresAt)
+  const replacement = await handoff(first.cookie)
+  assert.equal(replacement.expiresAt, start + 55 * DAY)
+  assert.notEqual(replacement.cookie, first.cookie)
+  assert.equal((await h.call('/api/membership/me', original)).status, 401)
+  const renewed = { ...game, Cookie: replacement.cookie }
+  h.clock.now = start + 50 * DAY
+  const stillBound = await h.call('/api/membership/me', renewed)
+  assert.equal((await stillBound.json() as { expiresAt: number }).expiresAt, replacement.expiresAt)
+  h.clock.now = start + 55 * DAY
+  assert.equal((await h.call('/api/membership/me', renewed)).status, 401)
+})
+
 test('portal upgrade rotates only the current credential and authenticates account, stats and league reads', async t => {
   const h = await fixture(t), cookie = await h.upgrade()
   const legacy = (token: string) => ({ Authorization: `Bearer ${token}` })

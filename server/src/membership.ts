@@ -389,12 +389,12 @@ export class MembershipService {
       if (!source || !account) throw new MembershipError('unauthorized', 401)
       const effectiveScope = source.scope === 'game' || audience && audience !== 'portal' ? 'game' : scope
       const now = this.now(), freshExpiry = Math.min(source.expiresAt, now + SESSION_IDLE)
-      const sourceLimit = Math.min(source.renewUntil ?? source.expiresAt, now + SESSION_MAX)
+      const sourceLimit = Math.min(source.expiresAt, now + SESSION_MAX)
       if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
         const previousHash = hash(previousToken)
         const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
           session.scope === effectiveScope && session.transport === audience && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
-        if (previous) {
+        if (previous && (!audience || freshExpiry <= (previous.renewUntil ?? previous.expiresAt))) {
           if (audience) {
             // A central handoff can refresh a game cookie, bounded by its own
             // hard deadline and the current source session's lifetime.
@@ -403,6 +403,9 @@ export class MembershipService {
           } else previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
           return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, effectiveScope) }
         }
+        // A newly authorized window can outlast the existing browser grant.
+        // Replace that cookie rather than extending the lifetime of its token.
+        if (previous) data.sessions = data.sessions.filter(session => session !== previous)
       }
       const token = randomBytes(32).toString('base64url')
       const expiresAt = freshExpiry
