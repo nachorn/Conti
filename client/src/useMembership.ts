@@ -9,7 +9,7 @@ import { subscribeMembershipRefresh } from './lib/membershipRefresh'
 
 const API_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.nrnplay.com')
 const disabledConfig: MembershipConfig = { enabled: false, loginEnabled: false, checkoutEnabled: false, price: null, ads: { provider: 'disabled', publisherId: null } }
-export type MembershipError = 'unavailable' | 'expired' | 'invalidEmail' | 'invalidCode' | 'invalidCredentials' | 'invalidName' | 'invalidPassword' | 'primarySessionRequired' | 'rateLimited' | 'network' | null
+export type MembershipError = 'unavailable' | 'expired' | 'invalidEmail' | 'emailUnavailable' | 'invalidCode' | 'invalidCredentials' | 'invalidName' | 'invalidPassword' | 'primarySessionRequired' | 'rateLimited' | 'network' | null
 
 function localStorageOrNull() { try { return window.localStorage } catch { return null } }
 class RequestError extends Error {
@@ -17,7 +17,7 @@ class RequestError extends Error {
 }
 async function request<T>(path: string, token?: string | null, body?: unknown): Promise<T> {
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 15_000)
+  const timer = window.setTimeout(() => controller.abort(), path === 'login' ? 35_000 : 15_000)
   const portal = accountCookieEnabled()
   try {
     const response = await fetch(`${portal ? '' : API_URL}/api/membership/${path}`, {
@@ -36,6 +36,7 @@ async function request<T>(path: string, token?: string | null, body?: unknown): 
 function errorKind(error: unknown, context: 'general' | 'code' | 'credentials' = 'general'): MembershipError {
   if (!(error instanceof RequestError)) return 'network'
   if (error.code === 'invalid_email') return 'invalidEmail'
+  if (error.code === 'email_unavailable' || error.code === 'email_not_configured') return 'emailUnavailable'
   if (error.code === 'invalid_name') return 'invalidName'
   if (error.code === 'invalid_password') return 'invalidPassword'
   if (error.code === 'primary_session_required') return 'primarySessionRequired'

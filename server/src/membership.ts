@@ -19,7 +19,7 @@ import type { ManualPlusAudit, ManualPlusReason, PlusAccessState } from '../../s
 export type { MembershipAccount } from '../../shared/membership.js'
 type Language = 'en' | 'es'
 type Account = { id: string; email: string; createdAt: number; name?: string; passwordHash?: string }
-type Session = { accountId: string; tokenHash: string; expiresAt: number; scope?: 'game'; transport?: CookieAudience }
+type Session = { accountId: string; tokenHash: string; expiresAt: number; renewUntil?: number; scope?: 'game'; transport?: CookieAudience }
 type SocketCookieProof = { tokenHash: string; audience: CookieAudience; origin: string; expiresAt: number }
 type ChallengePurpose = 'login' | 'register' | 'reset'
 type Challenge = { email: string; salt: string; codeHash: string; expiresAt: number; attempts: number; purpose?: ChallengePurpose; name?: string; passwordHash?: string; registrationTokenHash?: string }
@@ -49,6 +49,9 @@ export interface MembershipOptions {
   bmc?: BmcOptions
 }
 const DAY = 86_400_000
+const SESSION_IDLE = 30 * DAY
+const SESSION_MAX = 90 * DAY
+const RENEWAL_WINDOW = 7 * DAY
 const MAX_MANUAL_PLUS_AUDIT = 500
 // A ten-minute challenge can straddle two hourly send windows.
 const MAX_ACTIVE_CHALLENGES = 200
@@ -132,7 +135,9 @@ function decode(value: unknown): Data {
   const accountIds = new Set(v.accounts.map(a => a.id))
   if (!v.sessions.every(s => object(s) && accountIds.has(s.accountId) && digest(s.tokenHash) && time(s.expiresAt) &&
       (s.scope === undefined || s.scope === 'game') && (s.transport === undefined || isCookieAudience(s.transport)) &&
-      (s.transport === undefined || s.transport === 'portal' || s.scope === 'game')) ||
+      (s.transport === undefined || s.transport === 'portal' || s.scope === 'game') &&
+      (s.renewUntil === undefined || s.transport !== undefined && time(s.renewUntil) && s.renewUntil >= s.expiresAt &&
+        s.renewUntil - s.expiresAt <= SESSION_MAX)) ||
       new Set(v.sessions.map(s => s.tokenHash)).size !== v.sessions.length ||
       !v.challenges.every(c => object(c) && normalizeMembershipEmail(c.email) === c.email && id(c.salt) && digest(c.codeHash) && time(c.expiresAt) && time(c.attempts) && c.attempts <= 5 &&
         (c.purpose === undefined || ['login', 'register', 'reset'].includes(c.purpose)) &&
@@ -200,6 +205,7 @@ export class MembershipService {
   private readonly gameSignIn: GameSignInBroker
   private readonly cookieSocketTickets = new Map<string, SocketCookieProof>()
   private readonly cookieSocketRequests: RateLimiter
+  private readonly sessionRenewals = new Map<string, Promise<number>>()
   private readonly adminEmails: ReadonlySet<string> | null
   private readonly adminStepUp: AdminStepUp | undefined
   private readonly securityNotices: SecurityNotices
@@ -382,20 +388,28 @@ export class MembershipService {
       const account = source && data.accounts.find(candidate => candidate.id === source.accountId)
       if (!source || !account) throw new MembershipError('unauthorized', 401)
       const effectiveScope = source.scope === 'game' || audience && audience !== 'portal' ? 'game' : scope
+      const now = this.now(), freshExpiry = Math.min(source.expiresAt, now + SESSION_IDLE)
+      const sourceLimit = Math.min(source.renewUntil ?? source.expiresAt, now + SESSION_MAX)
       if (previousToken && /^[A-Za-z0-9_-]{43}$/.test(previousToken)) {
         const previousHash = hash(previousToken)
         const previous = previousHash !== sourceTokenHash && data.sessions.find(session =>
           session.scope === effectiveScope && session.transport === audience && session.tokenHash === previousHash && session.accountId === account.id && session.expiresAt > this.now())
         if (previous) {
-          previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
+          if (audience) {
+            // A central handoff can refresh a game cookie, bounded by its own
+            // hard deadline and the current source session's lifetime.
+            previous.renewUntil = Math.min(previous.renewUntil ?? sourceLimit, sourceLimit)
+            previous.expiresAt = Math.min(freshExpiry, previous.renewUntil)
+          } else previous.expiresAt = Math.min(previous.expiresAt, source.expiresAt)
           return { token: previousToken, expiresAt: previous.expiresAt, account: this.publicAccount(account, data, effectiveScope) }
         }
       }
       const token = randomBytes(32).toString('base64url')
-      const expiresAt = Math.min(source.expiresAt, this.now() + 30 * DAY)
+      const expiresAt = freshExpiry
       const previous = data.sessions.filter(session => session.accountId === account.id && session.tokenHash !== sourceTokenHash).slice(-8)
       data.sessions = data.sessions.filter(session => session.accountId !== account.id)
-        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}), ...(audience ? { transport: audience } : {}) })
+        .concat(source, previous, { accountId: account.id, tokenHash: hash(token), expiresAt, ...(effectiveScope ? { scope: effectiveScope } : {}),
+          ...(audience ? { transport: audience, renewUntil: sourceLimit } : {}) })
       return { token, expiresAt, account: this.publicAccount(account, data, effectiveScope) }
     }, false)
     this.notify(session.account.email)
@@ -540,11 +554,12 @@ export class MembershipService {
     // Accounts only reach here after email/password proof. A webhook can never
     // create an account, transfer another account's seat or bypass verification.
     for (const subscription of data.bmcSubscriptions) if (subscription.accountId === null && subscription.email === account.email) subscription.accountId = account.id
-    const token = randomBytes(32).toString('base64url'), expiresAt = this.now() + 30 * DAY
+    const token = randomBytes(32).toString('base64url'), now = this.now(), expiresAt = now + SESSION_IDLE
     const previous = data.sessions.filter(s => s.accountId === account.id).slice(-9)
     const scope = audience && audience !== 'portal' ? 'game' as const : undefined
     data.sessions = data.sessions.filter(s => s.accountId !== account.id).concat(previous,
-      { accountId: account.id, tokenHash: hash(token), expiresAt, ...(audience ? { transport: audience } : {}), ...(scope ? { scope } : {}) })
+      { accountId: account.id, tokenHash: hash(token), expiresAt, ...(audience ? { transport: audience, renewUntil: now + SESSION_MAX } : {}),
+        ...(scope ? { scope } : {}) })
     return { token, expiresAt, account: this.publicAccount(account, data, scope) }
   }
   private respondWithSession(req: Request, res: Response, session: MembershipSession) {
@@ -555,6 +570,25 @@ export class MembershipService {
   private portalSessionView(token: string, expiresAt: number, account: MembershipAccount) {
     const sessionKey = createHmac('sha256', this.options.authSecret).update('nrn:portal-ui-session:v1\0').update(token).digest().subarray(0, 16).toString('base64url')
     return { account, expiresAt, session: 'cookie' as const, sessionKey }
+  }
+  private renewCookieSession(tokenHash: string, audience: CookieAudience, session: Session): Promise<number> | null {
+    const now = this.now()
+    if (session.expiresAt - now > RENEWAL_WINDOW) return null
+    // Original full-scope portal cookies had no renewal metadata. The previous
+    // fixed 30-day deadline supplies the starting point without saving any secret.
+    const renewUntil = session.renewUntil ?? (audience === 'portal' && !session.scope ? session.expiresAt + SESSION_MAX - SESSION_IDLE : null)
+    if (renewUntil === null || !time(renewUntil) || Math.min(renewUntil, now + SESSION_IDLE) <= session.expiresAt) return null
+    const pending = this.sessionRenewals.get(tokenHash)
+    if (pending) return pending
+    const renewal = this.mutate(data => {
+      const current = data.sessions.find(value => value.tokenHash === tokenHash && value.transport === audience)
+      if (!current) throw new MembershipError('unauthorized', 401)
+      current.renewUntil = current.renewUntil ?? renewUntil
+      current.expiresAt = Math.max(current.expiresAt, Math.min(current.renewUntil, this.now() + SESSION_IDLE))
+      return current.expiresAt
+    }, false, true).finally(() => this.sessionRenewals.delete(tokenHash))
+    this.sessionRenewals.set(tokenHash, renewal)
+    return renewal
   }
   private async upgradeCookieSession(req: Request, res: Response) {
     const audience = cookieAudience(req)
@@ -945,11 +979,17 @@ export class MembershipService {
       this.respondWithSession(req, res, await this.confirmPasswordReset(req.body?.email, req.body?.code, req.body?.password,
         req.ip ?? 'unknown', req.body?.lang === 'es' ? 'es' : 'en', cookieAudience(req)))
     }))
-    app.get('/api/membership/me', run((req, res) => {
-      const account = this.requireAccount(req)
-      const tokenHash = hash(this.token(req))
-      const session = this.data.sessions.find(s => s.tokenHash === tokenHash)!
-      res.json(cookieAudience(req) ? this.portalSessionView(this.token(req), session.expiresAt, account) : { account, expiresAt: session.expiresAt })
+    app.get('/api/membership/me', run(async (req, res) => {
+      const { token, audience } = accountCredential(req)
+      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new MembershipError('unauthorized', 401)
+      const tokenHash = hash(token), match = this.accountSession(tokenHash, audience)
+      if (!match) throw new MembershipError('unauthorized', 401)
+      const account = this.publicAccount(match.account, this.data, match.session.scope)
+      if (!audience) { res.json({ account, expiresAt: match.session.expiresAt }); return }
+      const renewal = req.method === 'GET' ? this.renewCookieSession(tokenHash, audience, match.session) : null
+      const expiresAt = renewal ? await renewal : match.session.expiresAt
+      if (renewal) setPortalCookie(res, token, expiresAt, this.now())
+      res.json(this.portalSessionView(token, expiresAt, account))
     }))
     app.post('/api/membership/logout', run(async (req, res) => {
       const account = this.authenticateRequest(req)

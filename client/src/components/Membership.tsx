@@ -15,7 +15,7 @@ const copy = {
     description: 'Usa la misma cuenta en FootballChampion, Conti y La Pocha.',
     benefit: 'Cuando alguien de la mesa tiene acceso sin anuncios, toda la mesa juega sin publicidad.',
     soon: 'Próximamente', unavailable: 'El acceso con email todavía no está disponible. Puedes seguir creando salas y jugando como siempre.',
-    email: 'Tu email', send: 'Enviarme un código', sent: 'Te hemos enviado un código. Revisa también la carpeta de spam.',
+    email: 'Tu email', send: 'Enviarme un código', sent: 'Te enviamos un código a este email. Caduca en 10 minutos.',
     code: 'Código de 6 cifras', verify: 'Entrar', different: 'Usar otro email', resend: 'Enviar otro código',
     active: 'Tu acceso sin anuncios está activo', gift: 'Acceso de regalo', purchased: 'Compra vinculada a tu cuenta',
     inactive: 'Tu cuenta aún no tiene acceso sin anuncios.', expires: 'Disponible hasta',
@@ -33,7 +33,7 @@ const copy = {
     description: 'Use the same account in FootballChampion, Conti and La Pocha.',
     benefit: 'When someone at the table has ad-free access, the whole table plays without ads.',
     soon: 'Coming soon', unavailable: 'Email sign-in is not available yet. You can keep creating rooms and playing as usual.',
-    email: 'Your email', send: 'Email me a code', sent: 'We sent you a code. Please check your spam folder too.',
+    email: 'Your email', send: 'Email me a code', sent: 'We sent a code to this email. It expires in 10 minutes.',
     code: '6-digit code', verify: 'Sign in', different: 'Use a different email', resend: 'Send another code',
     active: 'Your ad-free access is active', gift: 'Gifted access', purchased: 'Purchase linked to your account',
     inactive: 'Your account does not have ad-free access yet.', expires: 'Available until',
@@ -48,8 +48,8 @@ const copy = {
   },
 }
 const errors: Record<Lang, Record<NonNullable<MembershipError>, string>> = {
-  es: { unavailable: 'El servicio no está disponible ahora. Inténtalo más tarde.', expired: 'Tu sesión ha caducado. Vuelve a entrar con tu email.', invalidEmail: 'Comprueba que el email esté escrito correctamente.', invalidCode: 'El código no es válido o ha caducado. Compruébalo o solicita otro.', invalidCredentials: 'El email o la contraseña no son correctos.', invalidName: 'Escribe un nombre de hasta 24 caracteres.', invalidPassword: 'Elige una contraseña de entre 15 y 128 caracteres. Puedes usar una frase.', primarySessionRequired: 'Vuelve a iniciar sesión en nrnplay.com para cerrar las demás sesiones.', rateLimited: 'Espera unos minutos antes de volver a intentarlo.', network: 'No hemos podido conectar. Comprueba tu conexión e inténtalo de nuevo.' },
-  en: { unavailable: 'The service is unavailable right now. Please try again later.', expired: 'Your session has expired. Sign in with your email again.', invalidEmail: 'Please check that your email address is correct.', invalidCode: 'The code is invalid or has expired. Check it or request another.', invalidCredentials: 'The email or password is incorrect.', invalidName: 'Enter a name of up to 24 characters.', invalidPassword: 'Choose a password of 15–128 characters. You can use a phrase.', primarySessionRequired: 'Sign in again on nrnplay.com to close your other sessions.', rateLimited: 'Please wait a few minutes before trying again.', network: 'We could not connect. Check your connection and try again.' },
+  es: { unavailable: 'El servicio no está disponible ahora. Inténtalo más tarde.', expired: 'Tu sesión ha caducado. Vuelve a entrar con tu email.', invalidEmail: 'Comprueba que el email esté escrito correctamente.', emailUnavailable: 'No se pudo enviar el código. Inténtalo de nuevo.', invalidCode: 'El código no es válido o ha caducado. Compruébalo o solicita otro.', invalidCredentials: 'El email o la contraseña no son correctos.', invalidName: 'Escribe un nombre de hasta 24 caracteres.', invalidPassword: 'Elige una contraseña de entre 15 y 128 caracteres. Puedes usar una frase.', primarySessionRequired: 'Vuelve a iniciar sesión en nrnplay.com para cerrar las demás sesiones.', rateLimited: 'Espera unos minutos antes de volver a intentarlo.', network: 'No hemos podido conectar. Comprueba tu conexión e inténtalo de nuevo.' },
+  en: { unavailable: 'The service is unavailable right now. Please try again later.', expired: 'Your session has expired. Sign in with your email again.', invalidEmail: 'Please check that your email address is correct.', emailUnavailable: 'The code could not be sent. Try again.', invalidCode: 'The code is invalid or has expired. Check it or request another.', invalidCredentials: 'The email or password is incorrect.', invalidName: 'Enter a name of up to 24 characters.', invalidPassword: 'Choose a password of 15–128 characters. You can use a phrase.', primarySessionRequired: 'Sign in again on nrnplay.com to close your other sessions.', rateLimited: 'Please wait a few minutes before trying again.', network: 'We could not connect. Check your connection and try again.' },
 }
 
 /** This modal owns focus and returns it to the initiating control on close. */
@@ -69,7 +69,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const [confirmation, setConfirmation] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [mode, setMode] = useState<'password' | 'register' | 'code' | 'reset'>('password')
+  const [mode, setMode] = useState<'password' | 'register' | 'code' | 'reset'>('code')
   const [section, setSection] = useState<'stats' | 'leagues' | 'profile' | 'plus'>(initialSection === 'plus' || paymentReturn ? 'plus' : gameType ? 'stats' : 'profile')
   const [securityOpen, setSecurityOpen] = useState(false)
   const [plusSignInOpen, setPlusSignInOpen] = useState(false)
@@ -81,11 +81,13 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   const dialog = useRef<HTMLDialogElement>(null)
   const title = useRef<HTMLHeadingElement>(null)
   const emailInput = useRef<HTMLInputElement>(null)
+  const codeInput = useRef<HTMLInputElement>(null)
   const { account, config, busy, error } = membership
   const identity = accountView(membership)
   const visible = config.enabled || !!account || !!membership.token
   const passwordEnabled = config.passwordLoginEnabled === true
-  const activeMode = mode === 'password' && !passwordEnabled ? 'code' : mode
+  const signInMode = config.loginEnabled ? 'code' : 'password'
+  const activeMode = (mode === 'password' && !passwordEnabled || mode === 'code' && !config.loginEnabled) ? signInMode : mode
   const activeSection = section === 'plus' ? 'plus' : gameType ? section : 'profile'
   const plusView = activeSection === 'plus' && !securityOpen
   const gameName = gameType === 'pocha' ? 'La Pocha' : 'Conti'
@@ -102,18 +104,21 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
   }
   function finishSignIn() {
     setPasswordUpdated(activeMode === 'reset')
-    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setPlusSignInOpen(false); setMode('password'); setShowPassword(false); setSection(initialSection === 'plus' || paymentReturn ? 'plus' : activeMode === 'reset' || !gameType ? 'profile' : 'stats'); setFormError(null)
+    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setPlusSignInOpen(false); setMode('code'); setShowPassword(false); setSection(initialSection === 'plus' || paymentReturn ? 'plus' : activeMode === 'reset' || !gameType ? 'profile' : 'stats'); setFormError(null)
   }
 
   useEffect(() => {
     setSection(initialSection === 'plus' || paymentReturn ? 'plus' : gameType ? 'stats' : 'profile')
     if (open) return
-    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setPlusSignInOpen(false); setFormError(null); setMode('password'); setShowPassword(false); setPasswordUpdated(false)
+    setPassword(''); setConfirmation(''); setCode(''); setSent(false); setSecurityOpen(false); setPlusSignInOpen(false); setFormError(null); setMode('code'); setShowPassword(false); setPasswordUpdated(false)
   }, [open, gameType, paymentReturn, initialSection])
 
   useEffect(() => {
     if (open && plusSignInOpen) emailInput.current?.focus()
   }, [open, plusSignInOpen])
+  useEffect(() => {
+    if (open && sent) codeInput.current?.focus()
+  }, [open, sent, resendAt])
 
   useEffect(() => {
     if (!paymentReturn) return
@@ -238,7 +243,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         </>}
       </> : <div id="membership-plus-sign-in" className={plusView ? 'membership-plus-sign-in' : undefined} hidden={plusView && !plusSignInOpen}>
         {!securityOpen && passwordEnabled && <div className="membership-tabs" role="group" aria-label={es ? 'Acceso a tu cuenta' : 'Account access'}>
-          <button type="button" disabled={busy} aria-pressed={activeMode === 'password' || activeMode === 'code'} onClick={() => changeMode('password')}>{es ? 'Entrar' : 'Sign in'}</button>
+          <button type="button" disabled={busy} aria-pressed={activeMode === 'password' || activeMode === 'code'} onClick={() => changeMode(signInMode)}>{es ? 'Entrar' : 'Sign in'}</button>
           {config.loginEnabled && <button type="button" disabled={busy} aria-pressed={activeMode === 'register'} onClick={() => changeMode('register')}>{es ? 'Crear cuenta' : 'Create account'}</button>}
         </div>}
         {activeMode === 'reset' && (securityOpen ? <p className="membership-notice">{es ? 'Al guardar la nueva contraseña se cerrarán las demás sesiones, también en los otros juegos.' : 'Saving a new password will sign out your other sessions, including those in other games.'}</p> : <h3>{es ? 'Recuperar contraseña' : 'Reset your password'}</h3>)}
@@ -246,7 +251,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
         {sent ? <>
           <p className="membership-notice" role="status">{activeMode === 'register' ? (es ? 'Si puedes crear esta cuenta, recibirás un código por email. Si ya tienes cuenta, entra o recupera tu contraseña.' : 'If you can create this account, you will receive an email code. If you already have an account, sign in or reset your password.') : activeMode === 'reset' ? (es ? 'Si hay una cuenta con ese email, recibirás un código para cambiar la contraseña.' : 'If an account uses that email, you will receive a password-reset code.') : t.sent}<br /><span className="membership-email">{email}</span></p>
           <label htmlFor="membership-code">{t.code}</label>
-          <input autoFocus id="membership-code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} required />
+          <input ref={codeInput} id="membership-code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} required />
           {activeMode === 'reset' && <>
             <label htmlFor="membership-new-password">{es ? 'Nueva contraseña' : 'New password'}</label>
             <input id="membership-new-password" name="newPassword" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={15} maxLength={128} required value={password} onChange={event => setPassword(event.target.value)} aria-describedby="membership-password-help" />
@@ -256,7 +261,7 @@ export function Membership({ membership, lang, open, onOpen, onClose, hideTrigge
           </>}
           <button className="membership-primary" disabled={busy} type="submit">{busy ? t.waiting : activeMode === 'reset' ? securityOpen ? (es ? 'Guardar contraseña' : 'Save password') : (es ? 'Guardar contraseña y entrar' : 'Save password and sign in') : t.verify}</button>
           <div className="membership-actions">
-            <button className="membership-text" type="button" disabled={busy} onClick={() => { setSent(false); setCode(''); membership.clearError() }}>{es ? 'Volver al formulario' : 'Back to the form'}</button>
+            <button className="membership-text" type="button" disabled={busy} onClick={() => { setSent(false); setCode(''); membership.clearError() }}>{activeMode === 'code' ? t.different : es ? 'Volver al formulario' : 'Back to the form'}</button>
             <button className="membership-text" type="button" disabled={busy || !canResend} onClick={() => void send()}>{t.resend}</button>
           </div>
         </> : <>

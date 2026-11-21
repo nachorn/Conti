@@ -11,6 +11,7 @@ import type { SnapshotStore } from '../src/storage.js'
 const EMAIL = 'portal-fixture@example.test'
 const TOKEN = 'A'.repeat(43), OTHER_TOKEN = 'B'.repeat(43), GAME_TOKEN = 'C'.repeat(43)
 const expiry = 60 * 60_000
+const DAY = 86_400_000
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const portalHeaders = { Origin: PORTAL_ORIGIN, 'Sec-Fetch-Site': 'same-origin', 'X-NRN-Portal': '1' }
 const gameAudiences = [
@@ -20,9 +21,10 @@ const gameAudiences = [
 ] as const
 
 class MemoryStore implements SnapshotStore {
+  saves = 0
   constructor(private value: unknown = null) {}
   async load() { return structuredClone(this.value) }
-  async save(value: unknown) { this.value = structuredClone(value) }
+  async save(value: unknown) { this.value = structuredClone(value); this.saves++ }
   async close() {}
 }
 
@@ -33,8 +35,9 @@ async function fixture(t: TestContext) {
     accountId: account.id, tokenHash: hash(token), expiresAt: clock.now + expiry, ...(token === GAME_TOKEN ? { scope: 'game' } : {}),
   }))
   const codes = new Map<string, string>()
+  const accountStore = new MemoryStore({ version: 1, accounts: [account], sessions, challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [] })
   const membership = await new MembershipService({
-    store: new MemoryStore({ version: 1, accounts: [account], sessions, challenges: [], limits: [], grants: [], orders: [], revokedPayments: [], events: [] }),
+    store: accountStore,
     authSecret: 'synthetic-portal-session-fixture-secret-2026', adminEmails: [EMAIL], now: () => clock.now,
     sendCode: async (_email, code, _lang, purpose) => { codes.set(purpose ?? 'account', code) },
   }).load()
@@ -61,8 +64,59 @@ async function fixture(t: TestContext) {
     assert.match(result.sessionKey, /^[A-Za-z0-9_-]{22}$/)
     return cookie.split(';')[0]
   }
-  return { account, base, call, clock, codes, upgrade }
+  return { account, accountStore, base, call, clock, codes, upgrade }
 }
+
+test('email-code sign-in renews an active cookie near expiry with a finite 90-day ceiling', async t => {
+  const h = await fixture(t), start = h.clock.now
+  assert.equal((await h.call('/api/membership/login', portalHeaders, { email: EMAIL, lang: 'es' })).status, 200)
+  const proof = { email: EMAIL, code: h.codes.get('account') }
+  const signedIn = await h.call('/api/membership/verify', portalHeaders, proof)
+  assert.equal(signedIn.status, 200)
+  const cookie = signedIn.headers.get('set-cookie')!.split(';')[0]
+  const original = await signedIn.json() as { sessionKey: string; expiresAt: number }
+  assert.equal(original.expiresAt, start + 30 * DAY)
+  assert.equal((await h.call('/api/membership/verify', portalHeaders, proof)).status, 400, 'a used email proof cannot reopen the account')
+  const headers = { ...portalHeaders, Cookie: cookie }
+  const before = h.accountStore.saves
+  h.clock.now = start + 5 * DAY
+  const early = await h.call('/api/membership/me', headers)
+  assert.equal(early.status, 200)
+  assert.equal(early.headers.get('set-cookie'), null)
+  assert.equal(h.accountStore.saves, before, 'ordinary account reads do not persist')
+  h.clock.now = start + 25 * DAY
+  const renewals = await Promise.all([h.call('/api/membership/me', headers), h.call('/api/membership/me', headers)])
+  for (const response of renewals) {
+    assert.equal(response.status, 200)
+    const value = await response.json() as { expiresAt: number; sessionKey: string }
+    assert.equal(value.expiresAt, start + 55 * DAY)
+    assert.equal(value.sessionKey, original.sessionKey)
+  }
+  assert(renewals.some(response => response.headers.get('set-cookie')?.includes('Max-Age=2592000')))
+  assert.equal(h.accountStore.saves, before + 1)
+  for (const [day, expires] of [[50, 80], [75, 90]]) {
+    h.clock.now = start + day * DAY
+    const refreshed = await h.call('/api/membership/me', headers)
+    assert.equal(refreshed.status, 200)
+    assert.equal((await refreshed.json() as { expiresAt: number }).expiresAt, start + expires * DAY)
+  }
+  h.clock.now = start + 85 * DAY
+  assert.equal((await h.call('/api/membership/me', headers)).headers.get('set-cookie'), null)
+  h.clock.now = start + 90 * DAY
+  assert.equal((await h.call('/api/membership/me', headers)).status, 401)
+})
+
+test('first-party sessions already present can renew while sign-out still revokes the same cookie', async t => {
+  const h = await fixture(t), start = h.clock.now, cookie = await h.upgrade()
+  const headers = { ...portalHeaders, Cookie: cookie }
+  const migrated = await h.call('/api/membership/me', headers)
+  assert.equal(migrated.status, 200)
+  assert.equal((await migrated.json() as { expiresAt: number }).expiresAt, start + 30 * DAY)
+  assert(migrated.headers.get('set-cookie')?.startsWith(cookie + ';'))
+  assert.equal((await h.call('/api/membership/logout', headers, {})).status, 200)
+  assert.equal((await h.call('/api/membership/me', headers)).status, 401)
+  assert.equal((await h.call('/api/membership/me', { Authorization: `Bearer ${OTHER_TOKEN}` })).status, 200)
+})
 
 test('portal upgrade rotates only the current credential and authenticates account, stats and league reads', async t => {
   const h = await fixture(t), cookie = await h.upgrade()
